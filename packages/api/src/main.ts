@@ -8,11 +8,15 @@
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { CliGitClient } from './adapter/git/cli-client.js'
+import { jsdiffParser } from './adapter/jsdiff/parser.js'
+import { createDiffFileHandler, createDiffFilesHandler } from './controller/diff-controller.js'
+import { mapDomainErrorToHttpResponse } from './controller/error-mapper.js'
 import { createRepoHandler } from './controller/repo-controller.js'
 import { NotAGitRepositoryError } from './domain/errors.js'
 import type { Route } from './http/router.js'
 import { close, createApiServer, listen } from './http/server.js'
 import { createStaticHandler } from './http/static.js'
+import { createDiffService } from './service/diff-service.js'
 
 export type StartOptions = {
   /**
@@ -58,15 +62,21 @@ export async function start(options: StartOptions = {}): Promise<StartedServer> 
     throw new NotAGitRepositoryError(cwd)
   }
 
+  const diffService = createDiffService(git, jsdiffParser)
+
   const routes: ReadonlyArray<Route> = [
     { method: 'GET', path: '/api/repo', handler: createRepoHandler(git) },
+    { method: 'GET', path: '/api/diff/files', handler: createDiffFilesHandler(diffService) },
+    { method: 'GET', path: '/api/diff/file', handler: createDiffFileHandler(diffService) },
   ]
 
-  const server = createApiServer(
-    options.staticDir !== undefined
-      ? { routes, fallback: createStaticHandler({ rootDir: options.staticDir }) }
-      : { routes },
-  )
+  const server = createApiServer({
+    routes,
+    mapError: mapDomainErrorToHttpResponse,
+    ...(options.staticDir !== undefined
+      ? { fallback: createStaticHandler({ rootDir: options.staticDir }) }
+      : {}),
+  })
   const addr = await listen(server, options.host ?? '127.0.0.1', options.port ?? 0)
   const url = `http://${addr.host}:${addr.port.toString()}`
 

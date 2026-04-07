@@ -137,9 +137,9 @@ describe('createDiffFilesHandler', () => {
     const service = createFakeService([], {})
     const handler = createDiffFilesHandler(service)
 
-    await expect(
-      handler({ method: 'GET', url: '/api/diff/files?to=HEAD' }),
-    ).rejects.toBeInstanceOf(InvalidDiffRangeError)
+    await expect(handler({ method: 'GET', url: '/api/diff/files?to=HEAD' })).rejects.toBeInstanceOf(
+      InvalidDiffRangeError,
+    )
   })
 })
 

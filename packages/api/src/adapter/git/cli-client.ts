@@ -83,14 +83,10 @@ export class CliGitClient implements GitClient, GitDiffClient {
 
   async diffFile(range: DiffRange, path: string): Promise<string> {
     const rangeArgs = toRangeArgs(range)
-    const { stdout } = await execFileAsync(
-      'git',
-      ['diff', '-M', ...rangeArgs, '--', path],
-      {
-        cwd: this.#cwd,
-        maxBuffer: DIFF_MAX_BUFFER,
-      },
-    )
+    const { stdout } = await execFileAsync('git', ['diff', '-M', ...rangeArgs, '--', path], {
+      cwd: this.#cwd,
+      maxBuffer: DIFF_MAX_BUFFER,
+    })
     return stdout
   }
 }

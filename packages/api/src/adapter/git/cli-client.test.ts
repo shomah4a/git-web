@@ -30,11 +30,9 @@ async function createTempRepo(): Promise<string> {
 
 async function commit(cwd: string, msg: string): Promise<void> {
   await execFileAsync('git', ['add', '-A'], { cwd })
-  await execFileAsync(
-    'git',
-    ['-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', msg],
-    { cwd },
-  )
+  await execFileAsync('git', ['-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', msg], {
+    cwd,
+  })
 }
 
 let tempRepo: string
