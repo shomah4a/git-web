@@ -9,12 +9,28 @@
 
 本プロジェクトのパッケージマネージャは pnpm を使用する。`npm` / `yarn` コマンドは使わないこと。
 
+### リポジトリローカルの pnpm を使うこと
+
+システムに `pnpm` がインストールされていても、リポジトリ内の **`./bin/pnpm` ラッパー経由で呼び出すこと**。`corepack enable` のようなシステム環境を変更する操作は禁止する。
+
+`./bin/pnpm` の動作:
+
+- `package.json` の `packageManager` フィールドで指定された pnpm バージョンを corepack 経由で使用する
+- corepack のキャッシュを `${REPO_ROOT}/.corepack/` に閉じ込め、システムやユーザーホームを汚さない
+- リポジトリごとに pnpm のバージョンが独立する
+
+理由（環境分離の観点）:
+
+- システム / ユーザーグローバルの pnpm を使うと、他リポジトリやユーザー設定の影響を受けてビルドの再現性が落ちる
+- システムを変更する操作（`corepack enable` 等）は「1 リポジトリの分際」を超えており、ユーザー環境への副作用として不適切
+- リポジトリローカルに閉じ込めることで、`packageManager` フィールドに書かれたバージョンが事実上の真実になる
+
 ### 使用するコマンド例
 
-- 依存追加: `pnpm add` （`npm install` ではない）
-- 依存削除: `pnpm remove`
-- スクリプト実行: `pnpm <script>` または `pnpm run <script>`
-- workspace 横断実行: `pnpm -r <script>` / `pnpm --filter <pkg> <script>`
+- 依存追加: `./bin/pnpm add` （`npm install` ではない）
+- 依存削除: `./bin/pnpm remove`
+- スクリプト実行: `./bin/pnpm <script>` または `./bin/pnpm run <script>`
+- workspace 横断実行: `./bin/pnpm -r <script>` / `./bin/pnpm --filter <pkg> <script>`
 - ロックファイルは `pnpm-lock.yaml` のみコミットする（`package-lock.json` / `yarn.lock` は作らない）
 
 ### pnpm を使う理由（supply chain 観点）

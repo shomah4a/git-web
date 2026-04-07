@@ -1,0 +1,7 @@
+node_modules
+**/dist
+**/coverage
+.corepack
+.pnpm-store
+pnpm-lock.yaml
+.claude
