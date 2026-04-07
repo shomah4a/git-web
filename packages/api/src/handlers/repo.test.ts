@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { GitClient } from '../git.js'
+import type { GitClient } from '../domain/ports/git-client.js'
 import { createRepoHandler } from './repo.js'
 
 /**

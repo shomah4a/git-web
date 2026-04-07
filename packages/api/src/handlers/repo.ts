@@ -1,5 +1,5 @@
 import type { RepoInfo } from '@git-web/common'
-import type { GitClient } from '../git.js'
+import type { GitClient } from '../domain/ports/git-client.js'
 import type { Handler } from '../http/router.js'
 
 /**
