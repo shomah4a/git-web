@@ -44,13 +44,19 @@ const VALID_FILE = {
 /**
  * fetch のモックを差し替え、呼び出し URL を記録する。
  */
+function urlOf(input: RequestInfo | URL): string {
+  if (typeof input === 'string') return input
+  if (input instanceof URL) return input.href
+  return input.url
+}
+
 function mockFetch(responses: ReadonlyArray<Response>): Array<string> {
   const calls: string[] = []
   let idx = 0
   vi.stubGlobal(
     'fetch',
     vi.fn((input: RequestInfo | URL) => {
-      calls.push(typeof input === 'string' ? input : input.toString())
+      calls.push(urlOf(input))
       const response = responses[idx]
       idx++
       if (response === undefined) {
