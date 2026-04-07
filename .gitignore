@@ -24,3 +24,7 @@ TAGS
 
 # Project
 .claude/tmp/
+
+# Local pnpm via corepack (bin/pnpm wrapper)
+.corepack/
+.pnpm-store/
