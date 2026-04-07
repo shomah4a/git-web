@@ -149,6 +149,22 @@ describe('CliGitClient.diffSummary', () => {
     expect(file.status).toBe('modified')
   })
 
+  it('-で始まるファイル名も -- 区切りで安全に扱える', async () => {
+    // M2 対応: `-foo.ts` のようなファイル名が CLI オプションと誤解されないか
+    await writeFile(join(tempRepo, '-foo.ts'), 'export const z = 3\n')
+    await commit(tempRepo, 'add dash-prefixed file')
+    const git = new CliGitClient(tempRepo)
+
+    const summary = await git.diffSummary({
+      kind: 'rev-vs-rev',
+      from: parseRevision('HEAD~1'),
+      to: parseRevision('HEAD'),
+    })
+
+    expect(summary).toHaveLength(1)
+    expect(summary[0]?.path).toBe('-foo.ts')
+  })
+
   it('バイナリファイル変更は binary: true として返される', async () => {
     const bin1 = Buffer.alloc(256)
     for (let i = 0; i < 256; i++) bin1[i] = i
@@ -173,5 +189,77 @@ describe('CliGitClient.diffSummary', () => {
     expect(file.binary).toBe(true)
     expect(file.additions).toBe(0)
     expect(file.deletions).toBe(0)
+  })
+})
+
+describe('CliGitClient.diffFile', () => {
+  it('変更なしのファイルは空文字列を返す', async () => {
+    const git = new CliGitClient(tempRepo)
+
+    const patch = await git.diffFile({ kind: 'working-vs-head' }, 'nonexistent.ts')
+
+    expect(patch).toBe('')
+  })
+
+  it('変更されたファイルに対して unified diff を返す', async () => {
+    await writeFile(join(tempRepo, 'foo.ts'), 'line1\nline2\nline3\n')
+    await commit(tempRepo, 'add foo.ts')
+    await writeFile(join(tempRepo, 'foo.ts'), 'line1\nline2-modified\nline3\n')
+    await commit(tempRepo, 'modify foo.ts')
+    const git = new CliGitClient(tempRepo)
+
+    const patch = await git.diffFile(
+      {
+        kind: 'rev-vs-rev',
+        from: parseRevision('HEAD~1'),
+        to: parseRevision('HEAD'),
+      },
+      'foo.ts',
+    )
+
+    expect(patch).toContain('diff --git')
+    expect(patch).toContain('-line2')
+    expect(patch).toContain('+line2-modified')
+  })
+
+  it('-で始まるファイル名も -- 区切りで安全に扱える', async () => {
+    await writeFile(join(tempRepo, '-foo.ts'), 'line1\n')
+    await commit(tempRepo, 'add dash-prefixed file')
+    await writeFile(join(tempRepo, '-foo.ts'), 'line1-modified\n')
+    await commit(tempRepo, 'modify dash-prefixed file')
+    const git = new CliGitClient(tempRepo)
+
+    const patch = await git.diffFile(
+      {
+        kind: 'rev-vs-rev',
+        from: parseRevision('HEAD~1'),
+        to: parseRevision('HEAD'),
+      },
+      '-foo.ts',
+    )
+
+    expect(patch).toContain('-line1')
+    expect(patch).toContain('+line1-modified')
+  })
+
+  it('バイナリファイルは "Binary files differ" を含むテキストを返す', async () => {
+    const bin1 = Buffer.from([0, 1, 2, 3, 4])
+    await writeFile(join(tempRepo, 'bin.dat'), bin1)
+    await commit(tempRepo, 'add binary')
+    const bin2 = Buffer.from([5, 6, 7, 8, 9])
+    await writeFile(join(tempRepo, 'bin.dat'), bin2)
+    await commit(tempRepo, 'modify binary')
+    const git = new CliGitClient(tempRepo)
+
+    const patch = await git.diffFile(
+      {
+        kind: 'rev-vs-rev',
+        from: parseRevision('HEAD~1'),
+        to: parseRevision('HEAD'),
+      },
+      'bin.dat',
+    )
+
+    expect(patch).toContain('Binary files')
   })
 })
