@@ -20,9 +20,7 @@ export type DiffRangeQuery = {
 /**
  * GET /api/diff/files を呼んでファイル一覧を取得する。
  */
-export async function fetchDiffFiles(
-  range: DiffRangeQuery = {},
-): Promise<DiffFilesResponseDto> {
+export async function fetchDiffFiles(range: DiffRangeQuery = {}): Promise<DiffFilesResponseDto> {
   const url = buildUrl('/api/diff/files', range)
   const response = await fetch(url)
   if (!response.ok) {
@@ -90,7 +88,9 @@ function isDiffFileStatus(value: unknown): value is DiffFileDto['status'] {
   )
 }
 
-function isDiffLineKind(value: unknown): value is DiffFileDto['hunks'][number]['lines'][number]['kind'] {
+function isDiffLineKind(
+  value: unknown,
+): value is DiffFileDto['hunks'][number]['lines'][number]['kind'] {
   return value === 'context' || value === 'add' || value === 'delete'
 }
 

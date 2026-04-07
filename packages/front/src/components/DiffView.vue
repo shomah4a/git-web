@@ -102,20 +102,11 @@ function lineMarker(kind: 'context' | 'add' | 'delete'): string {
       <p v-else-if="fileNotFound">no diff to display for {{ selectedPath }}</p>
       <template v-else-if="selectedFile !== null">
         <h2>{{ selectedFile.path }}</h2>
-        <div
-          v-for="(hunk, hunkIdx) in selectedFile.hunks"
-          :key="hunkIdx"
-          class="hunk"
-        >
+        <div v-for="(hunk, hunkIdx) in selectedFile.hunks" :key="hunkIdx" class="hunk">
           <div class="hunk-header">
             @@ -{{ hunk.oldStart }},{{ hunk.oldLines }} +{{ hunk.newStart }},{{ hunk.newLines }} @@
           </div>
-          <div
-            v-for="(line, lineIdx) in hunk.lines"
-            :key="lineIdx"
-            class="line"
-            :class="line.kind"
-          >
+          <div v-for="(line, lineIdx) in hunk.lines" :key="lineIdx" class="line" :class="line.kind">
             <span class="line-no">{{ line.oldLineNo ?? '' }}</span>
             <span class="line-no">{{ line.newLineNo ?? '' }}</span>
             <span class="marker">{{ lineMarker(line.kind) }}</span>

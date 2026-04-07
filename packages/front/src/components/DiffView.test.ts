@@ -107,10 +107,7 @@ describe('DiffView', () => {
   })
 
   it('ファイルをクリックすると個別 diff を取得して表示する', async () => {
-    mockFetchSequence([
-      jsonResponse(200, { files: [SUMMARY_A] }),
-      jsonResponse(200, FILE_A),
-    ])
+    mockFetchSequence([jsonResponse(200, { files: [SUMMARY_A] }), jsonResponse(200, FILE_A)])
 
     const wrapper = mount(DiffView)
     await flushPromises()
