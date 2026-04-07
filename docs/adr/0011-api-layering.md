@@ -58,14 +58,14 @@ packages/api/src/
 
 ### 各層の責務
 
-| 層 | 知ってよいもの | 知ってはいけないもの |
-|---|---|---|
-| domain | TypeScript / 自レイヤの型のみ | git CLI / HTTP / ファイル I/O / parse-diff 等の外部ライブラリ |
-| service | domain / domain/ports | HTTP / フレームワーク / Request/Response / adapter の実装 |
-| adapter | domain / domain/ports / 外部ライブラリ | HTTP / service / controller |
-| controller | service / domain / http の Handler 型 | git CLI / parse-diff / child_process |
-| http | Handler 型のみ | service / domain / controller / adapter |
-| main | 全層 (配線専用) | — |
+| 層         | 知ってよいもの                         | 知ってはいけないもの                                          |
+| ---------- | -------------------------------------- | ------------------------------------------------------------- |
+| domain     | TypeScript / 自レイヤの型のみ          | git CLI / HTTP / ファイル I/O / parse-diff 等の外部ライブラリ |
+| service    | domain / domain/ports                  | HTTP / フレームワーク / Request/Response / adapter の実装     |
+| adapter    | domain / domain/ports / 外部ライブラリ | HTTP / service / controller                                   |
+| controller | service / domain / http の Handler 型  | git CLI / parse-diff / child_process                          |
+| http       | Handler 型のみ                         | service / domain / controller / adapter                       |
+| main       | 全層 (配線専用)                        | —                                                             |
 
 ### 依存方向 (一方向)
 

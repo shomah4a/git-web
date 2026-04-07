@@ -9,9 +9,9 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { CliGitClient } from './git.js'
 import { createRepoHandler } from './handlers/repo.js'
-import type { Route } from './router.js'
-import { close, createApiServer, listen } from './server.js'
-import { createStaticHandler } from './static.js'
+import type { Route } from './http/router.js'
+import { close, createApiServer, listen } from './http/server.js'
+import { createStaticHandler } from './http/static.js'
 
 export type StartOptions = {
   /**

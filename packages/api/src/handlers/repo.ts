@@ -1,6 +1,6 @@
 import type { RepoInfo } from '@git-web/common'
 import type { GitClient } from '../git.js'
-import type { Handler } from '../router.js'
+import type { Handler } from '../http/router.js'
 
 /**
  * GET /api/repo のハンドラファクトリ。
