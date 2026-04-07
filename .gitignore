@@ -1,0 +1,26 @@
+# Node
+node_modules/
+packages/*/dist/
+packages/*/coverage/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Build output
+dist/
+coverage/
+
+# Editor: emacs
+*~
+\#*\#
+.\#*
+.dir-locals.el
+TAGS
+
+# Editor: misc
+.vscode/
+.idea/
+.DS_Store
+
+# Project
+.claude/tmp/
