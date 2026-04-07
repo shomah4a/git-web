@@ -6,6 +6,10 @@
 
 ## 文脈
 
+> 更新: ESLint のルールセットは本 ADR では「recommended」にとどめていたが、
+> 型安全を強化する方向で [ADR 0010](./0010-strict-type-policy.md) にて
+> `recommendedTypeChecked` + `any` / `as` / `!` 全面禁止に更新した。
+
 プロジェクト初期から品質担保の仕組みを入れておきたい。ユーザー方針として:
 
 - ESLint の警告抑制（`eslint-disable*`）は一切許可しない
