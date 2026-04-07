@@ -5,11 +5,15 @@
  * - マッチしなかった場合、fallback ハンドラが指定されていれば使う
  *   （静的ファイル配信用）。ただし /api/ で始まるパスは fallback に
  *   回さず 404 を返す（API のタイプミスを SPA fallback で覆い隠さない）
+ * - ADR 0009: DNS rebinding 対策として Host ヘッダを検査し、
+ *   127.0.0.1:<実際のポート> / localhost:<実際のポート> /
+ *   [::1]:<実際のポート> 以外は 403 で拒否する
  * - ハンドラが例外を投げた場合は 500 を返す
  * - 並行性は Node のイベントループに任せる
- * - 対象は常に 127.0.0.1 のみ (ADR 0009: 外部公開しない)
+ * - 対象は常に loopback のみ (ADR 0009: 外部公開しない)
  */
 
+import type { AddressInfo } from 'node:net'
 import { createServer as createHttpServer } from 'node:http'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import type { Handler, Route } from './router.js'
@@ -28,16 +32,28 @@ export type CreateApiServerOptions = {
  * routes を束ねた HTTP サーバーを生成する。
  */
 export function createApiServer(options: CreateApiServerOptions): Server {
-  return createHttpServer((req, res) => {
-    void handleRequest(options, req, res)
+  const serverRef: { current: Server | null } = { current: null }
+  const server = createHttpServer((req, res) => {
+    void handleRequest(options, serverRef.current, req, res)
   })
+  serverRef.current = server
+  return server
 }
 
 async function handleRequest(
   options: CreateApiServerOptions,
+  server: Server | null,
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
+  // ADR 0009: Host ヘッダ検査 (DNS rebinding 対策)
+  const addressInfo = server !== null ? toAddressInfo(server.address()) : null
+  if (!isHostAllowed(req.headers.host, addressInfo)) {
+    res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' })
+    res.end('forbidden: invalid host header')
+    return
+  }
+
   const method = req.method ?? 'GET'
   const url = req.url ?? '/'
   const request = { method, url }
@@ -70,6 +86,42 @@ async function handleRequest(
 function isApiPath(url: string): boolean {
   const pathname = new URL(url, 'http://localhost').pathname
   return pathname.startsWith('/api/')
+}
+
+/**
+ * Server.address() の結果を AddressInfo に narrow する。
+ * string (UNIX socket) や null の場合は null を返す。
+ */
+function toAddressInfo(addr: AddressInfo | string | null): AddressInfo | null {
+  if (addr === null || typeof addr === 'string') {
+    return null
+  }
+  return addr
+}
+
+/**
+ * Host ヘッダが、サーバーが実際に listen しているポートに対する
+ * 許可された表記 (loopback 系) かを判定する純粋関数。
+ *
+ * テストしやすいよう Server オブジェクトを取らず AddressInfo を受ける。
+ */
+export function isHostAllowed(
+  hostHeader: string | undefined,
+  address: AddressInfo | null,
+): boolean {
+  if (hostHeader === undefined || hostHeader === '') {
+    return false
+  }
+  if (address === null) {
+    // listen 前のため原理的に発生しない。安全側に倒して拒否する
+    return false
+  }
+  const port = address.port.toString()
+  return (
+    hostHeader === `127.0.0.1:${port}` ||
+    hostHeader === `localhost:${port}` ||
+    hostHeader === `[::1]:${port}`
+  )
 }
 
 export type ListenAddress = {

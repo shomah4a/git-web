@@ -1,7 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { request as httpRequest } from 'node:http'
 import type { Server } from 'node:http'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Route } from './router.js'
-import { close, createApiServer, listen } from './server.js'
+import { close, createApiServer, isHostAllowed, listen } from './server.js'
 
 let server: Server
 let baseUrl: string
@@ -11,7 +12,11 @@ beforeEach(() => {
 })
 
 afterEach(async () => {
-  await close(server)
+  // listen していないサーバーを close すると Server is not running で落ちるため
+  // 実際に待ち受け中の場合のみ close する
+  if (server.listening) {
+    await close(server)
+  }
 })
 
 async function start(routes: ReadonlyArray<Route>): Promise<void> {
@@ -109,6 +114,123 @@ describe('createApiServer', () => {
     expect(await response.text()).toBe('matched')
   })
 })
+
+describe('isHostAllowed', () => {
+  const address = { address: '127.0.0.1', family: 'IPv4', port: 12345 } as const
+
+  it('127.0.0.1と一致するポートのHostヘッダを許可する', () => {
+    expect(isHostAllowed('127.0.0.1:12345', address)).toBe(true)
+  })
+
+  it('localhostと一致するポートのHostヘッダを許可する', () => {
+    expect(isHostAllowed('localhost:12345', address)).toBe(true)
+  })
+
+  it('IPv6ループバックと一致するポートのHostヘッダを許可する', () => {
+    expect(isHostAllowed('[::1]:12345', address)).toBe(true)
+  })
+
+  it('別のポートは拒否する', () => {
+    expect(isHostAllowed('127.0.0.1:9999', address)).toBe(false)
+  })
+
+  it('ループバック以外のホスト名は拒否する', () => {
+    expect(isHostAllowed('attacker.example:12345', address)).toBe(false)
+  })
+
+  it('Hostヘッダ未指定は拒否する', () => {
+    expect(isHostAllowed(undefined, address)).toBe(false)
+  })
+
+  it('空文字は拒否する', () => {
+    expect(isHostAllowed('', address)).toBe(false)
+  })
+
+  it('addressがnull（listen前）は拒否する', () => {
+    expect(isHostAllowed('127.0.0.1:12345', null)).toBe(false)
+  })
+})
+
+describe('Hostヘッダ検査の統合テスト', () => {
+  it('不正なHostヘッダのリクエストは403を返す', async () => {
+    await start([
+      {
+        method: 'GET',
+        path: '/api/repo',
+        handler: () => ({ status: 200, body: 'should not reach' }),
+      },
+    ])
+    const { port } = new URL(baseUrl)
+
+    const response = await rawHttpGet({
+      host: '127.0.0.1',
+      port: Number(port),
+      path: '/api/repo',
+      hostHeader: 'attacker.example:12345',
+    })
+
+    expect(response.status).toBe(403)
+    expect(response.body).toContain('forbidden')
+  })
+
+  it('正しいHostヘッダのリクエストは通常どおり処理する', async () => {
+    await start([
+      {
+        method: 'GET',
+        path: '/hello',
+        handler: () => ({ status: 200, body: 'hi' }),
+      },
+    ])
+    const { port } = new URL(baseUrl)
+
+    const response = await rawHttpGet({
+      host: '127.0.0.1',
+      port: Number(port),
+      path: '/hello',
+      hostHeader: `127.0.0.1:${port}`,
+    })
+
+    expect(response.status).toBe(200)
+    expect(response.body).toBe('hi')
+  })
+})
+
+/**
+ * http.request を使って Host ヘッダを任意に指定できる GET リクエストを送る。
+ * fetch は Host ヘッダを自動設定してしまうので使えない。
+ */
+function rawHttpGet(params: {
+  host: string
+  port: number
+  path: string
+  hostHeader: string
+}): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const req = httpRequest(
+      {
+        hostname: params.host,
+        port: params.port,
+        method: 'GET',
+        path: params.path,
+        headers: { host: params.hostHeader },
+      },
+      (res) => {
+        const chunks: Buffer[] = []
+        res.on('data', (chunk: Buffer) => {
+          chunks.push(chunk)
+        })
+        res.on('end', () => {
+          resolve({
+            status: res.statusCode ?? 0,
+            body: Buffer.concat(chunks).toString('utf-8'),
+          })
+        })
+      },
+    )
+    req.on('error', reject)
+    req.end()
+  })
+}
 
 describe('listen関数', () => {
   it('port 0指定で空きポートが割り当てられる', async () => {
