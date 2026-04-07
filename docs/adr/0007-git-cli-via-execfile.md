@@ -9,6 +9,13 @@
 git リポジトリの情報を取得するために、Node.js から git にアクセスする必要がある。
 候補:
 
+補遺 (2026-04-07): 本 ADR の「決定」セクションのうち実装方針に関する 2 点が、[ADR 0011](0011-api-layering.md) の api パッケージレイヤリングによって変更された:
+
+- `execFile` を呼ぶコードの集約先は `packages/api/src/git.ts` から `packages/api/src/adapter/git/cli-client.ts` (`CliGitClient` クラス) に移動した
+- `execFile` の runner 注入による DI 化方針は、現実装では採用していない。代わりに adapter 層のテストを `mkdtemp` で作った一時 git リポジトリに対する実 git CLI 呼び出しで行うスタイルに切り替えた。理由は GitClient interface 自体が port になっており、上位層 (service / controller) のテストでは GitClient フェイクに差し替えれば十分であるため、`execFile` runner 注入の二重抽象は冗長と判断した
+
+下記の「決定」セクションは当時の判断として残している。
+
 - `nodegit`: libgit2 の Node バインディング、ネイティブビルドが必要、メンテ活発度が低い時期がある
 - `isomorphic-git`: pure JS、機能は豊富だが API 表面が広い
 - `simple-git`: 子プロセスラッパ、抽象度は中程度

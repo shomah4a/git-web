@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import type { RepoInfo } from './index.js'
+import type { RepoInfoDto } from './index.js'
 
-describe('RepoInfo型', () => {
+describe('RepoInfoDto型', () => {
   it('cwdとheadフィールドを文字列として保持できる', () => {
-    const info: RepoInfo = {
+    const info: RepoInfoDto = {
       cwd: '/tmp/example-repo',
       head: '0123456789abcdef0123456789abcdef01234567',
     }

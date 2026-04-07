@@ -1,27 +1,27 @@
-import type { RepoInfo } from '@git-web/common'
+import type { RepoInfoDto } from '@git-web/common'
 
 /**
- * GET /api/repo を叩いて RepoInfo を取得する。
+ * GET /api/repo を叩いて RepoInfoDto を取得する。
  *
  * ADR 0010: レスポンスは unknown で受けて型ガードで narrowing する。
  * 型アサーションは使わない。
  */
-export async function fetchRepoInfo(): Promise<RepoInfo> {
+export async function fetchRepoInfo(): Promise<RepoInfoDto> {
   const response = await fetch('/api/repo')
   if (!response.ok) {
     throw new Error(`/api/repo returned HTTP ${response.status.toString()}`)
   }
   const data: unknown = await response.json()
-  if (!isRepoInfo(data)) {
+  if (!isRepoInfoDto(data)) {
     throw new Error('/api/repo returned unexpected body shape')
   }
   return data
 }
 
 /**
- * 値が RepoInfo の形をしているかを判定する型ガード。
+ * 値が RepoInfoDto の形をしているかを判定する型ガード。
  */
-function isRepoInfo(value: unknown): value is RepoInfo {
+function isRepoInfoDto(value: unknown): value is RepoInfoDto {
   if (typeof value !== 'object' || value === null) {
     return false
   }

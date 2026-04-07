@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { GitClient } from '../git.js'
-import { createRepoHandler } from './repo.js'
+import type { GitClient } from '../domain/ports/git-client.js'
+import { createRepoHandler } from './repo-controller.js'
 
 /**
  * GitClient のフェイク実装。
@@ -14,7 +14,7 @@ function createFakeGit(values: { head: string; repoRoot: string }): GitClient {
 }
 
 describe('createRepoHandler', () => {
-  it('repoRootとheadをRepoInfoとしてJSON返却する', async () => {
+  it('repoRootとheadをRepoInfoDtoのJSONとして200で返す', async () => {
     const git = createFakeGit({
       head: '0123456789abcdef0123456789abcdef01234567',
       repoRoot: '/home/user/myrepo',

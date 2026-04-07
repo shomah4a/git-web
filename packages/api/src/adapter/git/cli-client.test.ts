@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { CliGitClient } from './git.js'
+import { CliGitClient } from './cli-client.js'
 
 const execFileAsync = promisify(execFile)
 
