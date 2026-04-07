@@ -8,7 +8,7 @@
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { CliGitClient } from './adapter/git/cli-client.js'
-import { createRepoHandler } from './handlers/repo.js'
+import { createRepoHandler } from './controller/repo-controller.js'
 import type { Route } from './http/router.js'
 import { close, createApiServer, listen } from './http/server.js'
 import { createStaticHandler } from './http/static.js'

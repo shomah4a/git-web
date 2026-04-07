@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { GitClient } from '../domain/ports/git-client.js'
-import { createRepoHandler } from './repo.js'
+import { createRepoHandler } from './repo-controller.js'
 
 /**
  * GitClient のフェイク実装。
