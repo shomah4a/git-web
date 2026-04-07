@@ -1,0 +1,28 @@
+{
+  "name": "@git-web/front",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "vue-tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@git-web/common": "workspace:*",
+    "vue": "3.5.32"
+  },
+  "devDependencies": {
+    "@types/node": "25.5.2",
+    "@vitejs/plugin-vue": "6.0.5",
+    "@vue/test-utils": "2.4.6",
+    "jsdom": "29.0.2",
+    "typescript": "6.0.2",
+    "vite": "8.0.6",
+    "vitest": "4.1.3",
+    "vue-tsc": "3.2.6"
+  }
+}
