@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["node", "vite/client"],
+    "jsx": "preserve",
+    "jsxImportSource": "vue",
+    "moduleResolution": "Bundler"
+  },
+  "include": ["src/**/*", "src/**/*.vue", "vite.config.ts", "vitest.config.ts", "env.d.ts"]
+}
