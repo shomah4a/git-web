@@ -25,6 +25,7 @@ describe('createRepoHandler', () => {
 
     expect(response.status).toBe(200)
     expect(response.headers?.['content-type']).toBe('application/json; charset=utf-8')
+    expect(response.headers?.['cache-control']).toBe('no-store')
     if (typeof response.body !== 'string') {
       throw new Error('expected string body for JSON response')
     }

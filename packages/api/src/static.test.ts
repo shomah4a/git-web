@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -94,6 +94,34 @@ describe('createStaticHandler', () => {
 
     expect(response.status).toBe(200)
     expect(response.headers?.['content-type']).toBe('application/octet-stream')
+  })
+
+  it('rootDir内のsymlinkがrootDir外を指している場合は403を返す', async () => {
+    // rootDir の外に秘密ファイルを置き、dist 内からそこへの symlink を張る
+    const outside = await mkdtemp(join(tmpdir(), 'git-web-static-outside-'))
+    try {
+      const secret = join(outside, 'secret.txt')
+      await writeFile(secret, 'TOP SECRET')
+      await symlink(secret, join(rootDir, 'escape.txt'))
+
+      const handler = createStaticHandler({ rootDir })
+      const response = await handler({ method: 'GET', url: '/escape.txt' })
+
+      expect(response.status).toBe(403)
+    } finally {
+      await rm(outside, { recursive: true, force: true })
+    }
+  })
+
+  it('rootDir内の通常のsymlink（rootDir内を指す）は追従して配信する', async () => {
+    // dist 内のファイルへの内部 symlink は許可されるべき
+    await symlink(join(rootDir, 'style.css'), join(rootDir, 'alias.css'))
+    const handler = createStaticHandler({ rootDir })
+
+    const response = await handler({ method: 'GET', url: '/alias.css' })
+
+    expect(response.status).toBe(200)
+    expect(bodyAsString(response.body)).toBe('body { margin: 0 }')
   })
 
   it('ディレクトリへのアクセスはその配下のindex.htmlを返す', async () => {

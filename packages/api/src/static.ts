@@ -7,9 +7,12 @@
  * - クライアント入力のパスは必ず rootDir 配下に正規化後スコープ確認する
  * - path.resolve 後に rootDir の prefix 配下にあることを確認する
  * - リポジトリ外へのエスケープは 403 を返す
+ * - symlink 越境: rootDir と実ファイルの両方を realpath で解決してから
+ *   isUnder を再チェックする（通常 vite build 成果物に symlink は混入
+ *   しないが、万一の攻撃 / 誤配置への防御層）
  */
 
-import { readFile, stat } from 'node:fs/promises'
+import { readFile, realpath, stat } from 'node:fs/promises'
 import { extname, resolve, sep } from 'node:path'
 import type { Handler, HttpResponse } from './router.js'
 
@@ -21,13 +24,35 @@ export type CreateStaticHandlerOptions = {
 }
 
 export function createStaticHandler(options: CreateStaticHandlerOptions): Handler {
-  const rootDir = resolve(options.rootDir)
+  const rootDirRaw = resolve(options.rootDir)
+  let rootDirResolved: string | null = null
+
+  /**
+   * rootDir 自体を realpath で解決した絶対パスを返す。
+   * 初回呼び出し時に解決して結果をキャッシュする。
+   */
+  const getRootDir = async (): Promise<string> => {
+    if (rootDirResolved === null) {
+      rootDirResolved = await realpath(rootDirRaw)
+    }
+    return rootDirResolved
+  }
+
   return async (req) => {
     const pathname = extractPathname(req.url)
     const relative = pathname === '/' ? '/index.html' : pathname
+
+    let rootDir: string
+    try {
+      rootDir = await getRootDir()
+    } catch {
+      // rootDir 自体が存在しない（front が未ビルド等）
+      return notFound()
+    }
+
     const requested = resolve(rootDir, `.${relative}`)
 
-    // パストラバーサル対策: 正規化後に rootDir 配下にあることを確認
+    // パストラバーサル対策: 字面の path.resolve 後に rootDir 配下か確認
     if (!isUnder(requested, rootDir)) {
       return forbidden()
     }
@@ -35,21 +60,38 @@ export function createStaticHandler(options: CreateStaticHandlerOptions): Handle
     try {
       const stats = await stat(requested)
       if (stats.isDirectory()) {
-        // ディレクトリへのアクセスは index.html にフォールバック
+        // ディレクトリへのアクセスは配下の index.html にフォールバック
         const indexPath = resolve(requested, 'index.html')
         if (!isUnder(indexPath, rootDir)) {
           return forbidden()
         }
-        return await serveFile(indexPath)
+        return await serveResolvedFile(indexPath, rootDir)
       }
       if (!stats.isFile()) {
         return notFound()
       }
-      return await serveFile(requested)
+      return await serveResolvedFile(requested, rootDir)
     } catch {
       return notFound()
     }
   }
+}
+
+/**
+ * 指定パスを realpath で解決してから再度スコープチェックを行い、
+ * OK ならファイルを配信する。symlink 越境への二重防御。
+ */
+async function serveResolvedFile(path: string, rootDir: string): Promise<HttpResponse> {
+  let real: string
+  try {
+    real = await realpath(path)
+  } catch {
+    return notFound()
+  }
+  if (!isUnder(real, rootDir)) {
+    return forbidden()
+  }
+  return serveFile(real)
 }
 
 function extractPathname(url: string): string {

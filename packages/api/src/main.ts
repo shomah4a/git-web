@@ -85,11 +85,29 @@ const invokedDirectly =
 
 if (invokedDirectly) {
   try {
-    const started = await start()
+    const started = await start({ port: readPortFromEnv() })
     console.log(`git-web api listening on ${started.url}`)
     console.log(`target repository: ${started.repoRoot}`)
   } catch (err) {
     console.error(err instanceof Error ? err.message : 'failed to start')
     process.exit(1)
   }
+}
+
+/**
+ * 環境変数 PORT から起動ポートを読む。
+ * 未指定または不正な値なら 0 (空きポート自動割当) を返す。
+ * dev 時に front の Vite プロキシ先を固定するために使う想定。
+ */
+function readPortFromEnv(): number {
+  const raw = process.env['PORT']
+  if (raw === undefined || raw === '') {
+    return 0
+  }
+  const parsed = Number.parseInt(raw, 10)
+  if (Number.isNaN(parsed) || parsed < 0 || parsed > 65535) {
+    console.warn(`invalid PORT env value: ${raw}, falling back to auto-assign`)
+    return 0
+  }
+  return parsed
 }

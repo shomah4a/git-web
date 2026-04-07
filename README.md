@@ -100,14 +100,17 @@ make clean     # ビルド成果物とローカルキャッシュを削除
 front は Vite の dev サーバーから起動し、`/api` リクエストは 127.0.0.1:3000 の api サーバーにプロキシされます。dev 時は以下の 2 プロセスを並走させます。
 
 ```
-# ターミナル 1: api (fixed port で起動)
-PORT=3000 node packages/api/dist/main.js  # 要ビルド
+# 事前にビルド (common + api が必要)
+./bin/pnpm build
 
-# ターミナル 2: front dev
+# ターミナル 1: api を固定ポート 3000 で起動
+PORT=3000 node packages/api/dist/main.js
+
+# ターミナル 2: front dev サーバー
 make serve
 ```
 
-> 現時点では api の dev モード用ポート指定は `main.js` 側で追加実装が必要です。将来のフェーズで整備予定。
+api の `PORT` 環境変数が未指定または 0 の場合は空きポートが自動割当されます。`main.js` の直接起動時のみ有効で、`./bin/git-web` 経由の起動では常にランダムポートです。
 
 ### パッケージ追加時の注意
 

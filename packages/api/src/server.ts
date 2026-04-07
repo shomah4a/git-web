@@ -17,7 +17,7 @@ import type { AddressInfo } from 'node:net'
 import { createServer as createHttpServer } from 'node:http'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import type { Handler, Route } from './router.js'
-import { dispatch } from './router.js'
+import { dispatch, extractPathname } from './router.js'
 
 export type CreateApiServerOptions = {
   readonly routes: ReadonlyArray<Route>
@@ -56,10 +56,12 @@ async function handleRequest(
 
   const method = req.method ?? 'GET'
   const url = req.url ?? '/'
-  const request = { method, url }
+  // URL の正規化は 1 回だけ。dispatch にも pathname を渡して再パースを避ける
+  const pathname = extractPathname(url)
+  const request = { method, url, pathname }
 
   let handler = dispatch(options.routes, request)
-  if (handler === null && !isApiPath(url) && options.fallback !== undefined) {
+  if (handler === null && !pathname.startsWith('/api/') && options.fallback !== undefined) {
     handler = options.fallback
   }
 
@@ -81,11 +83,6 @@ async function handleRequest(
     }
     res.end('internal error')
   }
-}
-
-function isApiPath(url: string): boolean {
-  const pathname = new URL(url, 'http://localhost').pathname
-  return pathname.startsWith('/api/')
 }
 
 /**
