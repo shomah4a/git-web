@@ -15,7 +15,7 @@ export type HttpRequest = {
 export type HttpResponse = {
   readonly status: number
   readonly headers?: Readonly<Record<string, string>>
-  readonly body: string
+  readonly body: string | Uint8Array
 }
 
 export type Handler = (req: HttpRequest) => Promise<HttpResponse> | HttpResponse
