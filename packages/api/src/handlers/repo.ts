@@ -14,7 +14,11 @@ export function createRepoHandler(git: GitClient): Handler {
     const body: RepoInfo = { cwd, head }
     return {
       status: 200,
-      headers: { 'content-type': 'application/json; charset=utf-8' },
+      headers: {
+        'content-type': 'application/json; charset=utf-8',
+        // HEAD SHA はリポジトリの状態に応じて変動するためキャッシュ禁止
+        'cache-control': 'no-store',
+      },
       body: JSON.stringify(body),
     }
   }
