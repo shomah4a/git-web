@@ -1,24 +1,132 @@
 /**
- * 静的ファイル配信ハンドラのスタブ。
+ * 静的ファイル配信ハンドラ。
  *
- * 将来的に packages/front/dist をブラウザに配信するためのエンドポイント。
- * front パッケージが追加されるまではプレースホルダとして 404 を返す。
+ * packages/front/dist を想定した、ディレクトリ配信ユーティリティ。
  *
- * ADR 0009: 配信元パスはクライアント入力から合成しない。必ず dist の
- * 絶対パスを prefix として正規化後にスコープ確認を行う。現時点では
- * スタブのため該当ロジックは未実装。
+ * ADR 0009 の禁則:
+ * - クライアント入力のパスは必ず rootDir 配下に正規化後スコープ確認する
+ * - path.resolve 後に rootDir の prefix 配下にあることを確認する
+ * - リポジトリ外へのエスケープは 403 を返す
  */
 
-import type { Handler } from './router.js'
+import { readFile, stat } from 'node:fs/promises'
+import { extname, resolve, sep } from 'node:path'
+import type { Handler, HttpResponse } from './router.js'
+
+export type CreateStaticHandlerOptions = {
+  /**
+   * 配信元ディレクトリの絶対パス。
+   */
+  readonly rootDir: string
+}
+
+export function createStaticHandler(options: CreateStaticHandlerOptions): Handler {
+  const rootDir = resolve(options.rootDir)
+  return async (req) => {
+    const pathname = extractPathname(req.url)
+    const relative = pathname === '/' ? '/index.html' : pathname
+    const requested = resolve(rootDir, `.${relative}`)
+
+    // パストラバーサル対策: 正規化後に rootDir 配下にあることを確認
+    if (!isUnder(requested, rootDir)) {
+      return forbidden()
+    }
+
+    try {
+      const stats = await stat(requested)
+      if (stats.isDirectory()) {
+        // ディレクトリへのアクセスは index.html にフォールバック
+        const indexPath = resolve(requested, 'index.html')
+        if (!isUnder(indexPath, rootDir)) {
+          return forbidden()
+        }
+        return await serveFile(indexPath)
+      }
+      if (!stats.isFile()) {
+        return notFound()
+      }
+      return await serveFile(requested)
+    } catch {
+      return notFound()
+    }
+  }
+}
+
+function extractPathname(url: string): string {
+  return new URL(url, 'http://localhost').pathname
+}
 
 /**
- * 静的ファイル配信ハンドラを生成する。
- * 現時点ではスタブ実装で、常に 404 を返す。
+ * path が parent ディレクトリの配下（または等しい）かを判定する。
+ * シンボリックリンクによる脱出は realpath で解決していないため、
+ * 配信元 dist が信頼できる成果物であることを前提とする。
  */
-export function createStaticHandler(): Handler {
-  return () => ({
+function isUnder(path: string, parent: string): boolean {
+  if (path === parent) {
+    return true
+  }
+  const prefix = parent.endsWith(sep) ? parent : parent + sep
+  return path.startsWith(prefix)
+}
+
+async function serveFile(path: string): Promise<HttpResponse> {
+  const body = await readFile(path)
+  return {
+    status: 200,
+    headers: { 'content-type': getContentType(path) },
+    body,
+  }
+}
+
+function notFound(): HttpResponse {
+  return {
     status: 404,
     headers: { 'content-type': 'text/plain; charset=utf-8' },
-    body: 'static assets not available yet',
-  })
+    body: 'not found',
+  }
+}
+
+function forbidden(): HttpResponse {
+  return {
+    status: 403,
+    headers: { 'content-type': 'text/plain; charset=utf-8' },
+    body: 'forbidden',
+  }
+}
+
+function getContentType(path: string): string {
+  const ext = extname(path).toLowerCase()
+  switch (ext) {
+    case '.html':
+    case '.htm':
+      return 'text/html; charset=utf-8'
+    case '.js':
+    case '.mjs':
+      return 'application/javascript; charset=utf-8'
+    case '.css':
+      return 'text/css; charset=utf-8'
+    case '.json':
+      return 'application/json; charset=utf-8'
+    case '.svg':
+      return 'image/svg+xml'
+    case '.png':
+      return 'image/png'
+    case '.jpg':
+    case '.jpeg':
+      return 'image/jpeg'
+    case '.gif':
+      return 'image/gif'
+    case '.ico':
+      return 'image/x-icon'
+    case '.woff':
+      return 'font/woff'
+    case '.woff2':
+      return 'font/woff2'
+    case '.txt':
+      return 'text/plain; charset=utf-8'
+    case '.map':
+      return 'application/json; charset=utf-8'
+    default:
+      return 'application/octet-stream'
+  }
 }

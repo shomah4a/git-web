@@ -1,0 +1,97 @@
+#!/usr/bin/env node
+/**
+ * git-web エントリスクリプト。
+ *
+ * `git web` として実行されると、このファイルが起動し、
+ * - api サーバーを 127.0.0.1 のランダムポートで起動
+ * - packages/front/dist を静的配信元としてマウント
+ * - ブラウザを自動で開く
+ *
+ * 前提: ./bin/pnpm build 済み（packages/api/dist と
+ * packages/front/dist の両方が存在すること）
+ */
+
+import { spawn } from 'node:child_process'
+import { existsSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import process from 'node:process'
+import { fileURLToPath } from 'node:url'
+
+const scriptPath = fileURLToPath(import.meta.url)
+const repoRoot = dirname(dirname(scriptPath))
+const apiMainPath = resolve(repoRoot, 'packages/api/dist/main.js')
+const frontDistPath = resolve(repoRoot, 'packages/front/dist')
+
+if (!existsSync(apiMainPath)) {
+  console.error(`api is not built: ${apiMainPath} not found`)
+  console.error('run "./bin/pnpm build" first')
+  process.exit(1)
+}
+
+if (!existsSync(frontDistPath)) {
+  console.error(`front is not built: ${frontDistPath} not found`)
+  console.error('run "./bin/pnpm build" first')
+  process.exit(1)
+}
+
+/** @type {{ start: (options: { cwd?: string; staticDir?: string }) => Promise<{ url: string; repoRoot: string; close: () => Promise<void> }> }} */
+const apiModule = await import(apiMainPath)
+
+try {
+  const started = await apiModule.start({
+    cwd: process.cwd(),
+    staticDir: frontDistPath,
+  })
+
+  console.log(`git-web listening on ${started.url}`)
+  console.log(`target repository: ${started.repoRoot}`)
+
+  openBrowser(started.url)
+
+  // SIGINT / SIGTERM でクリーンシャットダウン
+  const shutdown = async () => {
+    try {
+      await started.close()
+    } catch {
+      // swallow
+    }
+    process.exit(0)
+  }
+  process.on('SIGINT', () => void shutdown())
+  process.on('SIGTERM', () => void shutdown())
+} catch (err) {
+  console.error(err instanceof Error ? err.message : 'failed to start')
+  process.exit(1)
+}
+
+/**
+ * OS に応じたブラウザ起動コマンドを実行する。
+ * 失敗しても黙って握りつぶす（ユーザーが手動で URL を開けば良い）。
+ *
+ * @param {string} url
+ */
+function openBrowser(url) {
+  const platform = process.platform
+  let cmd
+  let args
+  if (platform === 'darwin') {
+    cmd = 'open'
+    args = [url]
+  } else if (platform === 'win32') {
+    cmd = 'cmd'
+    args = ['/c', 'start', '', url]
+  } else {
+    cmd = 'xdg-open'
+    args = [url]
+  }
+
+  try {
+    const child = spawn(cmd, args, { detached: true, stdio: 'ignore' })
+    child.on('error', () => {
+      // xdg-open が存在しない等
+    })
+    child.unref()
+  } catch {
+    // 握りつぶす
+  }
+}
