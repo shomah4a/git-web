@@ -54,6 +54,22 @@ export class InvalidRevisionError extends DomainError {
 }
 
 /**
+ * クライアントから渡された diff の from / to パラメータの組み合わせが
+ * 不正であることを表す例外。
+ *
+ * 具体的には「to だけが指定され from が無い」ケースでのみ投げられる。
+ * 各 from / to の形式自体の不正は InvalidRevisionError を使う。
+ */
+export class InvalidDiffRangeError extends DomainError {
+  readonly reason: string
+
+  constructor(reason: string) {
+    super(`invalid diff range: ${reason}`)
+    this.reason = reason
+  }
+}
+
+/**
  * クライアントから渡された diff 対象の path がバリデーションに失敗したことを
  * 表す例外。
  *
