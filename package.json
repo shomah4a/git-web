@@ -8,13 +8,13 @@
     "node": ">=22.0.0"
   },
   "scripts": {
-    "build": "pnpm -r build",
-    "test": "pnpm -r test",
+    "build": "./bin/pnpm -r build",
+    "test": "./bin/pnpm -r test",
     "lint": "eslint . --no-error-on-unmatched-pattern",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "typecheck": "tsc -b",
-    "check": "pnpm lint && pnpm format:check && pnpm typecheck && pnpm test"
+    "typecheck": "./bin/pnpm -r typecheck",
+    "check": "./bin/pnpm lint && ./bin/pnpm format:check && ./bin/pnpm typecheck && ./bin/pnpm test"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
