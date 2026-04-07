@@ -16,8 +16,20 @@
 import type { AddressInfo } from 'node:net'
 import { createServer as createHttpServer } from 'node:http'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
-import type { Handler, Route } from './router.js'
+import type { Handler, HttpResponse, Route } from './router.js'
 import { dispatch, extractPathname } from './router.js'
+
+/**
+ * ハンドラで発生した例外を HTTP レスポンスにマッピングする関数。
+ *
+ * - null を返すと http 層は従来通り 500 internal error に落とす
+ * - null 以外のレスポンスを返すと http 層はそれをそのままクライアントに返す
+ *
+ * ADR 0011 / ADR 0012: 実体は controller/error-mapper.ts だが、http 層は
+ * controller を import しないため、関数として main.ts から注入される。
+ * http 層が依存するのは関数シグネチャのみ。
+ */
+export type ErrorMapper = (err: unknown) => HttpResponse | null
 
 export type CreateApiServerOptions = {
   readonly routes: ReadonlyArray<Route>
@@ -26,6 +38,11 @@ export type CreateApiServerOptions = {
    * 静的ファイル配信に用いる。未指定なら常に 404。
    */
   readonly fallback?: Handler
+  /**
+   * ハンドラが例外を投げた場合に呼ばれるエラーマッパー。
+   * 未指定または null を返した場合は従来通り 500 internal error を返す。
+   */
+  readonly mapError?: ErrorMapper
 }
 
 /**
@@ -77,6 +94,15 @@ async function handleRequest(
     res.writeHead(response.status, { ...headers })
     res.end(response.body)
   } catch (err) {
+    const mapped = options.mapError !== undefined ? options.mapError(err) : null
+    if (mapped !== null) {
+      const mappedHeaders = mapped.headers ?? {}
+      if (!res.headersSent) {
+        res.writeHead(mapped.status, { ...mappedHeaders })
+      }
+      res.end(mapped.body)
+      return
+    }
     console.error('handler error:', err)
     if (!res.headersSent) {
       res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' })
