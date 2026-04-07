@@ -9,6 +9,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { CliGitClient } from './adapter/git/cli-client.js'
 import { createRepoHandler } from './controller/repo-controller.js'
+import { NotAGitRepositoryError } from './domain/errors.js'
 import type { Route } from './http/router.js'
 import { close, createApiServer, listen } from './http/server.js'
 import { createStaticHandler } from './http/static.js'
@@ -42,7 +43,8 @@ export type StartedServer = {
 /**
  * api サーバーを起動する。
  *
- * - 対象が git リポジトリでない場合は Error を投げる
+ * - 対象が git リポジトリでない場合は NotAGitRepositoryError を投げる
+ *   (HTTP 経路ではなく start() の事前チェック経路、ADR 0011 参照)
  * - staticDir が指定されていれば /api/* 以外はそのディレクトリから配信する
  */
 export async function start(options: StartOptions = {}): Promise<StartedServer> {
@@ -53,7 +55,7 @@ export async function start(options: StartOptions = {}): Promise<StartedServer> 
   try {
     repoRoot = await git.repoRoot()
   } catch {
-    throw new Error(`not a git repository: ${cwd}`)
+    throw new NotAGitRepositoryError(cwd)
   }
 
   const routes: ReadonlyArray<Route> = [
