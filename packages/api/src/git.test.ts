@@ -1,52 +1,68 @@
-import { describe, expect, it } from 'vitest'
-import type { GitResult, GitRunner } from './git.js'
-import { getHead, getRepoRoot } from './git.js'
+import { execFile } from 'node:child_process'
+import { mkdtemp, rm, realpath } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { promisify } from 'node:util'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { CliGitClient } from './git.js'
+
+const execFileAsync = promisify(execFile)
 
 /**
- * 渡された引数を記録しつつ、固定の stdout/stderr を返すフェイク runner。
+ * 一時ディレクトリに最小構成の git リポジトリを作る。
+ * - main ブランチで初期化
+ * - user.email / user.name を設定（system 設定に依らないため）
+ * - 空コミットを 1 つ作って HEAD が確定するようにする
  */
-function createFakeRunner(stdout: string): {
-  runner: GitRunner
-  calls: Array<{ args: ReadonlyArray<string>; cwd: string }>
-} {
-  const calls: Array<{ args: ReadonlyArray<string>; cwd: string }> = []
-  const runner: GitRunner = async (args, cwd): Promise<GitResult> => {
-    calls.push({ args, cwd })
-    return { stdout, stderr: '' }
-  }
-  return { runner, calls }
+async function createTempRepo(): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), 'git-web-cli-test-'))
+  await execFileAsync('git', ['init', '--quiet', '--initial-branch=main'], { cwd: dir })
+  await execFileAsync('git', ['config', 'user.email', 'test@example.com'], { cwd: dir })
+  await execFileAsync('git', ['config', 'user.name', 'test'], { cwd: dir })
+  await execFileAsync('git', ['commit', '--quiet', '--allow-empty', '-m', 'init'], { cwd: dir })
+  return dir
 }
 
-describe('getHead関数', () => {
-  it('rev-parse HEADを呼び出して結果を返す', async () => {
-    const { runner, calls } = createFakeRunner('abc1234\n')
+let tempRepo: string
 
-    const head = await getHead(runner, '/tmp/repo')
+beforeEach(async () => {
+  tempRepo = await createTempRepo()
+})
 
-    expect(head).toBe('abc1234')
-    expect(calls).toHaveLength(1)
-    expect(calls[0]?.args).toEqual(['rev-parse', 'HEAD'])
-    expect(calls[0]?.cwd).toBe('/tmp/repo')
+afterEach(async () => {
+  await rm(tempRepo, { recursive: true, force: true })
+})
+
+describe('CliGitClient.head', () => {
+  it('40文字のSHA1ハッシュを返す', async () => {
+    const git = new CliGitClient(tempRepo)
+
+    const head = await git.head()
+
+    expect(head).toMatch(/^[0-9a-f]{40}$/)
   })
 
-  it('末尾の改行を取り除く', async () => {
-    const { runner } = createFakeRunner('  0123456789\n\n')
+  it('cwdがリポジトリ外の場合は例外を投げる', async () => {
+    const git = new CliGitClient(tmpdir())
 
-    const head = await getHead(runner, '/tmp/repo')
-
-    expect(head).toBe('0123456789')
+    await expect(git.head()).rejects.toThrow()
   })
 })
 
-describe('getRepoRoot関数', () => {
-  it('rev-parse --show-toplevelを呼び出して結果を返す', async () => {
-    const { runner, calls } = createFakeRunner('/home/user/myrepo\n')
+describe('CliGitClient.repoRoot', () => {
+  it('初期化したディレクトリの絶対パスを返す', async () => {
+    const git = new CliGitClient(tempRepo)
 
-    const root = await getRepoRoot(runner, '/home/user/myrepo/sub/dir')
+    const root = await git.repoRoot()
 
-    expect(root).toBe('/home/user/myrepo')
-    expect(calls).toHaveLength(1)
-    expect(calls[0]?.args).toEqual(['rev-parse', '--show-toplevel'])
-    expect(calls[0]?.cwd).toBe('/home/user/myrepo/sub/dir')
+    // tmpdir が /tmp の symlink である環境（macOS の /private/tmp 等）に
+    // 配慮して双方を realpath で正規化してから比較する
+    expect(await realpath(root)).toBe(await realpath(tempRepo))
+  })
+
+  it('リポジトリ外のディレクトリでは例外を投げる', async () => {
+    const git = new CliGitClient(tmpdir())
+
+    await expect(git.repoRoot()).rejects.toThrow()
   })
 })

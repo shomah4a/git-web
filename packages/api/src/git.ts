@@ -1,11 +1,13 @@
 /**
- * git CLI ラッパ。
+ * git CLI を高レベルメソッドで提供するクライアント。
  *
  * 設計方針:
- * - git の実行は GitRunner というインターフェース経由で行い、
- *   テスト時はモックを注入できるようにする（副作用の外部化）
- * - ADR 0007 / 0009 に従い、シェル経由実行は行わない (`execFile` を使う)
- * - 引数は必ず配列で渡し、ユーザー入力を文字列連結で組み立てない
+ * - 利用側は GitClient インターフェースに依存し、git の引数や CLI の
+ *   存在を意識しない
+ * - 実装は CliGitClient（execFile で git CLI を叩く）を提供する
+ * - テストでは GitClient をオブジェクトリテラルでフェイクして良い
+ * - ADR 0007 / 0009 に従い、シェル経由実行は行わない (`execFile` を使う)。
+ *   引数は必ず配列で渡す
  */
 
 import { execFile } from 'node:child_process'
@@ -13,39 +15,44 @@ import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
 
-export type GitResult = {
-  readonly stdout: string
-  readonly stderr: string
+/**
+ * git の高レベル操作を提供するインターフェース。
+ *
+ * 必要な操作が増えるたびにメソッドを追加していく。
+ * 利用側は本インターフェースに依存し、CLI 引数などの詳細は知らない。
+ */
+export interface GitClient {
+  /**
+   * HEAD が指すコミットの SHA-1 ハッシュを返す。
+   */
+  head(): Promise<string>
+
+  /**
+   * リポジトリのトップレベル絶対パスを返す。
+   * cwd がリポジトリ内でない場合は例外を投げる。
+   */
+  repoRoot(): Promise<string>
 }
 
 /**
- * git コマンドを実行する関数の型。
- * テストでは fake / mock 実装を渡してこの境界を切る。
+ * 子プロセスとして git CLI を起動する GitClient 実装。
  */
-export type GitRunner = (args: ReadonlyArray<string>, cwd: string) => Promise<GitResult>
+export class CliGitClient implements GitClient {
+  readonly #cwd: string
 
-/**
- * 実際に子プロセスとして git を起動するデフォルト実装。
- * 本番コードではこれを使う。
- */
-export const realGitRunner: GitRunner = async (args, cwd) => {
-  const { stdout, stderr } = await execFileAsync('git', [...args], { cwd })
-  return { stdout, stderr }
-}
+  constructor(cwd: string) {
+    this.#cwd = cwd
+  }
 
-/**
- * HEAD の SHA-1 ハッシュを返す。
- */
-export async function getHead(runner: GitRunner, cwd: string): Promise<string> {
-  const { stdout } = await runner(['rev-parse', 'HEAD'], cwd)
-  return stdout.trim()
-}
+  async head(): Promise<string> {
+    const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: this.#cwd })
+    return stdout.trim()
+  }
 
-/**
- * リポジトリのトップレベル絶対パスを返す。
- * cwd がリポジトリ内でない場合は git 自体がエラーを返すため例外として伝播する。
- */
-export async function getRepoRoot(runner: GitRunner, cwd: string): Promise<string> {
-  const { stdout } = await runner(['rev-parse', '--show-toplevel'], cwd)
-  return stdout.trim()
+  async repoRoot(): Promise<string> {
+    const { stdout } = await execFileAsync('git', ['rev-parse', '--show-toplevel'], {
+      cwd: this.#cwd,
+    })
+    return stdout.trim()
+  }
 }
