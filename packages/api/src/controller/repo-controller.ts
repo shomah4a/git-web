@@ -1,20 +1,21 @@
 import type { RepoInfoDto } from '@git-web/common'
 import type { GitClient } from '../domain/ports/git-client.js'
+import type { RepoInfo } from '../domain/repo.js'
 import type { Handler } from '../http/router.js'
+import { getRepoInfo } from '../service/repo-service.js'
 
 /**
  * GET /api/repo のハンドラファクトリ。
  *
- * GitClient を受け取り、リポジトリのトップレベルと HEAD を取得して
- * RepoInfoDto として JSON 返却する Handler を生成する。
- *
- * 責務分離 (service/controller の切り出し + ドメインモデル経由化) は
- * 後続ステップで行う。本ステップでは DTO 名のリネーム反映のみ。
+ * 設計方針 (ADR 0011):
+ * - service (getRepoInfo) を呼んでドメインモデルを取得する
+ * - ドメインモデル RepoInfo を DTO RepoInfoDto に変換してから JSON 化する
+ * - 変換は object literal で書き、`as` を使わない (ADR 0010)
  */
 export function createRepoHandler(git: GitClient): Handler {
   return async () => {
-    const [cwd, head] = await Promise.all([git.repoRoot(), git.head()])
-    const body: RepoInfoDto = { cwd, head }
+    const info = await getRepoInfo(git)
+    const body: RepoInfoDto = toRepoInfoDto(info)
     return {
       status: 200,
       headers: {
@@ -24,5 +25,19 @@ export function createRepoHandler(git: GitClient): Handler {
       },
       body: JSON.stringify(body),
     }
+  }
+}
+
+/**
+ * RepoInfo ドメインモデルを RepoInfoDto に変換するシリアライザ。
+ *
+ * 現状はドメインモデルと DTO が構造同型のため写像は素通しだが、
+ * 将来ドメインモデルに振る舞い (getter 等) が増えても DTO 側を
+ * 安定させるため、明示的な object literal で書く。
+ */
+function toRepoInfoDto(info: RepoInfo): RepoInfoDto {
+  return {
+    cwd: info.cwd,
+    head: info.head,
   }
 }
