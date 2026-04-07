@@ -10,6 +10,11 @@
 export type HttpRequest = {
   readonly method: string
   readonly url: string
+  /**
+   * 事前計算済みの pathname。指定されていれば dispatch はこの値を使い、
+   * URL の再パースを回避する。未指定なら url から計算する。
+   */
+  readonly pathname?: string
 }
 
 export type HttpResponse = {
@@ -31,7 +36,7 @@ export type Route = {
  * 見つからなかった場合は null を返す。
  */
 export function dispatch(routes: ReadonlyArray<Route>, req: HttpRequest): Handler | null {
-  const pathname = extractPathname(req.url)
+  const pathname = req.pathname ?? extractPathname(req.url)
   for (const route of routes) {
     if (route.method === req.method && route.path === pathname) {
       return route.handler
@@ -40,9 +45,11 @@ export function dispatch(routes: ReadonlyArray<Route>, req: HttpRequest): Handle
   return null
 }
 
-function extractPathname(url: string): string {
-  // url は "/api/repo?foo=bar" のような相対 URL を想定する。
-  // URL コンストラクタは絶対 URL を要求するため、ダミーのオリジンを足して解決する。
+/**
+ * 相対 URL からパス部分を取り出すユーティリティ。
+ * URL コンストラクタは絶対 URL を要求するためダミーオリジンを足す。
+ */
+export function extractPathname(url: string): string {
   const u = new URL(url, 'http://localhost')
   return u.pathname
 }

@@ -52,8 +52,11 @@ try {
   const shutdown = async () => {
     try {
       await started.close()
-    } catch {
-      // swallow
+    } catch (err) {
+      // close が失敗しても終了自体は継続する。原因切り分けのために
+      // ログは出しておく
+      const message = err instanceof Error ? err.message : String(err)
+      console.error(`failed to close server cleanly: ${message}`)
     }
     process.exit(0)
   }
