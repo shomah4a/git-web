@@ -25,6 +25,12 @@ async function start(routes: ReadonlyArray<Route>): Promise<void> {
   baseUrl = `http://${addr.host}:${addr.port.toString()}`
 }
 
+async function startWith(options: Parameters<typeof createApiServer>[0]): Promise<void> {
+  server = createApiServer(options)
+  const addr = await listen(server, '127.0.0.1', 0)
+  baseUrl = `http://${addr.host}:${addr.port.toString()}`
+}
+
 describe('createApiServer', () => {
   it('登録したルートにリクエストが届くとハンドラのレスポンスを返す', async () => {
     await start([
@@ -97,6 +103,62 @@ describe('createApiServer', () => {
     const response = await fetch(`${baseUrl}/async-boom`)
 
     expect(response.status).toBe(500)
+  })
+
+  describe('mapError オプション', () => {
+    class SomeDomainError extends Error {
+      constructor() {
+        super('domain fail')
+      }
+    }
+
+    it('mapError が非nullを返すとそのレスポンスを使う', async () => {
+      await startWith({
+        routes: [
+          {
+            method: 'GET',
+            path: '/domain-err',
+            handler: () => {
+              throw new SomeDomainError()
+            },
+          },
+        ],
+        mapError: (err) =>
+          err instanceof SomeDomainError
+            ? {
+                status: 400,
+                headers: { 'content-type': 'application/json; charset=utf-8' },
+                body: JSON.stringify({ error: 'domain', message: 'domain fail' }),
+              }
+            : null,
+      })
+
+      const response = await fetch(`${baseUrl}/domain-err`)
+
+      expect(response.status).toBe(400)
+      const body: unknown = await response.json()
+      expect(body).toEqual({ error: 'domain', message: 'domain fail' })
+    })
+
+    it('mapError が null を返すと従来通り 500 にフォールバックする', async () => {
+      await startWith({
+        routes: [
+          {
+            method: 'GET',
+            path: '/unknown-err',
+            handler: () => {
+              throw new Error('unknown')
+            },
+          },
+        ],
+        mapError: () => null,
+      })
+
+      const response = await fetch(`${baseUrl}/unknown-err`)
+
+      expect(response.status).toBe(500)
+      expect(await response.text()).toBe('internal error')
+    })
   })
 
   it('クエリ文字列はパスマッチング対象から除外される', async () => {

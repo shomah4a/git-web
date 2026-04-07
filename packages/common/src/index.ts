@@ -12,3 +12,13 @@ export type RepoInfoDto = {
   readonly cwd: string
   readonly head: string
 }
+
+export type {
+  DiffFileDto,
+  DiffFileStatusDto,
+  DiffFileSummaryDto,
+  DiffFilesResponseDto,
+  DiffHunkDto,
+  DiffLineDto,
+  DiffLineKindDto,
+} from './diff.js'

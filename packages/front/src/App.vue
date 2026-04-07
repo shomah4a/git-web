@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
 import type { RepoInfoDto } from '@git-web/common'
+import { onMounted, ref } from 'vue'
 import { fetchRepoInfo } from './api.js'
+import DiffView from './components/DiffView.vue'
 
 const repo = ref<RepoInfoDto | null>(null)
 const errorMessage = ref<string | null>(null)
@@ -18,21 +19,23 @@ onMounted(async () => {
 <template>
   <main>
     <h1>git-web</h1>
-    <p v-if="errorMessage" class="error">error: {{ errorMessage }}</p>
-    <dl v-else-if="repo">
+    <p v-if="errorMessage !== null" class="error">error: {{ errorMessage }}</p>
+    <dl v-else-if="repo !== null">
       <dt>repository</dt>
       <dd>{{ repo.cwd }}</dd>
       <dt>HEAD</dt>
       <dd>{{ repo.head }}</dd>
     </dl>
     <p v-else>loading...</p>
+
+    <DiffView />
   </main>
 </template>
 
 <style scoped>
 main {
   font-family: system-ui, sans-serif;
-  max-width: 720px;
+  max-width: 1200px;
   margin: 2rem auto;
   padding: 0 1rem;
 }
