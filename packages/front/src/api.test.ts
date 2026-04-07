@@ -10,7 +10,7 @@ afterEach(() => {
 })
 
 describe('fetchRepoInfo', () => {
-  it('200OKかつ正しい形のJSONを返すとRepoInfoを返す', async () => {
+  it('200OKかつ正しい形のJSONを返すとRepoInfoDtoを返す', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(() =>

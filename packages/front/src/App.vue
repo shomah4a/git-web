@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import type { RepoInfo } from '@git-web/common'
+import type { RepoInfoDto } from '@git-web/common'
 import { fetchRepoInfo } from './api.js'
 
-const repo = ref<RepoInfo | null>(null)
+const repo = ref<RepoInfoDto | null>(null)
 const errorMessage = ref<string | null>(null)
 
 onMounted(async () => {
