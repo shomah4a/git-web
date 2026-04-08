@@ -44,8 +44,40 @@ const FILE_A = {
   ],
 }
 
+const FILE_B = {
+  path: 'bar.py',
+  oldPath: null,
+  status: 'added',
+  additions: 2,
+  deletions: 0,
+  binary: false,
+  language: 'python',
+  hunks: [
+    {
+      oldStart: 0,
+      oldLines: 0,
+      newStart: 1,
+      newLines: 2,
+      header: '',
+      lines: [
+        { kind: 'add', content: 'x = 1', oldLineNo: null, newLineNo: 1 },
+        { kind: 'add', content: 'y = 2', oldLineNo: null, newLineNo: 2 },
+      ],
+    },
+  ],
+}
+
+let scrollIntoViewCalls = 0
+
 beforeEach(() => {
   vi.restoreAllMocks()
+  // jsdom は scrollIntoView を実装していないので差し替える。
+  // vitest 4.x の vi.fn ジェネリクスが Element.scrollIntoView の型と噛み合わないため、
+  // 手動でコールカウントを取る。
+  scrollIntoViewCalls = 0
+  Element.prototype.scrollIntoView = function scrollIntoViewStub(): void {
+    scrollIntoViewCalls += 1
+  }
 })
 
 afterEach(() => {
@@ -59,24 +91,35 @@ function jsonResponse(status: number, body: unknown): Response {
   })
 }
 
-function mockFetchSequence(responses: ReadonlyArray<Response>): void {
-  let idx = 0
+/**
+ * URL の path 部分 (クエリ除く) と `path` クエリパラメータの組で handler を振り分ける。
+ * /api/diff/file は path クエリで個別ファイル毎にレスポンスを切り替える。
+ */
+function mockFetchByUrl(
+  handlers: Readonly<Record<string, () => Response>>,
+  fallback: () => Response = () => new Response('not mocked', { status: 500 }),
+): void {
   vi.stubGlobal(
     'fetch',
-    vi.fn(() => {
-      const response = responses[idx]
-      idx++
-      if (response === undefined) {
-        return Promise.reject(new Error('no more mocked response'))
-      }
-      return Promise.resolve(response)
+    vi.fn((input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+      const [base, query] = url.split('?')
+      const params = new URLSearchParams(query ?? '')
+      const pathParam = params.get('path')
+      const key = pathParam === null ? (base ?? url) : `${base ?? url}|${pathParam}`
+      const handler = handlers[key] ?? fallback
+      return Promise.resolve(handler())
     }),
   )
 }
 
 describe('DiffView', () => {
-  it('マウント時にファイル一覧を取得して表示する', async () => {
-    mockFetchSequence([jsonResponse(200, { files: [SUMMARY_A, SUMMARY_B] })])
+  it('マウント時にファイル一覧を取得して左ペインに表示する', async () => {
+    mockFetchByUrl({
+      '/api/diff/files': () => jsonResponse(200, { files: [SUMMARY_A, SUMMARY_B] }),
+      '/api/diff/file|foo.ts': () => jsonResponse(200, FILE_A),
+      '/api/diff/file|bar.py': () => jsonResponse(200, FILE_B),
+    })
 
     const wrapper = mount(DiffView)
     await flushPromises()
@@ -88,7 +131,9 @@ describe('DiffView', () => {
   })
 
   it('ファイル一覧取得に失敗するとエラーメッセージを表示する', async () => {
-    mockFetchSequence([new Response('boom', { status: 500 })])
+    mockFetchByUrl({
+      '/api/diff/files': () => new Response('boom', { status: 500 }),
+    })
 
     const wrapper = mount(DiffView)
     await flushPromises()
@@ -98,7 +143,9 @@ describe('DiffView', () => {
   })
 
   it('変更なしの場合は no changes を表示する', async () => {
-    mockFetchSequence([jsonResponse(200, { files: [] })])
+    mockFetchByUrl({
+      '/api/diff/files': () => jsonResponse(200, { files: [] }),
+    })
 
     const wrapper = mount(DiffView)
     await flushPromises()
@@ -106,51 +153,99 @@ describe('DiffView', () => {
     expect(wrapper.text()).toContain('no changes')
   })
 
-  it('ファイルをクリックすると個別 diff を取得して表示する', async () => {
-    mockFetchSequence([jsonResponse(200, { files: [SUMMARY_A] }), jsonResponse(200, FILE_A)])
+  it('マウント時に全ファイルの diff を並列取得してまとめて表示する', async () => {
+    mockFetchByUrl({
+      '/api/diff/files': () => jsonResponse(200, { files: [SUMMARY_A, SUMMARY_B] }),
+      '/api/diff/file|foo.ts': () => jsonResponse(200, FILE_A),
+      '/api/diff/file|bar.py': () => jsonResponse(200, FILE_B),
+    })
 
     const wrapper = mount(DiffView)
     await flushPromises()
-    const firstItem = wrapper.find('.file-list li')
-    await firstItem.trigger('click')
-    await flushPromises()
 
-    // hunk ヘッダとファイルパスが右ペインに出る
-    expect(wrapper.text()).toContain('foo.ts')
-    expect(wrapper.text()).toContain('@@ -1,2 +1,2 @@')
-    // add 行と delete 行が描画される
-    const lines = wrapper.findAll('.line')
-    expect(lines.length).toBe(3)
-    expect(lines[0]?.classes()).toContain('delete')
-    expect(lines[1]?.classes()).toContain('add')
-    expect(lines[2]?.classes()).toContain('context')
+    const cards = wrapper.findAll('.file-card')
+    expect(cards).toHaveLength(2)
+    // それぞれのカードに hunk が描画される
+    expect(cards[0]?.text()).toContain('@@ -1,2 +1,2 @@')
+    expect(cards[1]?.text()).toContain('@@ -0,0 +1,2 @@')
+    // foo.ts の add/delete/context がすべて描画される
+    const linesOfA = cards[0]?.findAll('.line') ?? []
+    expect(linesOfA).toHaveLength(3)
+    expect(linesOfA[0]?.classes()).toContain('delete')
+    expect(linesOfA[1]?.classes()).toContain('add')
+    expect(linesOfA[2]?.classes()).toContain('context')
   })
 
-  it('個別 diff が 404 なら no diff to display を表示する', async () => {
-    mockFetchSequence([
-      jsonResponse(200, { files: [SUMMARY_A] }),
-      new Response('', { status: 404 }),
-    ])
+  it('個別ファイルの取得が 404 ならそのカードのみ no diff to display を表示する', async () => {
+    mockFetchByUrl({
+      '/api/diff/files': () => jsonResponse(200, { files: [SUMMARY_A, SUMMARY_B] }),
+      '/api/diff/file|foo.ts': () => new Response('', { status: 404 }),
+      '/api/diff/file|bar.py': () => jsonResponse(200, FILE_B),
+    })
 
     const wrapper = mount(DiffView)
     await flushPromises()
-    await wrapper.find('.file-list li').trigger('click')
-    await flushPromises()
 
-    expect(wrapper.text()).toContain('no diff to display for foo.ts')
+    const cards = wrapper.findAll('.file-card')
+    expect(cards).toHaveLength(2)
+    expect(cards[0]?.text()).toContain('no diff to display for foo.ts')
+    // 他のファイルは通常通り表示される
+    expect(cards[1]?.text()).toContain('@@ -0,0 +1,2 @@')
   })
 
-  it('個別 diff が失敗したらエラー表示する', async () => {
-    mockFetchSequence([
-      jsonResponse(200, { files: [SUMMARY_A] }),
-      new Response('', { status: 500 }),
-    ])
+  it('個別ファイルの取得が失敗してもそのカードのみエラーを表示し他は継続する', async () => {
+    mockFetchByUrl({
+      '/api/diff/files': () => jsonResponse(200, { files: [SUMMARY_A, SUMMARY_B] }),
+      '/api/diff/file|foo.ts': () => new Response('', { status: 500 }),
+      '/api/diff/file|bar.py': () => jsonResponse(200, FILE_B),
+    })
 
     const wrapper = mount(DiffView)
     await flushPromises()
-    await wrapper.find('.file-list li').trigger('click')
+
+    const cards = wrapper.findAll('.file-card')
+    expect(cards[0]?.text()).toContain('HTTP 500')
+    expect(cards[1]?.text()).toContain('@@ -0,0 +1,2 @@')
+  })
+
+  it('ファイル一覧のクリックで該当カードの scrollIntoView を呼ぶ', async () => {
+    mockFetchByUrl({
+      '/api/diff/files': () => jsonResponse(200, { files: [SUMMARY_A, SUMMARY_B] }),
+      '/api/diff/file|foo.ts': () => jsonResponse(200, FILE_A),
+      '/api/diff/file|bar.py': () => jsonResponse(200, FILE_B),
+    })
+
+    const wrapper = mount(DiffView, { attachTo: document.body })
     await flushPromises()
 
-    expect(wrapper.text()).toContain('HTTP 500')
+    scrollIntoViewCalls = 0
+    await wrapper.findAll('.file-list li')[1]?.trigger('click')
+
+    expect(scrollIntoViewCalls).toBe(1)
+    wrapper.unmount()
+  })
+
+  it('ファイルヘッダークリックで折りたたまれ、再度クリックで展開する', async () => {
+    mockFetchByUrl({
+      '/api/diff/files': () => jsonResponse(200, { files: [SUMMARY_A] }),
+      '/api/diff/file|foo.ts': () => jsonResponse(200, FILE_A),
+    })
+
+    const wrapper = mount(DiffView)
+    await flushPromises()
+
+    // 初期状態は展開
+    expect(wrapper.find('.file-body').exists()).toBe(true)
+    expect(wrapper.find('.toggle').text()).toBe('▾')
+
+    // クリックで折りたたむ
+    await wrapper.find('.file-header').trigger('click')
+    expect(wrapper.find('.file-body').exists()).toBe(false)
+    expect(wrapper.find('.toggle').text()).toBe('▸')
+
+    // もう一度クリックで展開
+    await wrapper.find('.file-header').trigger('click')
+    expect(wrapper.find('.file-body').exists()).toBe(true)
+    expect(wrapper.find('.toggle').text()).toBe('▾')
   })
 })

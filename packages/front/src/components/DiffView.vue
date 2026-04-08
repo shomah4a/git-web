@@ -1,37 +1,62 @@
 <script setup lang="ts">
 /**
- * diff 表示コンポーネント (最小版)。
+ * diff 表示コンポーネント。
  *
- * 設計方針 (ADR 0012):
- * - マウント時に /api/diff/files を取得して左ペインにファイル一覧を表示
- * - ファイル選択で /api/diff/file?path=... を取得して右ペインにインライン diff を表示
- * - 構文ハイライト (Shiki) / word-diff / サイドバイサイド切替 / 折り畳みは後続タスク
+ * 設計方針 (ADR 0012 + ADR 0014):
+ * - マウント時に /api/diff/files でファイル一覧を取得
+ * - 続けて全ファイルの /api/diff/file?path=... を Promise.allSettled で並列取得
+ * - 左ペインにファイル一覧 (ナビゲーション)
+ * - 右ペインに全ファイルの diff を縦積み
+ * - ファイル一覧クリックで該当セクションへ scrollIntoView
+ * - 各ファイルはヘッダークリックで折りたたみ可能、デフォルトは展開
+ * - 個別ファイルの fetch 失敗はそのカードのみエラー表示、他は継続
  *
- * Race condition について (M5 対応):
- * - ユーザーがファイルを高速に切り替えた場合、後発の遅いレスポンスが
- *   先発の速いレスポンスを上書きする可能性がある (レース)
- * - 本版ではこれを「許容」する (AbortController 等は入れない)
- * - 必要になった時点で後続タスクで対応する
+ * race condition について:
+ * - ADR 0012 が許容していた「高速なファイル切替による race」は、
+ *   マウント時一括 fetch に変わったことで消滅した
  */
 
 import type { DiffFileDto, DiffFileSummaryDto } from '@git-web/common'
 import { onMounted, ref } from 'vue'
 import { fetchDiffFile, fetchDiffFiles } from '../api/diff.js'
 
-const files = ref<ReadonlyArray<DiffFileSummaryDto>>([])
-const selectedPath = ref<string | null>(null)
-const selectedFile = ref<DiffFileDto | null>(null)
+type FileState =
+  | { readonly kind: 'loading' }
+  | { readonly kind: 'success'; readonly file: DiffFileDto }
+  | { readonly kind: 'notFound' }
+  | { readonly kind: 'error'; readonly message: string }
+
+type FileEntry = {
+  readonly summary: DiffFileSummaryDto
+  state: FileState
+  collapsed: boolean
+}
+
+const entries = ref<FileEntry[]>([])
 const loadingList = ref(false)
-const loadingFile = ref(false)
 const listError = ref<string | null>(null)
-const fileError = ref<string | null>(null)
-const fileNotFound = ref(false)
 
 onMounted(async () => {
   loadingList.value = true
   try {
     const response = await fetchDiffFiles()
-    files.value = response.files
+    entries.value = response.files.map(
+      (summary): FileEntry => ({
+        summary,
+        state: { kind: 'loading' },
+        collapsed: false,
+      }),
+    )
+
+    const results = await Promise.allSettled(
+      response.files.map((summary) => fetchDiffFile(summary.path)),
+    )
+
+    entries.value = response.files.map((summary, idx) => {
+      const result = results[idx]
+      const state = resolveState(result)
+      return { summary, state, collapsed: false }
+    })
   } catch (err) {
     listError.value = err instanceof Error ? err.message : 'unknown error'
   } finally {
@@ -39,24 +64,33 @@ onMounted(async () => {
   }
 })
 
-async function selectFile(path: string): Promise<void> {
-  selectedPath.value = path
-  selectedFile.value = null
-  fileNotFound.value = false
-  fileError.value = null
-  loadingFile.value = true
-  try {
-    const file = await fetchDiffFile(path)
-    if (file === null) {
-      fileNotFound.value = true
-    } else {
-      selectedFile.value = file
-    }
-  } catch (err) {
-    fileError.value = err instanceof Error ? err.message : 'unknown error'
-  } finally {
-    loadingFile.value = false
+function resolveState(result: PromiseSettledResult<DiffFileDto | null> | undefined): FileState {
+  if (result === undefined) {
+    return { kind: 'loading' }
   }
+  if (result.status === 'rejected') {
+    const message = result.reason instanceof Error ? result.reason.message : 'unknown error'
+    return { kind: 'error', message }
+  }
+  if (result.value === null) {
+    return { kind: 'notFound' }
+  }
+  return { kind: 'success', file: result.value }
+}
+
+function anchorId(path: string): string {
+  return `diff-file-${encodeURIComponent(path)}`
+}
+
+function scrollToFile(path: string): void {
+  const el = document.getElementById(anchorId(path))
+  if (el !== null) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+}
+
+function toggleCollapsed(entry: FileEntry): void {
+  entry.collapsed = !entry.collapsed
 }
 
 function statusInitial(status: DiffFileSummaryDto['status']): string {
@@ -72,6 +106,10 @@ function lineMarker(kind: 'context' | 'add' | 'delete'): string {
   if (kind === 'delete') return '-'
   return ' '
 }
+
+function successFile(state: FileState): DiffFileDto | null {
+  return state.kind === 'success' ? state.file : null
+}
 </script>
 
 <template>
@@ -80,39 +118,83 @@ function lineMarker(kind: 'context' | 'add' | 'delete'): string {
       <h2>Files</h2>
       <p v-if="loadingList">loading...</p>
       <p v-else-if="listError !== null" class="error">error: {{ listError }}</p>
-      <p v-else-if="files.length === 0">no changes</p>
+      <p v-else-if="entries.length === 0">no changes</p>
       <ul v-else>
         <li
-          v-for="file in files"
-          :key="file.path"
-          :class="{ selected: file.path === selectedPath }"
-          @click="selectFile(file.path)"
+          v-for="entry in entries"
+          :key="entry.summary.path"
+          @click="scrollToFile(entry.summary.path)"
         >
-          <span class="status" :data-status="file.status">{{ statusInitial(file.status) }}</span>
-          <span class="path">{{ file.path }}</span>
-          <span class="stats">+{{ file.additions }}/-{{ file.deletions }}</span>
-          <span v-if="file.binary" class="binary">binary</span>
+          <span class="status" :data-status="entry.summary.status">{{
+            statusInitial(entry.summary.status)
+          }}</span>
+          <span class="path">{{ entry.summary.path }}</span>
+          <span class="stats">+{{ entry.summary.additions }}/-{{ entry.summary.deletions }}</span>
+          <span v-if="entry.summary.binary" class="binary">binary</span>
         </li>
       </ul>
     </aside>
     <section class="file-detail">
-      <p v-if="selectedPath === null">select a file</p>
-      <p v-else-if="loadingFile">loading {{ selectedPath }}...</p>
-      <p v-else-if="fileError !== null" class="error">error: {{ fileError }}</p>
-      <p v-else-if="fileNotFound">no diff to display for {{ selectedPath }}</p>
-      <template v-else-if="selectedFile !== null">
-        <h2>{{ selectedFile.path }}</h2>
-        <div v-for="(hunk, hunkIdx) in selectedFile.hunks" :key="hunkIdx" class="hunk">
-          <div class="hunk-header">
-            @@ -{{ hunk.oldStart }},{{ hunk.oldLines }} +{{ hunk.newStart }},{{ hunk.newLines }} @@
+      <p v-if="loadingList">loading...</p>
+      <p v-else-if="listError !== null" class="error">error: {{ listError }}</p>
+      <p v-else-if="entries.length === 0">no changes</p>
+      <template v-else>
+        <article
+          v-for="entry in entries"
+          :id="anchorId(entry.summary.path)"
+          :key="entry.summary.path"
+          class="file-card"
+        >
+          <header class="file-header" @click="toggleCollapsed(entry)">
+            <button
+              type="button"
+              class="toggle"
+              :aria-expanded="!entry.collapsed"
+              :aria-label="entry.collapsed ? 'expand' : 'collapse'"
+            >
+              {{ entry.collapsed ? '▸' : '▾' }}
+            </button>
+            <span class="status" :data-status="entry.summary.status">{{
+              statusInitial(entry.summary.status)
+            }}</span>
+            <span class="path">{{ entry.summary.path }}</span>
+            <span class="stats">+{{ entry.summary.additions }}/-{{ entry.summary.deletions }}</span>
+          </header>
+          <div v-if="!entry.collapsed" class="file-body">
+            <p v-if="entry.state.kind === 'loading'">loading {{ entry.summary.path }}...</p>
+            <p v-else-if="entry.state.kind === 'notFound'">
+              no diff to display for {{ entry.summary.path }}
+            </p>
+            <p v-else-if="entry.state.kind === 'error'" class="error">
+              error: {{ entry.state.message }}
+            </p>
+            <template v-else-if="successFile(entry.state) !== null">
+              <div
+                v-for="(hunk, hunkIdx) in successFile(entry.state)?.hunks ?? []"
+                :key="hunkIdx"
+                class="hunk"
+              >
+                <div class="hunk-header">
+                  @@ -{{ hunk.oldStart }},{{ hunk.oldLines }} +{{ hunk.newStart }},{{
+                    hunk.newLines
+                  }}
+                  @@
+                </div>
+                <div
+                  v-for="(line, lineIdx) in hunk.lines"
+                  :key="lineIdx"
+                  class="line"
+                  :class="line.kind"
+                >
+                  <span class="line-no">{{ line.oldLineNo ?? '' }}</span>
+                  <span class="line-no">{{ line.newLineNo ?? '' }}</span>
+                  <span class="marker">{{ lineMarker(line.kind) }}</span>
+                  <span class="content">{{ line.content }}</span>
+                </div>
+              </div>
+            </template>
           </div>
-          <div v-for="(line, lineIdx) in hunk.lines" :key="lineIdx" class="line" :class="line.kind">
-            <span class="line-no">{{ line.oldLineNo ?? '' }}</span>
-            <span class="line-no">{{ line.newLineNo ?? '' }}</span>
-            <span class="marker">{{ lineMarker(line.kind) }}</span>
-            <span class="content">{{ line.content }}</span>
-          </div>
-        </div>
+        </article>
       </template>
     </section>
   </div>
@@ -124,11 +206,16 @@ function lineMarker(kind: 'context' | 'add' | 'delete'): string {
   gap: 1rem;
   font-family: ui-monospace, monospace;
   margin-top: 1rem;
+  align-items: flex-start;
 }
 .file-list {
   width: 280px;
   border-right: 1px solid #ddd;
   padding-right: 1rem;
+  position: sticky;
+  top: 0;
+  max-height: 100vh;
+  overflow-y: auto;
 }
 .file-list ul {
   list-style: none;
@@ -147,9 +234,6 @@ function lineMarker(kind: 'context' | 'add' | 'delete'): string {
 }
 .file-list li:hover {
   background: #f0f0f0;
-}
-.file-list li.selected {
-  background: #e0e0ff;
 }
 .status {
   display: inline-block;
@@ -183,16 +267,49 @@ function lineMarker(kind: 'context' | 'add' | 'delete'): string {
   flex: 1;
   min-width: 0;
 }
-.hunk {
+.file-card {
   margin-bottom: 1.5rem;
   border: 1px solid #ddd;
   border-radius: 4px;
+  overflow: hidden;
+}
+.file-header {
+  background: #f6f6f6;
+  padding: 0.4rem 0.6rem;
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+  border-bottom: 1px solid #ddd;
+}
+.file-header:hover {
+  background: #eee;
+}
+.toggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  font-size: 1em;
+  line-height: 1;
+  width: 1.2em;
+  color: #666;
+}
+.file-body {
   overflow-x: auto;
 }
+.hunk {
+  border-top: 1px solid #eee;
+}
+.hunk:first-child {
+  border-top: none;
+}
 .hunk-header {
-  background: #f6f6f6;
-  padding: 0.25rem 0.5rem;
+  background: #f0f0f6;
+  padding: 0.2rem 0.5rem;
   color: #666;
+  font-size: 0.9em;
 }
 .line {
   display: flex;
@@ -222,5 +339,6 @@ function lineMarker(kind: 'context' | 'add' | 'delete'): string {
 }
 .error {
   color: #c00;
+  padding: 0.5rem;
 }
 </style>
