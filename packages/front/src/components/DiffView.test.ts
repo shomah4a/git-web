@@ -168,12 +168,17 @@ describe('DiffView', () => {
     // それぞれのカードに hunk が描画される
     expect(cards[0]?.text()).toContain('@@ -1,2 +1,2 @@')
     expect(cards[1]?.text()).toContain('@@ -0,0 +1,2 @@')
-    // foo.ts の add/delete/context がすべて描画される
-    const linesOfA = cards[0]?.findAll('.line') ?? []
-    expect(linesOfA).toHaveLength(3)
-    expect(linesOfA[0]?.classes()).toContain('delete')
-    expect(linesOfA[1]?.classes()).toContain('add')
-    expect(linesOfA[2]?.classes()).toContain('context')
+    // Split View: foo.ts は [delete+add ペア, context] の 2 行になる
+    const rowsA = cards[0]?.findAll('.split-row') ?? []
+    expect(rowsA).toHaveLength(2)
+    // 1 行目は左に delete、右に add を含む
+    expect(rowsA[0]?.findAll('.cell-delete').length).toBeGreaterThan(0)
+    expect(rowsA[0]?.findAll('.cell-add').length).toBeGreaterThan(0)
+    expect(rowsA[0]?.text()).toContain('old')
+    expect(rowsA[0]?.text()).toContain('new')
+    // 2 行目は両側 context (lineno + content の計 4 セルに cell-context が付く)
+    expect(rowsA[1]?.findAll('.cell-context').length).toBe(4)
+    expect(rowsA[1]?.text()).toContain('tail')
   })
 
   it('個別ファイルの取得が 404 ならそのカードのみ no diff to display を表示する', async () => {

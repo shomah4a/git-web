@@ -2,23 +2,22 @@
 /**
  * diff 表示コンポーネント。
  *
- * 設計方針 (ADR 0012 + ADR 0014):
+ * 設計方針 (ADR 0012 + ADR 0014 + ADR 0015):
  * - マウント時に /api/diff/files でファイル一覧を取得
  * - 続けて全ファイルの /api/diff/file?path=... を Promise.allSettled で並列取得
  * - 左ペインにファイル一覧 (ナビゲーション)
- * - 右ペインに全ファイルの diff を縦積み
+ * - 右ペインに全ファイルの diff を縦積み (Split View: 左=旧 / 右=新)
  * - ファイル一覧クリックで該当セクションへ scrollIntoView
  * - 各ファイルはヘッダークリックで折りたたみ可能、デフォルトは展開
  * - 個別ファイルの fetch 失敗はそのカードのみエラー表示、他は継続
- *
- * race condition について:
- * - ADR 0012 が許容していた「高速なファイル切替による race」は、
- *   マウント時一括 fetch に変わったことで消滅した
  */
 
 import type { DiffFileDto, DiffFileSummaryDto } from '@git-web/common'
 import { onMounted, ref } from 'vue'
 import { fetchDiffFile, fetchDiffFiles } from '../api/diff.js'
+import { pairLines } from '../diff/pair-lines.js'
+
+type DiffLineDto = DiffFileDto['hunks'][number]['lines'][number]
 
 type FileState =
   | { readonly kind: 'loading' }
@@ -101,10 +100,11 @@ function statusInitial(status: DiffFileSummaryDto['status']): string {
   return 'C'
 }
 
-function lineMarker(kind: 'context' | 'add' | 'delete'): string {
-  if (kind === 'add') return '+'
-  if (kind === 'delete') return '-'
-  return ' '
+function cellClass(line: DiffLineDto | null): string {
+  if (line === null) return 'cell-empty'
+  if (line.kind === 'delete') return 'cell-delete'
+  if (line.kind === 'add') return 'cell-add'
+  return 'cell-context'
 }
 
 function successFile(state: FileState): DiffFileDto | null {
@@ -180,16 +180,25 @@ function successFile(state: FileState): DiffFileDto | null {
                   }}
                   @@
                 </div>
-                <div
-                  v-for="(line, lineIdx) in hunk.lines"
-                  :key="lineIdx"
-                  class="line"
-                  :class="line.kind"
-                >
-                  <span class="line-no">{{ line.oldLineNo ?? '' }}</span>
-                  <span class="line-no">{{ line.newLineNo ?? '' }}</span>
-                  <span class="marker">{{ lineMarker(line.kind) }}</span>
-                  <span class="content">{{ line.content }}</span>
+                <div class="hunk-body">
+                  <div
+                    v-for="(row, rowIdx) in pairLines(hunk.lines)"
+                    :key="rowIdx"
+                    class="split-row"
+                  >
+                    <span class="lineno" :class="cellClass(row.left)">{{
+                      row.left?.oldLineNo ?? ''
+                    }}</span>
+                    <span class="content" :class="cellClass(row.left)">{{
+                      row.left?.content ?? ''
+                    }}</span>
+                    <span class="lineno" :class="cellClass(row.right)">{{
+                      row.right?.newLineNo ?? ''
+                    }}</span>
+                    <span class="content" :class="cellClass(row.right)">{{
+                      row.right?.content ?? ''
+                    }}</span>
+                  </div>
                 </div>
               </div>
             </template>
@@ -311,31 +320,34 @@ function successFile(state: FileState): DiffFileDto | null {
   color: #666;
   font-size: 0.9em;
 }
-.line {
-  display: flex;
-  padding: 0 0.5rem;
-  white-space: pre;
+.hunk-body {
+  display: grid;
+  grid-template-columns: 3em minmax(0, 1fr) 3em minmax(0, 1fr);
+  font-size: 0.9em;
 }
-.line.add {
-  background: #e6ffe6;
+.split-row {
+  display: contents;
 }
-.line.delete {
-  background: #ffe6e6;
-}
-.line-no {
-  width: 3em;
+.lineno {
+  padding: 0 0.5em;
   text-align: right;
   color: #999;
-  padding-right: 0.5rem;
   user-select: none;
-}
-.marker {
-  width: 1em;
-  user-select: none;
+  border-right: 1px solid #eee;
 }
 .content {
-  flex: 1;
+  padding: 0 0.5em;
   white-space: pre;
+  overflow-x: auto;
+}
+.cell-delete {
+  background: #ffe6e6;
+}
+.cell-add {
+  background: #e6ffe6;
+}
+.cell-empty {
+  background: #f5f5f5;
 }
 .error {
   color: #c00;
