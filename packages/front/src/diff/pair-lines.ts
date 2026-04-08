@@ -19,12 +19,15 @@ export type SideBySideRow = {
 /**
  * hunk 内の 1 次元 line 列を左右ペアの行配列に変換する。
  *
- * アルゴリズム:
+ * アルゴリズム (ADR 0015):
  *  - context は左右同じ line を置く
- *  - 連続する delete を集め、直後の連続する add を集める。
- *    max(R, A) 行分のペアを生成し、足りない側は null
- *  - add だけが単独で現れる (直前に delete がない) 場合は
- *    左 null / 右 add の行にする
+ *  - 連続する delete を集め、直後に連続する add が続くならそれも集める。
+ *    max(deletes.length, adds.length) 行分のペアを生成し、足りない側は null で埋める
+ *  - 直前に delete がない単独の add は { left: null, right: add } として出力する
+ *
+ * これにより modify ブロック (delete と add が隣接する変更) は同じ行に
+ * 左=旧 / 右=新 として並び、純削除 / 純追加は対面が null のまま残る。
+ * 空の cell は描画側で min-height により 1 行分の高さを確保する。
  */
 export function pairLines(lines: ReadonlyArray<DiffLineDto>): ReadonlyArray<SideBySideRow> {
   const rows: SideBySideRow[] = []
@@ -41,7 +44,6 @@ export function pairLines(lines: ReadonlyArray<DiffLineDto>): ReadonlyArray<Side
       continue
     }
     if (line.kind === 'delete') {
-      // 連続する delete を収集
       const deletes: DiffLineDto[] = []
       while (i < lines.length) {
         const current = lines[i]
@@ -49,7 +51,6 @@ export function pairLines(lines: ReadonlyArray<DiffLineDto>): ReadonlyArray<Side
         deletes.push(current)
         i += 1
       }
-      // 直後に続く連続 add を収集
       const adds: DiffLineDto[] = []
       while (i < lines.length) {
         const current = lines[i]
@@ -66,7 +67,7 @@ export function pairLines(lines: ReadonlyArray<DiffLineDto>): ReadonlyArray<Side
       }
       continue
     }
-    // 単独の add (直前 delete なし)
+    // 直前 delete のない単独 add
     rows.push({ left: null, right: line })
     i += 1
   }

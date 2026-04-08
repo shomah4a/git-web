@@ -28,9 +28,13 @@ type SideBySideRow = {
 1. 入力行を前から走査する
 2. `context` → `{ left: line, right: line }` を 1 行出力
 3. 連続する `delete` を集める。直後に連続する `add` が続くならそれも集める。`max(deletes.length, adds.length)` 行分のペアを生成し、足りない側は `null` で埋める
-4. `add` だけが単独で現れる場合 (直前に delete がない) → 各 add を `{ left: null, right: add }` として出力
+4. 直前に `delete` がない単独の `add` → `{ left: null, right: add }`
 
-context / 純 delete / 純 add / delete+add ペアリング / 不均等ペアリングの 5 ケースを単体テストで検証する。
+これにより、直後に add が続く delete は modify 行として同じ行に並び、純削除 / 純追加は対面 `null` の空白行として残る。GitHub PR の Split View と同等の見え方になる。
+
+対面が `null` の空白セルは、描画側で `.row { min-height: 1em 相当 }` を設定することで左右の高さを揃える。これを怠ると空セルが高さ 0 に collapse し左右で行が整列しない。
+
+context / 純 delete / 純 add / delete+add 等量 / delete 過多 / add 過多 / 混在の 7 ケースを単体テストで検証する。
 
 ### UI
 
