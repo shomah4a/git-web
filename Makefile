@@ -18,7 +18,7 @@ help:
 	@echo "  lint      - 全パッケージに lint を実行"
 	@echo "  typecheck - 全パッケージで TypeScript の型チェック"
 	@echo "  check     - lint + fmt-check + typecheck + test を一括実行"
-	@echo "  serve     - 開発サーバーを起動 (front の dev サーバー)"
+	@echo "  serve     - 開発サーバーを起動 (ビルド後 ./bin/git-web を起動)"
 	@echo "  clean     - ビルド成果物とローカルキャッシュを削除"
 
 install:
@@ -43,7 +43,8 @@ check:
 	$(PNPM) check
 
 serve:
-	$(PNPM) --filter @git-web/front dev
+	$(PNPM) build
+	./bin/git-web
 
 clean:
 	rm -rf node_modules packages/*/node_modules packages/*/dist .pnpm-store .corepack
