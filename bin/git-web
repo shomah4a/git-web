@@ -3,13 +3,19 @@
  * git-web エントリスクリプト。
  *
  * `git web` として実行されると、このファイルが起動し、
- * - api サーバーを 127.0.0.1 のランダムポートで起動
+ * - api サーバーを 127.0.0.1 の固定ポート (デフォルト 47906) で起動
  * - packages/front/dist を静的配信元としてマウント
  * - ブラウザを自動で開く
  *
  * 前提: ./bin/pnpm build 済み（packages/api/dist と
  * packages/front/dist の両方が存在すること）
+ *
+ * 環境変数:
+ * - PORT: 待ち受けポートを上書きする。未指定ならデフォルトの 47906 を使う。
+ *   固定ポートの選定理由は ADR 0013 参照。
  */
+
+const DEFAULT_PORT = 47906
 
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
@@ -34,13 +40,16 @@ if (!existsSync(frontDistPath)) {
   process.exit(1)
 }
 
-/** @type {{ start: (options: { cwd?: string; staticDir?: string }) => Promise<{ url: string; repoRoot: string; close: () => Promise<void> }> }} */
+/** @type {{ start: (options: { cwd?: string; staticDir?: string; port?: number }) => Promise<{ url: string; repoRoot: string; close: () => Promise<void> }> }} */
 const apiModule = await import(apiMainPath)
+
+const port = readPortFromEnv()
 
 try {
   const started = await apiModule.start({
     cwd: process.cwd(),
     staticDir: frontDistPath,
+    port,
   })
 
   console.log(`git-web listening on ${started.url}`)
@@ -97,4 +106,24 @@ function openBrowser(url) {
   } catch {
     // 握りつぶす
   }
+}
+
+/**
+ * 環境変数 PORT から起動ポートを読む。
+ * 未指定または不正な値なら DEFAULT_PORT (47906) を返す。
+ * 固定ポート採用の背景は ADR 0013 参照。
+ *
+ * @returns {number}
+ */
+function readPortFromEnv() {
+  const raw = process.env.PORT
+  if (raw === undefined || raw === '') {
+    return DEFAULT_PORT
+  }
+  const parsed = Number.parseInt(raw, 10)
+  if (Number.isNaN(parsed) || parsed < 0 || parsed > 65535) {
+    console.warn(`invalid PORT env value: ${raw}, falling back to ${DEFAULT_PORT}`)
+    return DEFAULT_PORT
+  }
+  return parsed
 }
