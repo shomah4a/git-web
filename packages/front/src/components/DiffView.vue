@@ -427,9 +427,17 @@ function successFile(state: FileState): DiffFileDto | null {
   width: max-content;
   min-width: 100%;
 }
+/*
+ * .row は flex ではなく block + inline-block で組む。
+ * flex (特に flex: _ _ auto + white-space: pre) では max-content 計算が
+ * pre テキストの自然幅を正しく反映しないケースがあり、.row の offsetWidth が
+ * 実際の content 幅より小さくなって背景色が content の右端まで届かなかった
+ * (実測: .row.offsetWidth 590 / .row.scrollWidth 619)。
+ * block + inline-block なら親の max-content は「子 inline-block 幅の合計」に
+ * 素直になる。
+ */
 .row {
-  display: flex;
-  align-items: stretch;
+  display: block;
   line-height: 1.4;
   /*
    * 空セルでも 1 行分の高さを確保する。これがないと cell-empty の行が
@@ -437,23 +445,29 @@ function successFile(state: FileState): DiffFileDto | null {
    */
   min-height: 1.4em;
   /*
-   * width: 100% だと .side-inner (max-content) と循環参照して右端が
-   * 1-2px 足りないケースがある。min-width: 100% で短い行をストレッチし、
-   * 長い行は自然幅に任せる方が安定する。
+   * width: max-content で .row 自身を content 幅まで伸ばし、
+   * min-width: 100% で短い行を .side-inner の最長行幅までストレッチする。
    */
+  width: max-content;
   min-width: 100%;
+  /* 子 inline-block 間で改行を入れない (テンプレートの空白対策も兼ねる) */
+  white-space: nowrap;
 }
 .row-lineno {
-  flex: 0 0 3em;
+  display: inline-block;
+  width: 3em;
   padding: 0 0.5em;
   text-align: right;
   color: #999;
   user-select: none;
+  vertical-align: top;
 }
 .row-content {
-  flex: 1 1 auto;
+  display: inline-block;
   padding: 0 0.5em;
+  /* pre: テキスト自体は折り返さず空白もそのまま保持する */
   white-space: pre;
+  vertical-align: top;
 }
 .cell-delete {
   background: #ffe6e6;
