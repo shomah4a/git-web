@@ -238,6 +238,145 @@ describe('DiffView', () => {
     wrapper.unmount()
   })
 
+  it('左側をスクロールすると右側の scrollLeft が同じ値に同期する', async () => {
+    mockFetchByUrl({
+      '/api/diff/files': () => jsonResponse(200, { files: [SUMMARY_A] }),
+      '/api/diff/file|foo.ts': () => jsonResponse(200, FILE_A),
+    })
+
+    const wrapper = mount(DiffView, { attachTo: document.body })
+    await flushPromises()
+
+    const left = wrapper.find<HTMLElement>('.side-left').element
+    const right = wrapper.find<HTMLElement>('.side-right').element
+
+    left.scrollLeft = 120
+    left.dispatchEvent(new Event('scroll'))
+
+    expect(right.scrollLeft).toBe(120)
+    wrapper.unmount()
+  })
+
+  it('右側をスクロールすると左側の scrollLeft が同じ値に同期する', async () => {
+    mockFetchByUrl({
+      '/api/diff/files': () => jsonResponse(200, { files: [SUMMARY_A] }),
+      '/api/diff/file|foo.ts': () => jsonResponse(200, FILE_A),
+    })
+
+    const wrapper = mount(DiffView, { attachTo: document.body })
+    await flushPromises()
+
+    const left = wrapper.find<HTMLElement>('.side-left').element
+    const right = wrapper.find<HTMLElement>('.side-right').element
+
+    right.scrollLeft = 77
+    right.dispatchEvent(new Event('scroll'))
+
+    expect(left.scrollLeft).toBe(77)
+    wrapper.unmount()
+  })
+
+  it('scroll 同期が isSyncing フラグで無限ループしない', async () => {
+    mockFetchByUrl({
+      '/api/diff/files': () => jsonResponse(200, { files: [SUMMARY_A] }),
+      '/api/diff/file|foo.ts': () => jsonResponse(200, FILE_A),
+    })
+
+    const wrapper = mount(DiffView, { attachTo: document.body })
+    await flushPromises()
+
+    const left = wrapper.find<HTMLElement>('.side-left').element
+    const right = wrapper.find<HTMLElement>('.side-right').element
+
+    // jsdom は scrollLeft 代入で scroll イベントを自動発火しないため、
+    // 本物のブラウザで発生する「dst 側にも scroll イベントが飛ぶ」状況を
+    // 手動で再現する。isSyncing が効いていれば再入時に src は書き換わらない。
+    const leftSpy = vi.fn(() => {
+      right.scrollLeft = left.scrollLeft
+      right.dispatchEvent(new Event('scroll'))
+    })
+    left.addEventListener('scroll', leftSpy)
+
+    left.scrollLeft = 50
+    left.dispatchEvent(new Event('scroll'))
+
+    expect(leftSpy).toHaveBeenCalledTimes(1)
+    expect(right.scrollLeft).toBe(50)
+    wrapper.unmount()
+  })
+
+  it('複数 hunk がある場合はそれぞれの hunk で独立にスクロール同期する', async () => {
+    const FILE_TWO_HUNKS = {
+      path: 'foo.ts',
+      oldPath: null,
+      status: 'modified',
+      additions: 2,
+      deletions: 2,
+      binary: false,
+      language: 'typescript',
+      hunks: [
+        {
+          oldStart: 1,
+          oldLines: 1,
+          newStart: 1,
+          newLines: 1,
+          header: '',
+          lines: [
+            { kind: 'delete', content: 'a', oldLineNo: 1, newLineNo: null },
+            { kind: 'add', content: 'A', oldLineNo: null, newLineNo: 1 },
+          ],
+        },
+        {
+          oldStart: 10,
+          oldLines: 1,
+          newStart: 10,
+          newLines: 1,
+          header: '',
+          lines: [
+            { kind: 'delete', content: 'b', oldLineNo: 10, newLineNo: null },
+            { kind: 'add', content: 'B', oldLineNo: null, newLineNo: 10 },
+          ],
+        },
+      ],
+    }
+
+    mockFetchByUrl({
+      '/api/diff/files': () => jsonResponse(200, { files: [SUMMARY_A] }),
+      '/api/diff/file|foo.ts': () => jsonResponse(200, FILE_TWO_HUNKS),
+    })
+
+    const wrapper = mount(DiffView, { attachTo: document.body })
+    await flushPromises()
+
+    const hunks = wrapper.findAll('.hunk-content')
+    expect(hunks).toHaveLength(2)
+
+    const left0 = hunks[0]?.find<HTMLElement>('.side-left').element
+    const right0 = hunks[0]?.find<HTMLElement>('.side-right').element
+    const left1 = hunks[1]?.find<HTMLElement>('.side-left').element
+    const right1 = hunks[1]?.find<HTMLElement>('.side-right').element
+    if (
+      left0 === undefined ||
+      right0 === undefined ||
+      left1 === undefined ||
+      right1 === undefined
+    ) {
+      throw new Error('hunk side element not found')
+    }
+
+    // hunk 0 の左をスクロール
+    left0.scrollLeft = 30
+    left0.dispatchEvent(new Event('scroll'))
+
+    // hunk 0 は同期される
+    expect(right0.scrollLeft).toBe(30)
+    // hunk 1 は影響を受けない
+    expect(left1.scrollLeft).toBe(0)
+    expect(right1.scrollLeft).toBe(0)
+
+    wrapper.unmount()
+  })
+
   it('ファイルヘッダークリックで折りたたまれ、再度クリックで展開する', async () => {
     mockFetchByUrl({
       '/api/diff/files': () => jsonResponse(200, { files: [SUMMARY_A] }),
@@ -247,18 +386,20 @@ describe('DiffView', () => {
     const wrapper = mount(DiffView)
     await flushPromises()
 
-    // 初期状態は展開
-    expect(wrapper.find('.file-body').exists()).toBe(true)
+    // 初期状態は展開 (v-show なので DOM は常に存在する)
+    // v-show は inline style で display を操作するので element.style.display を直接検証する
+    const body = wrapper.find<HTMLElement>('.file-body').element
+    expect(body.style.display).toBe('')
     expect(wrapper.find('.toggle').text()).toBe('▾')
 
-    // クリックで折りたたむ
+    // クリックで折りたたむ (display:none になる)
     await wrapper.find('.file-header').trigger('click')
-    expect(wrapper.find('.file-body').exists()).toBe(false)
+    expect(body.style.display).toBe('none')
     expect(wrapper.find('.toggle').text()).toBe('▸')
 
     // もう一度クリックで展開
     await wrapper.find('.file-header').trigger('click')
-    expect(wrapper.find('.file-body').exists()).toBe(true)
+    expect(body.style.display).toBe('')
     expect(wrapper.find('.toggle').text()).toBe('▾')
   })
 })
