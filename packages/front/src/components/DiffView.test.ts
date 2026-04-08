@@ -168,12 +168,25 @@ describe('DiffView', () => {
     // それぞれのカードに hunk が描画される
     expect(cards[0]?.text()).toContain('@@ -1,2 +1,2 @@')
     expect(cards[1]?.text()).toContain('@@ -0,0 +1,2 @@')
-    // foo.ts の add/delete/context がすべて描画される
-    const linesOfA = cards[0]?.findAll('.line') ?? []
-    expect(linesOfA).toHaveLength(3)
-    expect(linesOfA[0]?.classes()).toContain('delete')
-    expect(linesOfA[1]?.classes()).toContain('add')
-    expect(linesOfA[2]?.classes()).toContain('context')
+    // Split View (ペアリング方式): foo.ts は [delete+add ペア, context] の 2 行
+    const leftA = cards[0]?.find('.side-left')
+    const rightA = cards[0]?.find('.side-right')
+    expect(leftA?.exists()).toBe(true)
+    expect(rightA?.exists()).toBe(true)
+    const leftRowsA = leftA?.findAll('.row') ?? []
+    const rightRowsA = rightA?.findAll('.row') ?? []
+    expect(leftRowsA).toHaveLength(2)
+    expect(rightRowsA).toHaveLength(2)
+    // 1 行目: 左は delete で 'old'、右は add で 'new'
+    expect(leftRowsA[0]?.classes()).toContain('cell-delete')
+    expect(leftRowsA[0]?.text()).toContain('old')
+    expect(rightRowsA[0]?.classes()).toContain('cell-add')
+    expect(rightRowsA[0]?.text()).toContain('new')
+    // 2 行目: 両側とも context で 'tail'
+    expect(leftRowsA[1]?.classes()).toContain('cell-context')
+    expect(rightRowsA[1]?.classes()).toContain('cell-context')
+    expect(leftRowsA[1]?.text()).toContain('tail')
+    expect(rightRowsA[1]?.text()).toContain('tail')
   })
 
   it('個別ファイルの取得が 404 ならそのカードのみ no diff to display を表示する', async () => {
