@@ -180,24 +180,28 @@ function successFile(state: FileState): DiffFileDto | null {
                   }}
                   @@
                 </div>
-                <div class="hunk-body">
-                  <div
-                    v-for="(row, rowIdx) in pairLines(hunk.lines)"
-                    :key="rowIdx"
-                    class="split-row"
-                  >
-                    <span class="lineno" :class="cellClass(row.left)">{{
-                      row.left?.oldLineNo ?? ''
-                    }}</span>
-                    <span class="content" :class="cellClass(row.left)">{{
-                      row.left?.content ?? ''
-                    }}</span>
-                    <span class="lineno" :class="cellClass(row.right)">{{
-                      row.right?.newLineNo ?? ''
-                    }}</span>
-                    <span class="content" :class="cellClass(row.right)">{{
-                      row.right?.content ?? ''
-                    }}</span>
+                <div class="hunk-content">
+                  <div class="side side-left">
+                    <div
+                      v-for="(row, rowIdx) in pairLines(hunk.lines)"
+                      :key="rowIdx"
+                      class="row"
+                      :class="cellClass(row.left)"
+                    >
+                      <span class="row-lineno">{{ row.left?.oldLineNo ?? '' }}</span>
+                      <span class="row-content">{{ row.left?.content ?? '' }}</span>
+                    </div>
+                  </div>
+                  <div class="side side-right">
+                    <div
+                      v-for="(row, rowIdx) in pairLines(hunk.lines)"
+                      :key="rowIdx"
+                      class="row"
+                      :class="cellClass(row.right)"
+                    >
+                      <span class="row-lineno">{{ row.right?.newLineNo ?? '' }}</span>
+                      <span class="row-content">{{ row.right?.content ?? '' }}</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -306,7 +310,7 @@ function successFile(state: FileState): DiffFileDto | null {
   color: #666;
 }
 .file-body {
-  overflow-x: auto;
+  font-size: 0.9em;
 }
 .hunk {
   border-top: 1px solid #eee;
@@ -318,27 +322,44 @@ function successFile(state: FileState): DiffFileDto | null {
   background: #f0f0f6;
   padding: 0.2rem 0.5rem;
   color: #666;
-  font-size: 0.9em;
 }
-.hunk-body {
-  display: grid;
-  grid-template-columns: 3em minmax(0, 1fr) 3em minmax(0, 1fr);
-  font-size: 0.9em;
+.hunk-content {
+  display: flex;
+  align-items: flex-start;
 }
-.split-row {
-  display: contents;
+.side {
+  flex: 1 1 50%;
+  min-width: 0;
+  /*
+   * 片方だけ overflow-x: auto にするとスクロールバー高分の差で行の縦位置が
+   * 左右でズレる。常にスクロールバー領域を確保するため scroll を使う。
+   */
+  overflow-x: scroll;
 }
-.lineno {
+.side-left {
+  border-right: 1px solid #ddd;
+}
+.row {
+  display: flex;
+  align-items: stretch;
+  line-height: 1.4;
+  /*
+   * 空セルでも 1 行分の高さを確保する。これがないと cell-empty の行が
+   * 子要素のテキスト高 0 で collapse し、左右で高さが揃わなくなる。
+   */
+  min-height: 1.4em;
+}
+.row-lineno {
+  flex: 0 0 3em;
   padding: 0 0.5em;
   text-align: right;
   color: #999;
   user-select: none;
-  border-right: 1px solid #eee;
 }
-.content {
+.row-content {
+  flex: 1 1 auto;
   padding: 0 0.5em;
   white-space: pre;
-  overflow-x: auto;
 }
 .cell-delete {
   background: #ffe6e6;
@@ -348,6 +369,9 @@ function successFile(state: FileState): DiffFileDto | null {
 }
 .cell-empty {
   background: #f5f5f5;
+}
+.cell-context {
+  background: transparent;
 }
 .error {
   color: #c00;
