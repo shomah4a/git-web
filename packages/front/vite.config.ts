@@ -4,14 +4,13 @@ import { defineConfig } from 'vite'
 /**
  * Vite 設定。
  *
- * dev サーバー:
- * - 127.0.0.1 に bind する (ADR 0009: ローカルのみ)
- * - /api へのリクエストは api パッケージのサーバーへプロキシする
- *   dev 時は api を `PORT=3000 node packages/api/dist/main.js` で
- *   起動しておくことを前提とする
+ * 本プロジェクトの通常の開発フローでは vite dev サーバーを使わず、
+ * `make serve` 経由で bin/git-web (api が packages/front/dist を静的配信)
+ * を起動する (ADR 0013)。vite はビルドのみを担当する。
  *
- * production ビルドは bin/git-web 経由で api パッケージが
- * dist を配信する想定のため、proxy 設定は dev 時のみ効く。
+ * `pnpm --filter @git-web/front dev` を直接叩いた場合の dev サーバー設定は
+ * 将来 HMR を必要としたときのために残している。その場合は api を別途
+ * `PORT=47906 ./bin/git-web` などで起動し、下記 proxy target を合わせること。
  */
 export default defineConfig({
   plugins: [vue()],
@@ -21,7 +20,7 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:3000',
+        target: 'http://127.0.0.1:47906',
         changeOrigin: false,
       },
     },
