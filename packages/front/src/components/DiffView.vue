@@ -13,7 +13,7 @@
  */
 
 import type { DiffFileDto, DiffFileSummaryDto } from '@git-web/common'
-import { onMounted, ref } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { fetchDiffFile, fetchDiffFiles } from '../api/diff.js'
 import { pairLines } from '../diff/pair-lines.js'
 
@@ -34,6 +34,65 @@ type FileEntry = {
 const entries = ref<FileEntry[]>([])
 const loadingList = ref(false)
 const listError = ref<string | null>(null)
+const diffRoot = ref<HTMLElement | null>(null)
+
+/**
+ * 左右スクロール同期 (Task C, ADR 0015 補遺)。
+ *
+ * Split View は `.hunk-content` 内の `.side-left` / `.side-right` がそれぞれ
+ * `overflow-x: scroll` で横スクロールする。長い行を読むときに左右別々に
+ * スクロールすると対応が取れないため、`scrollLeft` を hunk 単位で相互に
+ * コピーする。
+ *
+ * - hunk ごとに閉じた `isSyncing` フラグで無限ループ (scroll → scrollLeft 代入
+ *   → scroll イベント → ...) を防ぐ
+ * - `entries` が差し替わるたびに DOM が作り直されるので、teardown → 再 setup
+ *   する。`watch` は `flush: 'post'` + `nextTick` で DOM 反映後に走る
+ * - unmount 時はリスナーを全解除
+ */
+const scrollSyncCleanups: Array<() => void> = []
+
+function teardownScrollSync(): void {
+  for (const cleanup of scrollSyncCleanups) {
+    cleanup()
+  }
+  scrollSyncCleanups.length = 0
+}
+
+function setupScrollSync(): void {
+  teardownScrollSync()
+  const root = diffRoot.value
+  if (root === null) {
+    return
+  }
+  const hunks = root.querySelectorAll<HTMLElement>('.hunk-content')
+  for (const hunk of Array.from(hunks)) {
+    const left = hunk.querySelector<HTMLElement>('.side-left')
+    const right = hunk.querySelector<HTMLElement>('.side-right')
+    if (left === null || right === null) {
+      continue
+    }
+    let isSyncing = false
+    const makeHandler = (src: HTMLElement, dst: HTMLElement): (() => void) => {
+      return () => {
+        if (isSyncing) {
+          return
+        }
+        isSyncing = true
+        dst.scrollLeft = src.scrollLeft
+        isSyncing = false
+      }
+    }
+    const onLeftScroll = makeHandler(left, right)
+    const onRightScroll = makeHandler(right, left)
+    left.addEventListener('scroll', onLeftScroll, { passive: true })
+    right.addEventListener('scroll', onRightScroll, { passive: true })
+    scrollSyncCleanups.push(() => {
+      left.removeEventListener('scroll', onLeftScroll)
+      right.removeEventListener('scroll', onRightScroll)
+    })
+  }
+}
 
 onMounted(async () => {
   loadingList.value = true
@@ -61,6 +120,19 @@ onMounted(async () => {
   } finally {
     loadingList.value = false
   }
+})
+
+watch(
+  entries,
+  async () => {
+    await nextTick()
+    setupScrollSync()
+  },
+  { flush: 'post' },
+)
+
+onBeforeUnmount(() => {
+  teardownScrollSync()
 })
 
 function resolveState(result: PromiseSettledResult<DiffFileDto | null> | undefined): FileState {
@@ -113,7 +185,7 @@ function successFile(state: FileState): DiffFileDto | null {
 </script>
 
 <template>
-  <div class="diff-view">
+  <div ref="diffRoot" class="diff-view">
     <aside class="file-list">
       <h2>Files</h2>
       <p v-if="loadingList">loading...</p>
@@ -160,7 +232,7 @@ function successFile(state: FileState): DiffFileDto | null {
             <span class="path">{{ entry.summary.path }}</span>
             <span class="stats">+{{ entry.summary.additions }}/-{{ entry.summary.deletions }}</span>
           </header>
-          <div v-if="!entry.collapsed" class="file-body">
+          <div v-show="!entry.collapsed" class="file-body">
             <p v-if="entry.state.kind === 'loading'">loading {{ entry.summary.path }}...</p>
             <p v-else-if="entry.state.kind === 'notFound'">
               no diff to display for {{ entry.summary.path }}
@@ -182,25 +254,29 @@ function successFile(state: FileState): DiffFileDto | null {
                 </div>
                 <div class="hunk-content">
                   <div class="side side-left">
-                    <div
-                      v-for="(row, rowIdx) in pairLines(hunk.lines)"
-                      :key="rowIdx"
-                      class="row"
-                      :class="cellClass(row.left)"
-                    >
-                      <span class="row-lineno">{{ row.left?.oldLineNo ?? '' }}</span>
-                      <span class="row-content">{{ row.left?.content ?? '' }}</span>
+                    <div class="side-inner">
+                      <div
+                        v-for="(row, rowIdx) in pairLines(hunk.lines)"
+                        :key="rowIdx"
+                        class="row"
+                        :class="cellClass(row.left)"
+                      >
+                        <span class="row-lineno">{{ row.left?.oldLineNo ?? '' }}</span>
+                        <span class="row-content">{{ row.left?.content ?? '' }}</span>
+                      </div>
                     </div>
                   </div>
                   <div class="side side-right">
-                    <div
-                      v-for="(row, rowIdx) in pairLines(hunk.lines)"
-                      :key="rowIdx"
-                      class="row"
-                      :class="cellClass(row.right)"
-                    >
-                      <span class="row-lineno">{{ row.right?.newLineNo ?? '' }}</span>
-                      <span class="row-content">{{ row.right?.content ?? '' }}</span>
+                    <div class="side-inner">
+                      <div
+                        v-for="(row, rowIdx) in pairLines(hunk.lines)"
+                        :key="rowIdx"
+                        class="row"
+                        :class="cellClass(row.right)"
+                      >
+                        <span class="row-lineno">{{ row.right?.newLineNo ?? '' }}</span>
+                        <span class="row-content">{{ row.right?.content ?? '' }}</span>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -339,27 +415,59 @@ function successFile(state: FileState): DiffFileDto | null {
 .side-left {
   border-right: 1px solid #ddd;
 }
+/*
+ * 横スクロール時に背景色 (cell-*) が viewport 幅で途切れる問題への対策。
+ * .side-inner が「全 row のうち最長行」の幅を持ち、各 .row は width: 100% で
+ * その最長幅に追随する。これにより content が空の行 (cell-empty など) でも
+ * スクロール領域の端まで背景色が伸びる。
+ * - width: max-content で子の最大幅まで伸びる
+ * - min-width: 100% で短いケースでも viewport 幅を埋める
+ */
+.side-inner {
+  width: max-content;
+  min-width: 100%;
+}
+/*
+ * .row は flex ではなく block + inline-block で組む。
+ * flex (特に flex: _ _ auto + white-space: pre) では max-content 計算が
+ * pre テキストの自然幅を正しく反映しないケースがあり、.row の offsetWidth が
+ * 実際の content 幅より小さくなって背景色が content の右端まで届かなかった
+ * (実測: .row.offsetWidth 590 / .row.scrollWidth 619)。
+ * block + inline-block なら親の max-content は「子 inline-block 幅の合計」に
+ * 素直になる。
+ */
 .row {
-  display: flex;
-  align-items: stretch;
+  display: block;
   line-height: 1.4;
   /*
    * 空セルでも 1 行分の高さを確保する。これがないと cell-empty の行が
    * 子要素のテキスト高 0 で collapse し、左右で高さが揃わなくなる。
    */
   min-height: 1.4em;
+  /*
+   * width: max-content で .row 自身を content 幅まで伸ばし、
+   * min-width: 100% で短い行を .side-inner の最長行幅までストレッチする。
+   */
+  width: max-content;
+  min-width: 100%;
+  /* 子 inline-block 間で改行を入れない (テンプレートの空白対策も兼ねる) */
+  white-space: nowrap;
 }
 .row-lineno {
-  flex: 0 0 3em;
+  display: inline-block;
+  width: 3em;
   padding: 0 0.5em;
   text-align: right;
   color: #999;
   user-select: none;
+  vertical-align: top;
 }
 .row-content {
-  flex: 1 1 auto;
+  display: inline-block;
   padding: 0 0.5em;
+  /* pre: テキスト自体は折り返さず空白もそのまま保持する */
   white-space: pre;
+  vertical-align: top;
 }
 .cell-delete {
   background: #ffe6e6;
