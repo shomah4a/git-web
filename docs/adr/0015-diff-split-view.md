@@ -67,6 +67,59 @@ context / 純 delete / 純 add / delete+add 等量 / delete 過多 / add 過多 
 - Shiki 構文ハイライト
 - コンテキスト行の展開 / 折りたたみ
 
+## 補遺 (2026-04-08 セッション 4)
+
+Task C (左右スクロール同期) 実装の過程で、本 ADR の初版決定から以下 2 点を変更した。過去の決定は当時のままにしつつ、変更点を記録する。
+
+### 1. 折りたたみを `v-if` → `v-show` に変更
+
+初版は `<div v-if="!entry.collapsed">` で file-body を条件描画していたが、scroll 同期実装にあたり以下の問題が判明:
+
+- 再展開時に `.hunk-content` / `.side-*` が新規 DOM として作り直される
+- `entries` 参照は変わらないので `watch(entries)` が発火せず、新しいノードにリスナーが貼られない
+
+対応として `v-show` (display:none による DOM 保持) に変更した。利点:
+
+- スクロール位置が折りたたみ越しに保持される
+- scroll sync リスナーの再バインド不要 (マウント時に 1 回だけ張る)
+- 大量ファイル時のメモリコスト増は、foldable のデフォルト展開運用では実害が小さい
+
+### 2. 行 layout を `flex` → `block` + `inline-block` に変更
+
+初版は `.row { display: flex }`, `.row-lineno { flex: 0 0 3em }`, `.row-content { flex: 1 1 auto; white-space: pre }` で組んでいた。scroll 同期実装後、長い行の横スクロール時に背景色が content の右端まで届かない (実測で `.row.offsetWidth 590 / .row.scrollWidth 619`) 問題が発生した。
+
+原因: flex 子要素 (`.row-content { flex: _ _ auto }`) の max-content 計算が `white-space: pre` テキストの自然幅を正しく親 (.row) に伝播せず、`.row` の intrinsic 幅が pre content 幅より狭くなる。この状態では `.side-inner { width: max-content }` も狭い値になり、`.row` の背景色が content の右端まで届かない。
+
+対応として以下の構造に変更した:
+
+```css
+.row {
+  display: block;
+  width: max-content;
+  min-width: 100%;  /* .side-inner の最長行幅 */
+  white-space: nowrap;
+  min-height: 1.4em;  /* 空セルの高さ確保 (初版から継続) */
+}
+.row-lineno {
+  display: inline-block;
+  width: 3em;
+  vertical-align: top;
+}
+.row-content {
+  display: inline-block;
+  white-space: pre;
+  vertical-align: top;
+}
+```
+
+block 親 + inline-block 子なら、親の max-content は「子 inline-block 幅の合計」に素直に決まり、pre テキストの自然幅が正しく伝播する。`.side-inner` も最長行幅まで伸び、背景色が右端まで追従する。
+
+教訓: flex の intrinsic 幅計算は `flex: _ _ auto` + `white-space: pre` の組み合わせで直感に反する挙動を取ることがある。content 幅が支配的な要素を flex で組むと max-content 伝播で問題が出やすい。
+
+### 3. 左右スクロール同期 (Task C)
+
+各 `.hunk-content` 内の `.side-left` / `.side-right` に scroll リスナーを張り、`scrollLeft` を相互コピーする。hunk ごとに閉じた `isSyncing` フラグで無限ループを防ぐ。`onMounted` + `watch(entries, { flush: 'post' })` でリスナーを (再) セットアップし、`onBeforeUnmount` で解除する。`v-show` 化により折りたたみ経由でのリスナー再バインドは不要になった。
+
 ## 関連
 
 - ADR 0012: diff 表示アーキテクチャ (DTO はこのまま使う)
