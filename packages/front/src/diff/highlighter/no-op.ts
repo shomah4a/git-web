@@ -9,8 +9,9 @@
  * - `highlightFile` は content を行に分解し、各行を単一トークン
  *   `[{ content: line, color: null }]` として返す
  * - 失敗しない。常に成功パスで resolve
- * - 末尾改行の扱い: Shiki の `codeToTokens` に揃え、trailing LF
- *   による「空の最終行」を含めない (ADR 0017 / 計画書 step 4-3 で確認予定)
+ * - 末尾改行の扱い: Shiki の `codeToTokens` に揃える。Shiki は末尾 LF で
+ *   空の末尾行を含め、空文字入力でも `[[]]` (長さ 1 の空行) を返すことが
+ *   計画書 step 4-3 の cross-check で判明した。no-op もそれに合わせる
  */
 
 import type { HighlightedLines, Highlighter } from './types.js'
@@ -31,16 +32,12 @@ export function createNoOpHighlighter(): Highlighter {
 /**
  * content を行配列に分解し、各行を単一トークンに包んで返す。
  *
+ * Shiki の `codeToTokens` の行数に揃えるため、以下の仕様:
  * - 改行コードは `\n` を基準に分割する (CRLF は `\r` を残したままトークン化される)
- * - 末尾改行があった場合、分解後末尾に現れる空文字 1 要素は除去する
- *   (Shiki の `codeToTokens` が trailing newline を末尾空行として含めない挙動に合わせる)
- * - 空文字入力は空配列
+ * - 空行は長さ 0 の配列 (`[]`) で表現する
+ * - 空文字入力は `[[]]` (長さ 1 の空行)
+ * - 末尾改行があれば末尾に空行を含める (`"a\n" → [[{a}], []]`)
  */
 function toPlainLines(content: string): HighlightedLines {
-  if (content === '') {
-    return []
-  }
-  const rawLines = content.split('\n')
-  const lines = rawLines[rawLines.length - 1] === '' ? rawLines.slice(0, -1) : rawLines
-  return lines.map((line) => [{ content: line, color: null }])
+  return content.split('\n').map((line) => (line === '' ? [] : [{ content: line, color: null }]))
 }
