@@ -5,10 +5,17 @@
  * 直接 node で起動された場合も自動で start() を呼ぶ。
  */
 
+import { execFile } from 'node:child_process'
+import { readFile, realpath } from 'node:fs/promises'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { createCompositeBlobReader } from './adapter/blob-reader-composite.js'
+import { createWorktreeBlobReader } from './adapter/fs/worktree-blob-reader.js'
+import type { ExecFileFn } from './adapter/git/cat-file-blob-reader.js'
+import { createCatFileBlobReader } from './adapter/git/cat-file-blob-reader.js'
 import { CliGitClient } from './adapter/git/cli-client.js'
 import { jsdiffParser } from './adapter/jsdiff/parser.js'
+import { createBlobHandler } from './controller/blob-controller.js'
 import { createDiffFileHandler, createDiffFilesHandler } from './controller/diff-controller.js'
 import { mapDomainErrorToHttpResponse } from './controller/error-mapper.js'
 import { createRepoHandler } from './controller/repo-controller.js'
@@ -16,6 +23,7 @@ import { NotAGitRepositoryError } from './domain/errors.js'
 import type { Route } from './http/router.js'
 import { close, createApiServer, listen } from './http/server.js'
 import { createStaticHandler } from './http/static.js'
+import { createBlobService } from './service/blob-service.js'
 import { createDiffService } from './service/diff-service.js'
 
 export type StartOptions = {
@@ -45,6 +53,32 @@ export type StartedServer = {
 }
 
 /**
+ * node:child_process.execFile をラップして
+ * `git cat-file blob` が必要とする Buffer 返却型に揃える。
+ *
+ * promisify(execFile) の default overload は stdout: string を返すため、
+ * encoding: 'buffer' オプションを指定したときの戻り値型を直接取り出せない。
+ * ここでは Node の callback 形式を Promise でくるみ直して ExecFileFn
+ * シグネチャに合わせる。
+ */
+const nodeExecFile: ExecFileFn = (file, args, options) =>
+  new Promise((resolve, reject) => {
+    execFile(file, [...args], { ...options }, (err, stdout, stderr) => {
+      const stdoutBuf = Buffer.isBuffer(stdout) ? stdout : Buffer.from(stdout, 'utf8')
+      const stderrBuf = Buffer.isBuffer(stderr) ? stderr : Buffer.from(stderr, 'utf8')
+      if (err !== null) {
+        // 非ゼロ終了時の err は ExecFileException で code / stderr を持つ。
+        // stderr を Buffer で統一して adapter の isBlobNotFoundError が
+        // Buffer#toString('utf8') で読めるようにする。
+        const enriched: Error = Object.assign(err, { stderr: stderrBuf })
+        reject(enriched)
+        return
+      }
+      resolve({ stdout: stdoutBuf, stderr: stderrBuf })
+    })
+  })
+
+/**
  * api サーバーを起動する。
  *
  * - 対象が git リポジトリでない場合は NotAGitRepositoryError を投げる
@@ -64,10 +98,19 @@ export async function start(options: StartOptions = {}): Promise<StartedServer> 
 
   const diffService = createDiffService(git, jsdiffParser)
 
+  const worktreeReader = createWorktreeBlobReader(repoRoot, {
+    realpath: (p) => realpath(p),
+    readFile: (p) => readFile(p),
+  })
+  const catFileReader = createCatFileBlobReader(nodeExecFile, repoRoot)
+  const blobReader = createCompositeBlobReader(worktreeReader, catFileReader)
+  const blobService = createBlobService(blobReader)
+
   const routes: ReadonlyArray<Route> = [
     { method: 'GET', path: '/api/repo', handler: createRepoHandler(git) },
     { method: 'GET', path: '/api/diff/files', handler: createDiffFilesHandler(diffService) },
     { method: 'GET', path: '/api/diff/file', handler: createDiffFileHandler(diffService) },
+    { method: 'GET', path: '/api/blob', handler: createBlobHandler(blobService) },
   ]
 
   const server = createApiServer({
