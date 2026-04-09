@@ -7,6 +7,9 @@
  * - 外部ライブラリ依存はここに閉じ込める (adapter 層の責務)
  * - diff 系は 2 コマンド方式 (--raw -z と --numstat -z を別々に実行)
  *   で path キーマージする (ADR 0012 / M7 対応)
+ * - ADR 0018 に従い、revision 引数がフラグとして解釈されないよう
+ *   必ず `--end-of-options` 以降に置く (git 2.24+ 前提)。
+ *   これは parseRevision の入力検査に対する二層防御
  */
 
 import { execFile } from 'node:child_process'
@@ -50,11 +53,11 @@ export class CliGitClient implements GitClient, GitDiffClient {
   async diffSummary(range: DiffRange): Promise<ReadonlyArray<DiffFileSummary>> {
     const rangeArgs = toRangeArgs(range)
     const [rawResult, numResult] = await Promise.all([
-      execFileAsync('git', ['diff', '--raw', '-z', '-M', ...rangeArgs], {
+      execFileAsync('git', ['diff', '--raw', '-z', '-M', '--end-of-options', ...rangeArgs], {
         cwd: this.#cwd,
         maxBuffer: DIFF_MAX_BUFFER,
       }),
-      execFileAsync('git', ['diff', '--numstat', '-z', '-M', ...rangeArgs], {
+      execFileAsync('git', ['diff', '--numstat', '-z', '-M', '--end-of-options', ...rangeArgs], {
         cwd: this.#cwd,
         maxBuffer: DIFF_MAX_BUFFER,
       }),
@@ -83,10 +86,14 @@ export class CliGitClient implements GitClient, GitDiffClient {
 
   async diffFile(range: DiffRange, path: string): Promise<string> {
     const rangeArgs = toRangeArgs(range)
-    const { stdout } = await execFileAsync('git', ['diff', '-M', ...rangeArgs, '--', path], {
-      cwd: this.#cwd,
-      maxBuffer: DIFF_MAX_BUFFER,
-    })
+    const { stdout } = await execFileAsync(
+      'git',
+      ['diff', '-M', '--end-of-options', ...rangeArgs, '--', path],
+      {
+        cwd: this.#cwd,
+        maxBuffer: DIFF_MAX_BUFFER,
+      },
+    )
     return stdout
   }
 }
