@@ -190,6 +190,78 @@ describe('CliGitClient.diffSummary', () => {
   })
 })
 
+describe('CliGitClient.headRef / listBranches / listTags', () => {
+  it('通常のリポジトリでは headRef が現在のブランチ名を返す', async () => {
+    const git = new CliGitClient(tempRepo)
+
+    const head = await git.headRef()
+
+    expect(head).toBe('main')
+  })
+
+  it('detached HEAD では headRef が null を返す', async () => {
+    await execFileAsync('git', ['checkout', '--detach', 'HEAD'], { cwd: tempRepo })
+    const git = new CliGitClient(tempRepo)
+
+    const head = await git.headRef()
+
+    expect(head).toBeNull()
+  })
+
+  it('空リポジトリ (unborn HEAD) では headRef は branch 名を返すが listBranches は空', async () => {
+    // 新規の空リポジトリを作る。init したてで 1 コミットもない状態
+    const emptyDir = await mkdtemp(join(tmpdir(), 'git-web-cli-empty-'))
+    try {
+      await execFileAsync('git', ['init', '--quiet', '--initial-branch=main'], { cwd: emptyDir })
+      const git = new CliGitClient(emptyDir)
+
+      // unborn HEAD でも symbolic-ref --short HEAD は "main" を返す (git の仕様)
+      const head = await git.headRef()
+      expect(head).toBe('main')
+
+      // 参照は存在しないのでブランチ一覧は空
+      const branches = await git.listBranches()
+      expect(branches).toEqual([])
+
+      const tags = await git.listTags()
+      expect(tags).toEqual([])
+    } finally {
+      await rm(emptyDir, { recursive: true, force: true })
+    }
+  })
+
+  it('listBranches が複数ブランチを refname 昇順で返す', async () => {
+    // main 以外のブランチを作る
+    await execFileAsync('git', ['branch', 'feature/foo'], { cwd: tempRepo })
+    await execFileAsync('git', ['branch', 'release-1.0'], { cwd: tempRepo })
+    const git = new CliGitClient(tempRepo)
+
+    const branches = await git.listBranches()
+
+    expect(branches).toEqual(['feature/foo', 'main', 'release-1.0'])
+  })
+
+  it('listTags が複数タグを返す', async () => {
+    await execFileAsync('git', ['tag', 'v1.0.0'], { cwd: tempRepo })
+    await execFileAsync('git', ['tag', 'v0.9.0'], { cwd: tempRepo })
+    const git = new CliGitClient(tempRepo)
+
+    const tags = await git.listTags()
+
+    // refname 昇順
+    expect(tags).toEqual(['v0.9.0', 'v1.0.0'])
+  })
+
+  it('listBranches は refs/tags/ 以下を含まない', async () => {
+    await execFileAsync('git', ['tag', 'v1.0.0'], { cwd: tempRepo })
+    const git = new CliGitClient(tempRepo)
+
+    const branches = await git.listBranches()
+
+    expect(branches).toEqual(['main'])
+  })
+})
+
 describe('CliGitClient.diffFile', () => {
   it('変更なしのファイルは空文字列を返す', async () => {
     const git = new CliGitClient(tempRepo)

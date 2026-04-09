@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   InvalidDiffPathError,
   InvalidDiffRangeError,
+  InvalidRefsQueryError,
   InvalidRevisionError,
   NotAGitRepositoryError,
 } from '../domain/errors.js'
@@ -17,7 +18,7 @@ function parseJsonBody(body: string | Uint8Array): unknown {
 
 describe('mapDomainErrorToHttpResponse', () => {
   it('InvalidRevisionError は 400 invalid_revision に変換される', () => {
-    const err = new InvalidRevisionError('bad-rev')
+    const err = new InvalidRevisionError('bad-rev', 'shape')
 
     const response = mapDomainErrorToHttpResponse(err)
 
@@ -27,7 +28,7 @@ describe('mapDomainErrorToHttpResponse', () => {
     expect(response.headers?.['content-type']).toBe('application/json; charset=utf-8')
     expect(parseJsonBody(response.body)).toEqual({
       error: 'invalid_revision',
-      message: 'invalid revision: bad-rev',
+      message: 'invalid revision (shape): bad-rev',
     })
   })
 
@@ -56,6 +57,20 @@ describe('mapDomainErrorToHttpResponse', () => {
     expect(parseJsonBody(response.body)).toEqual({
       error: 'invalid_diff_path',
       message: 'invalid diff path: contains ..',
+    })
+  })
+
+  it('InvalidRefsQueryError は 400 invalid_refs_query に変換される', () => {
+    const err = new InvalidRefsQueryError('limit out of range')
+
+    const response = mapDomainErrorToHttpResponse(err)
+
+    expect(response).not.toBeNull()
+    if (response === null) throw new Error('expected non-null')
+    expect(response.status).toBe(400)
+    expect(parseJsonBody(response.body)).toEqual({
+      error: 'invalid_refs_query',
+      message: 'invalid refs query: limit out of range',
     })
   })
 

@@ -128,8 +128,10 @@ describe('createDiffFilesHandler', () => {
     const service = createFakeService([], {})
     const handler = createDiffFilesHandler(service)
 
+    // ADR 0018 で main / v1.0.0 は許可されたため、
+    // 現在も明確に拒否される形 (シェルメタ文字混入) を使う
     await expect(
-      handler({ method: 'GET', url: '/api/diff/files?from=main' }),
+      handler({ method: 'GET', url: '/api/diff/files?from=HEAD%3B' }),
     ).rejects.toBeInstanceOf(InvalidRevisionError)
   })
 

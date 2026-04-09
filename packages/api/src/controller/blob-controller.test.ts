@@ -127,13 +127,15 @@ describe('createBlobHandler', () => {
     )
   })
 
-  it('rev クエリが不正形式 (ブランチ名) の場合は InvalidRevisionError', async () => {
+  it('rev クエリがシェルメタ混入の場合は InvalidRevisionError', async () => {
+    // ADR 0018 で main / ブランチ名は許可されたため、
+    // 明示的に拒否される形を使う
     const service = createFakeService({})
     const handler = createBlobHandler(service)
 
-    await expect(handler(makeRequest('/api/blob?path=README.md&rev=main'))).rejects.toBeInstanceOf(
-      InvalidRevisionError,
-    )
+    await expect(
+      handler(makeRequest('/api/blob?path=README.md&rev=HEAD%3B')),
+    ).rejects.toBeInstanceOf(InvalidRevisionError)
   })
 
   it('rev クエリが空文字 (rev=) の場合は InvalidRevisionError', async () => {

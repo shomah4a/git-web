@@ -19,6 +19,7 @@
 import {
   InvalidDiffPathError,
   InvalidDiffRangeError,
+  InvalidRefsQueryError,
   InvalidRevisionError,
   NotAGitRepositoryError,
 } from '../domain/errors.js'
@@ -40,6 +41,9 @@ export function mapDomainErrorToHttpResponse(err: unknown): HttpResponse | null 
   }
   if (err instanceof InvalidDiffPathError) {
     return errorJsonResponse(400, 'invalid_diff_path', err.message)
+  }
+  if (err instanceof InvalidRefsQueryError) {
+    return errorJsonResponse(400, 'invalid_refs_query', err.message)
   }
   if (err instanceof NotAGitRepositoryError) {
     return errorJsonResponse(500, 'not_a_git_repository', err.message)
