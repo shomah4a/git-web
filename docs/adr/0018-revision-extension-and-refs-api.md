@@ -138,8 +138,9 @@ type RefListDto = {
 ```
 
 - `head`:
-  - 通常は `git symbolic-ref --short HEAD` の結果 (例: `main`)
-  - 空リポジトリ (unborn HEAD) / detached HEAD の場合は `null`
+  - `git symbolic-ref --short HEAD` の結果をそのまま返す (例: `main`)
+  - detached HEAD の場合は `symbolic-ref` が非 0 終了するため `null` を返す
+  - 空リポジトリ (unborn HEAD) の場合は git の仕様により `symbolic-ref --short HEAD` は `main` (あるいは `init.defaultBranch`) を返すので、そのまま文字列を返す (`null` ではない)。実在しない ref を UI が選択したときは diff 取得で失敗する経路に乗る
   - `q` によるフィルタ対象外、常に実体を返す
 - `branches` / `tags`:
   - `git for-each-ref --format='%(refname:short)' refs/heads refs/tags` で取得
@@ -155,10 +156,11 @@ type RefListDto = {
 
 - `execFile` の `maxBuffer` は diff 系と同じ 50 MB
 - `git for-each-ref` には `q` を渡さない。glob と literal 部分一致の意味論差を避けるため、取得は常に全件、絞り込みは Node 側で実施する
-- 取得コマンドは以下の 2 本:
-  - `git for-each-ref --format='%(refname:short)' refs/heads refs/tags`
+- 取得コマンドは以下の 3 本:
+  - `git for-each-ref --format='%(refname:short)' refs/heads`
+  - `git for-each-ref --format='%(refname:short)' refs/tags`
   - `git symbolic-ref --short HEAD` (例外時は null を返し、エラーは握りつぶす)
-- note: tag と branch が同名の場合、`refname:short` は衝突回避のため `refs/tags/...` のような長い形式に化けることがある。初版はこの出力をそのまま返し、UI 側で fully-qualified な表示として扱う
+- 初版はブランチとタグの取得コマンドを分離する。`git for-each-ref refs/heads refs/tags` の 1 本案も検討したが、分離実行なら tag/branch が同名のときに `refname:short` が `refs/tags/...` のような長い形式へ化ける現象を構造的に回避できる。Promise.all で並列実行するため追加コストは小さい
 
 ### 5. `RefListDto` の配置
 
