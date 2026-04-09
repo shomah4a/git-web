@@ -2,19 +2,33 @@
 /**
  * diff 表示コンポーネント。
  *
- * 設計方針 (ADR 0012 + ADR 0014 + ADR 0015):
+ * 設計方針 (ADR 0012 + ADR 0014 + ADR 0015 + ADR 0017):
  * - マウント時に /api/diff/files でファイル一覧を取得
  * - 続けて全ファイルの /api/diff/file?path=... を Promise.allSettled で並列取得
+ * - さらに各ファイルの両サイド (old = HEAD, new = worktree) の blob を
+ *   同時実行数 6 の limiter 経由で取得し、Shiki でファイル全文を
+ *   トークン化する
+ * - 非同期処理は `runDiffLoad` 単一関数に集約し、世代カウンタで race を
+ *   後発優先に統一する。tokenMap はバッチ更新 (全ファイル完了後に 1 回だけ差し替え)
  * - 左ペインにファイル一覧 (ナビゲーション)
  * - 右ペインに全ファイルの diff を縦積み (Split View: 左=旧 / 右=新)
  * - ファイル一覧クリックで該当セクションへ scrollIntoView
  * - 各ファイルはヘッダークリックで折りたたみ可能、デフォルトは展開
  * - 個別ファイルの fetch 失敗はそのカードのみエラー表示、他は継続
+ * - blob 取得 / ハイライト失敗は該当ファイルだけプレーン fallback
  */
 
 import type { DiffFileDto, DiffFileSummaryDto } from '@git-web/common'
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { fetchBlob } from '../api/blob.js'
 import { fetchDiffFile, fetchDiffFiles } from '../api/diff.js'
+import { createLimiter } from '../diff/highlighter/limit.js'
+import { createNoOpHighlighter } from '../diff/highlighter/no-op.js'
+import {
+  type HighlightedLines,
+  type HighlightedToken,
+  highlighterKey,
+} from '../diff/highlighter/types.js'
 import { pairLines } from '../diff/pair-lines.js'
 
 type DiffLineDto = DiffFileDto['hunks'][number]['lines'][number]
@@ -31,10 +45,59 @@ type FileEntry = {
   collapsed: boolean
 }
 
+/**
+ * ファイルごとの両サイドのトークン列 (ADR 0017)。
+ * - `null` = そのサイドはプレーン fallback (blob 未取得 / 失敗 / 言語不明 / 大容量)
+ * - 両サイドとも null のファイルは tokenMap に entry を入れない
+ */
+type FileTokens = {
+  readonly old: HighlightedLines | null
+  readonly new: HighlightedLines | null
+}
+
 const entries = ref<FileEntry[]>([])
 const loadingList = ref(false)
 const listError = ref<string | null>(null)
 const diffRoot = ref<HTMLElement | null>(null)
+const tokenMap = ref<Map<string, FileTokens>>(new Map())
+
+/**
+ * runDiffLoad の世代カウンタ (ADR 0017)。
+ *
+ * 非同期処理の entrypoint を runDiffLoad 単一関数に集約し、差し替え時に
+ * インクリメントする。非同期の途中 / 完了時点で generation が進んでいたら
+ * 結果を破棄 (後発優先、ADR 0015 と整合)。
+ */
+let generation = 0
+
+/**
+ * blob fetch の同時実行数 limiter (ADR 0017 / 防衛評価 M1)。
+ * diff file 取得 (ADR 0014 の N 並列) に加えて最大 2N の blob fetch が
+ * 発生するため、dev server の connection 詰まりを避けるべく 6 並列に絞る。
+ */
+const blobLimit = createLimiter(6)
+
+/**
+ * 大容量ファイルの silent fallback 閾値 (ADR 0017 / 防衛評価 M5)。
+ * Shiki wasm に巨大ファイルを流すと UI がフリーズするため、どちらかを
+ * 超えたファイルはプレーン表示にフォールバック。
+ *
+ * バイト数は UTF-8 に encode した実バイト数で判定する (content.length の
+ * UTF-16 コード単位とは別物で、日本語中心のファイルで判定が緩むのを避ける)。
+ */
+const MAX_BLOB_SIZE_BYTES = 512 * 1024
+const MAX_BLOB_LINES = 5000
+const blobSizeEncoder = new TextEncoder()
+
+/**
+ * Highlighter は main.ts から provide される。テスト / provide 無しの場合は
+ * no-op にフォールバックする (ADR 0017)。
+ *
+ * `inject` の第 3 引数 `true` は default を factory として扱う指定で、
+ * provide があった場合は factory 呼び出しをスキップし、無駄な no-op
+ * インスタンス生成を避ける。
+ */
+const highlighter = inject(highlighterKey, () => createNoOpHighlighter(), true)
 
 /**
  * 左右スクロール同期 (Task C, ADR 0015 補遺)。
@@ -94,10 +157,22 @@ function setupScrollSync(): void {
   }
 }
 
-onMounted(async () => {
+/**
+ * 非同期処理の単一 entrypoint。
+ *
+ * - 呼び出しごとに generation++ して myGen に保存
+ * - fetch → entries 更新 → diff file 並列取得 → 全ファイルの blob/highlight
+ *   → tokenMap バッチ反映 の順で実行
+ * - 途中で generation が進んだら結果を破棄 (後発優先)
+ * - 例外は listError に載せる (既存挙動との互換)
+ */
+async function runDiffLoad(): Promise<void> {
+  const myGen = ++generation
   loadingList.value = true
   try {
     const response = await fetchDiffFiles()
+    if (myGen !== generation) return
+
     entries.value = response.files.map(
       (summary): FileEntry => ({
         summary,
@@ -105,23 +180,139 @@ onMounted(async () => {
         collapsed: false,
       }),
     )
+    tokenMap.value = new Map()
 
-    const results = await Promise.allSettled(
+    const diffResults = await Promise.allSettled(
       response.files.map((summary) => fetchDiffFile(summary.path)),
     )
+    if (myGen !== generation) return
 
     entries.value = response.files.map((summary, idx) => {
-      const result = results[idx]
+      const result = diffResults[idx]
       const state = resolveState(result)
       return { summary, state, collapsed: false }
     })
+    // 先に loading 表示を切り上げて template に .hunk-content を描画させる。
+    // これを先にやっておかないと、loadAllTokens の await 中に watch(entries)
+    // の post flush callback が走った時点で template はまだ <p>loading...</p>
+    // を描画しており、setupScrollSync が空振りする。
+    loadingList.value = false
+
+    // トークン化対象は diff file が success のもののみ
+    const successFiles: Array<{ summary: DiffFileSummaryDto; file: DiffFileDto }> = []
+    response.files.forEach((summary, idx) => {
+      const r = diffResults[idx]
+      if (r !== undefined && r.status === 'fulfilled' && r.value !== null) {
+        successFiles.push({ summary, file: r.value })
+      }
+    })
+
+    const newTokens = await loadAllTokens(successFiles)
+    if (myGen !== generation) return
+    applyTokenMap(newTokens)
   } catch (err) {
+    if (myGen !== generation) return
     listError.value = err instanceof Error ? err.message : 'unknown error'
   } finally {
-    loadingList.value = false
+    // 後発 runDiffLoad が走っている場合、先発の finally で loadingList を
+    // 書き戻すと後発が設定した true を上書きしてしまう (MEDIUM-1)。
+    // 自分の世代が最新のときだけ false を設定する。
+    if (myGen === generation) {
+      loadingList.value = false
+    }
   }
+}
+
+/**
+ * 全ハイライト対象ファイルの両サイド blob を limiter 経由で取得し、
+ * Shiki でトークン化する。すべて完了するまで待ってから Map を返す
+ * (バッチ更新方式)。
+ */
+async function loadAllTokens(
+  files: ReadonlyArray<{ summary: DiffFileSummaryDto; file: DiffFileDto }>,
+): Promise<Map<string, FileTokens>> {
+  const result = new Map<string, FileTokens>()
+  const tasks = files
+    .filter(({ file }) => !file.binary && file.language !== null)
+    .map(async ({ summary, file }) => {
+      const needsOld = summary.status !== 'added'
+      const needsNew = summary.status !== 'deleted'
+      const [oldLines, newLines] = await Promise.all([
+        needsOld ? fetchAndHighlight(file.path, 'HEAD', 'old') : Promise.resolve(null),
+        needsNew ? fetchAndHighlight(file.path, null, 'new') : Promise.resolve(null),
+      ])
+      if (oldLines !== null || newLines !== null) {
+        result.set(summary.path, { old: oldLines, new: newLines })
+      }
+    })
+  await Promise.all(tasks)
+  return result
+}
+
+/**
+ * 単一サイドの blob 取得 → 大容量閾値チェック → highlightFile の一連処理。
+ * いかなる失敗も null に倒し、該当サイドだけプレーン fallback に落とす。
+ */
+async function fetchAndHighlight(
+  path: string,
+  rev: string | null,
+  side: 'old' | 'new',
+): Promise<HighlightedLines | null> {
+  try {
+    const blob = await blobLimit(() => fetchBlob(path, rev))
+    if (blob === null) return null
+    if (blob.binary || blob.language === null) return null
+    if (isTooLarge(blob.content)) {
+      console.warn(`[highlighter] ${path} (${side}) exceeds size threshold, fallback to plain`)
+      return null
+    }
+    return await highlighter.highlightFile(blob.content, blob.language)
+  } catch (err) {
+    console.warn(`[highlighter] fetchAndHighlight failed for ${path} (${side})`, err)
+    return null
+  }
+}
+
+function isTooLarge(content: string): boolean {
+  if (blobSizeEncoder.encode(content).length > MAX_BLOB_SIZE_BYTES) return true
+  // 行数は改行の数 + 1。regex の match 配列長で数える (for..of より高速)。
+  const newlineCount = content.match(/\n/g)?.length ?? 0
+  return newlineCount + 1 > MAX_BLOB_LINES
+}
+
+/**
+ * tokenMap をバッチで差し替える。
+ *
+ * 防衛評価 M3 では max-content の幅変動で `.side-*` の scrollLeft が
+ * clamp される懸念に対して保存 / 復元する案を検討したが、
+ * 本実装では runDiffLoad が onMounted で 1 回だけ呼ばれる設計になっており、
+ * 初回呼び出し時点で scrollLeft は 0 から始まるため clamp の影響を受けない。
+ * 将来 rev 切り替え UI 等で runDiffLoad が再実行されるようになったら、
+ * wheel / touch 起点の「ユーザー操作中」フラグを導入し、そのフラグが
+ * 立っているときは復元をスキップする設計に拡張する (その時点での再 ADR)。
+ */
+function applyTokenMap(newTokens: Map<string, FileTokens>): void {
+  tokenMap.value = newTokens
+}
+
+onMounted(() => {
+  // runDiffLoad は内部で try/catch して listError に誘導するため通常ルートで
+  // reject しない。それでも予期せぬ例外が漏れた場合のガードとして明示的な
+  // catch を付け、unhandled rejection を Promise 上位に流さない。
+  runDiffLoad().catch((err: unknown) => {
+    listError.value = err instanceof Error ? err.message : 'unknown error'
+  })
 })
 
+// テスト側から同一インスタンス内で runDiffLoad を再実行できるようにして、
+// generation race を直接検証する (ADR 0017 / 防衛評価 MEDIUM-5 対応)。
+// 本番では外部から呼ぶ経路は無く、rev 切り替え UI 等の将来拡張で利用予定。
+defineExpose({ runDiffLoad })
+
+// entries 差し替え時にのみ scroll sync を再 setup する。tokenMap の更新は
+// entries を触らないので本 watch は発火しない。これは ADR 0017 の判断通り
+// で、tokenMap 差し替え時に v-for key=path で .side-* の DOM identity が
+// 維持されるため、scroll sync ハンドラは再 attach 不要 (リーク経路なし)。
 watch(
   entries,
   async () => {
@@ -181,6 +372,44 @@ function cellClass(line: DiffLineDto | null): string {
 
 function successFile(state: FileState): DiffFileDto | null {
   return state.kind === 'success' ? state.file : null
+}
+
+/**
+ * hunk の行ペアリング結果に両サイドのトークン列を付与する。
+ *
+ * 目的:
+ * - `pairLines` の結果に、tokenMap から引いたトークン列を行単位で付ける
+ * - template 側で v-if の条件と v-for の iterable で同じ `tokensFor` を
+ *   2 回呼ぶ冗長を避け、1 行あたりの reactive 評価を削減する
+ * - `pairLines(hunk.lines)` 自体も左右 template で 2 回呼ばれていたのを
+ *   1 回に統合する
+ *
+ * tokenMap の参照が入っているため、tokenMap が差し替わったときに自動で
+ * 再評価される (Vue のテンプレート内関数呼び出しは reactive dep を追跡する)。
+ */
+type EnrichedRow = {
+  readonly left: DiffFileDto['hunks'][number]['lines'][number] | null
+  readonly right: DiffFileDto['hunks'][number]['lines'][number] | null
+  readonly leftTokens: ReadonlyArray<HighlightedToken> | null
+  readonly rightTokens: ReadonlyArray<HighlightedToken> | null
+}
+
+function enrichHunk(path: string, hunk: DiffFileDto['hunks'][number]): ReadonlyArray<EnrichedRow> {
+  const fileTokens = tokenMap.value.get(path)
+  const oldLines = fileTokens?.old ?? null
+  const newLines = fileTokens?.new ?? null
+  return pairLines(hunk.lines).map((row) => ({
+    left: row.left,
+    right: row.right,
+    leftTokens:
+      row.left?.oldLineNo != null && oldLines !== null
+        ? (oldLines[row.left.oldLineNo - 1] ?? null)
+        : null,
+    rightTokens:
+      row.right?.newLineNo != null && newLines !== null
+        ? (newLines[row.right.newLineNo - 1] ?? null)
+        : null,
+  }))
 }
 </script>
 
@@ -256,26 +485,46 @@ function successFile(state: FileState): DiffFileDto | null {
                   <div class="side side-left">
                     <div class="side-inner">
                       <div
-                        v-for="(row, rowIdx) in pairLines(hunk.lines)"
+                        v-for="(row, rowIdx) in enrichHunk(entry.summary.path, hunk)"
                         :key="rowIdx"
                         class="row"
                         :class="cellClass(row.left)"
                       >
                         <span class="row-lineno">{{ row.left?.oldLineNo ?? '' }}</span>
-                        <span class="row-content">{{ row.left?.content ?? '' }}</span>
+                        <span class="row-content">
+                          <template v-if="row.leftTokens !== null">
+                            <span
+                              v-for="(tok, tokIdx) in row.leftTokens"
+                              :key="tokIdx"
+                              :style="tok.color !== null ? { color: tok.color } : undefined"
+                              >{{ tok.content }}</span
+                            >
+                          </template>
+                          <template v-else>{{ row.left?.content ?? '' }}</template>
+                        </span>
                       </div>
                     </div>
                   </div>
                   <div class="side side-right">
                     <div class="side-inner">
                       <div
-                        v-for="(row, rowIdx) in pairLines(hunk.lines)"
+                        v-for="(row, rowIdx) in enrichHunk(entry.summary.path, hunk)"
                         :key="rowIdx"
                         class="row"
                         :class="cellClass(row.right)"
                       >
                         <span class="row-lineno">{{ row.right?.newLineNo ?? '' }}</span>
-                        <span class="row-content">{{ row.right?.content ?? '' }}</span>
+                        <span class="row-content">
+                          <template v-if="row.rightTokens !== null">
+                            <span
+                              v-for="(tok, tokIdx) in row.rightTokens"
+                              :key="tokIdx"
+                              :style="tok.color !== null ? { color: tok.color } : undefined"
+                              >{{ tok.content }}</span
+                            >
+                          </template>
+                          <template v-else>{{ row.right?.content ?? '' }}</template>
+                        </span>
                       </div>
                     </div>
                   </div>
