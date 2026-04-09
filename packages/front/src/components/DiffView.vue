@@ -81,9 +81,13 @@ const blobLimit = createLimiter(6)
  * 大容量ファイルの silent fallback 閾値 (ADR 0017 / 防衛評価 M5)。
  * Shiki wasm に巨大ファイルを流すと UI がフリーズするため、どちらかを
  * 超えたファイルはプレーン表示にフォールバック。
+ *
+ * バイト数は UTF-8 に encode した実バイト数で判定する (content.length の
+ * UTF-16 コード単位とは別物で、日本語中心のファイルで判定が緩むのを避ける)。
  */
 const MAX_BLOB_SIZE_BYTES = 512 * 1024
 const MAX_BLOB_LINES = 5000
+const blobSizeEncoder = new TextEncoder()
 
 /**
  * Highlighter は main.ts から provide される。テスト / provide 無しの場合は
@@ -260,12 +264,10 @@ async function fetchAndHighlight(
 }
 
 function isTooLarge(content: string): boolean {
-  if (content.length > MAX_BLOB_SIZE_BYTES) return true
-  let newlines = 0
-  for (const ch of content) {
-    if (ch === '\n') newlines += 1
-  }
-  return newlines + 1 > MAX_BLOB_LINES
+  if (blobSizeEncoder.encode(content).length > MAX_BLOB_SIZE_BYTES) return true
+  // 行数は改行の数 + 1。regex の match 配列長で数える (for..of より高速)。
+  const newlineCount = content.match(/\n/g)?.length ?? 0
+  return newlineCount + 1 > MAX_BLOB_LINES
 }
 
 /**
@@ -308,6 +310,10 @@ onMounted(() => {
   void runDiffLoad()
 })
 
+// entries 差し替え時にのみ scroll sync を再 setup する。tokenMap の更新は
+// entries を触らないので本 watch は発火しない。これは ADR 0017 の判断通り
+// で、tokenMap 差し替え時に v-for key=path で .side-* の DOM identity が
+// 維持されるため、scroll sync ハンドラは再 attach 不要 (リーク経路なし)。
 watch(
   entries,
   async () => {
@@ -370,24 +376,41 @@ function successFile(state: FileState): DiffFileDto | null {
 }
 
 /**
- * 指定行のトークン列を tokenMap から引く。見つからなければ null (プレーン fallback)。
+ * hunk の行ペアリング結果に両サイドのトークン列を付与する。
  *
- * - `lineNo === null` (空セル、pairLines で左右対応する側が無い行) は null
- * - ファイルが tokenMap にない (未トークン化 / 対象外) も null
- * - 該当サイドが null (未取得 / 失敗) も null
- * - 行 index が範囲外 (Shiki の末尾空行を超えるなど) も null
+ * 目的:
+ * - `pairLines` の結果に、tokenMap から引いたトークン列を行単位で付ける
+ * - template 側で v-if の条件と v-for の iterable で同じ `tokensFor` を
+ *   2 回呼ぶ冗長を避け、1 行あたりの reactive 評価を削減する
+ * - `pairLines(hunk.lines)` 自体も左右 template で 2 回呼ばれていたのを
+ *   1 回に統合する
+ *
+ * tokenMap の参照が入っているため、tokenMap が差し替わったときに自動で
+ * 再評価される (Vue のテンプレート内関数呼び出しは reactive dep を追跡する)。
  */
-function tokensFor(
-  path: string,
-  side: 'old' | 'new',
-  lineNo: number | null,
-): ReadonlyArray<HighlightedToken> | null {
-  if (lineNo === null) return null
+type EnrichedRow = {
+  readonly left: DiffFileDto['hunks'][number]['lines'][number] | null
+  readonly right: DiffFileDto['hunks'][number]['lines'][number] | null
+  readonly leftTokens: ReadonlyArray<HighlightedToken> | null
+  readonly rightTokens: ReadonlyArray<HighlightedToken> | null
+}
+
+function enrichHunk(path: string, hunk: DiffFileDto['hunks'][number]): ReadonlyArray<EnrichedRow> {
   const fileTokens = tokenMap.value.get(path)
-  if (fileTokens === undefined) return null
-  const sideTokens = side === 'old' ? fileTokens.old : fileTokens.new
-  if (sideTokens === null) return null
-  return sideTokens[lineNo - 1] ?? null
+  const oldLines = fileTokens?.old ?? null
+  const newLines = fileTokens?.new ?? null
+  return pairLines(hunk.lines).map((row) => ({
+    left: row.left,
+    right: row.right,
+    leftTokens:
+      row.left?.oldLineNo != null && oldLines !== null
+        ? (oldLines[row.left.oldLineNo - 1] ?? null)
+        : null,
+    rightTokens:
+      row.right?.newLineNo != null && newLines !== null
+        ? (newLines[row.right.newLineNo - 1] ?? null)
+        : null,
+  }))
 }
 </script>
 
@@ -463,25 +486,16 @@ function tokensFor(
                   <div class="side side-left">
                     <div class="side-inner">
                       <div
-                        v-for="(row, rowIdx) in pairLines(hunk.lines)"
+                        v-for="(row, rowIdx) in enrichHunk(entry.summary.path, hunk)"
                         :key="rowIdx"
                         class="row"
                         :class="cellClass(row.left)"
                       >
                         <span class="row-lineno">{{ row.left?.oldLineNo ?? '' }}</span>
                         <span class="row-content">
-                          <template
-                            v-if="
-                              tokensFor(entry.summary.path, 'old', row.left?.oldLineNo ?? null) !==
-                              null
-                            "
-                          >
+                          <template v-if="row.leftTokens !== null">
                             <span
-                              v-for="(tok, tokIdx) in tokensFor(
-                                entry.summary.path,
-                                'old',
-                                row.left?.oldLineNo ?? null,
-                              ) ?? []"
+                              v-for="(tok, tokIdx) in row.leftTokens"
                               :key="tokIdx"
                               :style="tok.color !== null ? { color: tok.color } : undefined"
                               >{{ tok.content }}</span
@@ -495,25 +509,16 @@ function tokensFor(
                   <div class="side side-right">
                     <div class="side-inner">
                       <div
-                        v-for="(row, rowIdx) in pairLines(hunk.lines)"
+                        v-for="(row, rowIdx) in enrichHunk(entry.summary.path, hunk)"
                         :key="rowIdx"
                         class="row"
                         :class="cellClass(row.right)"
                       >
                         <span class="row-lineno">{{ row.right?.newLineNo ?? '' }}</span>
                         <span class="row-content">
-                          <template
-                            v-if="
-                              tokensFor(entry.summary.path, 'new', row.right?.newLineNo ?? null) !==
-                              null
-                            "
-                          >
+                          <template v-if="row.rightTokens !== null">
                             <span
-                              v-for="(tok, tokIdx) in tokensFor(
-                                entry.summary.path,
-                                'new',
-                                row.right?.newLineNo ?? null,
-                              ) ?? []"
+                              v-for="(tok, tokIdx) in row.rightTokens"
                               :key="tokIdx"
                               :style="tok.color !== null ? { color: tok.color } : undefined"
                               >{{ tok.content }}</span
