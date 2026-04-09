@@ -8,6 +8,7 @@
 
 - ADR 0014: 「選択時に 1 ファイル lazy load」から「マウント時に全ファイル一括 fetch + foldable」に UX を変更
 - ADR 0018: §Revision バリデーション節の許可リストを、ブランチ名・タグ名・`HEAD^^` 等を受け入れる形に拡張 (本 ADR の当時の判断はそのまま残す)
+- ADR 0019: DiffView.vue に from/to セレクタ UI を追加 (フロントエンド側の契約を定義)
 
 ## 文脈
 
