@@ -166,7 +166,11 @@ if (input.split('/').some((seg) => seg === '..')) {
 
 ### `FsLike` のスコープ
 
-worktree adapter のテスト容易性のために使う `FsLike` は **adapter 内の private 型** にとどめる。port として `domain/ports/` に公開するのは `BlobReader` のみ。`FsLike` はあくまで 1 つの adapter の内部事情。
+worktree adapter のテスト容易性のために使う `FsLike` は **adapter モジュールの export としてのみ公開** する。テストは同じ adapter の `.test.ts` から型をインポートして fake を組み立てる目的で参照する。
+
+- port としては `domain/ports/` には置かない。port として公開するのは `BlobReader` のみ
+- 他の adapter / service / controller からは参照しない。同じ adapter 配下の test 以外に参照されないことを運用上のルールとする
+- 将来テスト以外からの参照が発生した場合は port 昇格を検討する
 
 ### `GET /api/blob` の service / controller
 
