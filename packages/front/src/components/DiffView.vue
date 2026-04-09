@@ -31,6 +31,7 @@ import {
   highlighterKey,
 } from '../diff/highlighter/types.js'
 import { pairLines } from '../diff/pair-lines.js'
+import RevisionCombobox from './RevisionCombobox.vue'
 
 type DiffLineDto = DiffFileDto['hunks'][number]['lines'][number]
 
@@ -379,8 +380,21 @@ onMounted(() => {
 
 // テスト側から同一インスタンス内で runDiffLoad を再実行できるようにして、
 // generation race を直接検証する (ADR 0017 / 防衛評価 MEDIUM-5 対応)。
-// 本番では外部から呼ぶ経路は無く、rev 切り替え UI 等の将来拡張で利用予定。
+// ADR 0019 では適用ボタンの click ハンドラ経由で同じエントリポイントを使う。
 defineExpose({ runDiffLoad })
+
+/**
+ * 適用ボタンハンドラ (ADR 0019)。
+ *
+ * 現在の from/to state を明示的にスナップショットして runDiffLoad に渡す。
+ * loadingList 中は template 側で disabled にしているが、防御的に確認する。
+ */
+function onApply(): void {
+  if (loadingList.value) return
+  runDiffLoad(currentRange()).catch((err: unknown) => {
+    listError.value = err instanceof Error ? err.message : 'unknown error'
+  })
+}
 
 // entries 差し替え時にのみ scroll sync を再 setup する。tokenMap の更新は
 // entries を触らないので本 watch は発火しない。これは ADR 0017 の判断通り
@@ -487,6 +501,27 @@ function enrichHunk(path: string, hunk: DiffFileDto['hunks'][number]): ReadonlyA
 </script>
 
 <template>
+  <header class="rev-selector">
+    <label class="rev-label">
+      <span>from:</span>
+      <RevisionCombobox
+        v-model="fromRev"
+        :initial-refs="initialRefs"
+        :allow-worktree="false"
+        :has-error="listError !== null"
+      />
+    </label>
+    <label class="rev-label">
+      <span>to:</span>
+      <RevisionCombobox
+        v-model="toRev"
+        :initial-refs="initialRefs"
+        :allow-worktree="true"
+        :has-error="listError !== null"
+      />
+    </label>
+    <button type="button" class="apply" :disabled="loadingList" @click="onApply">適用</button>
+  </header>
   <div ref="diffRoot" class="diff-view">
     <aside class="file-list">
       <h2>Files</h2>
@@ -612,6 +647,35 @@ function enrichHunk(path: string, hunk: DiffFileDto['hunks'][number]): ReadonlyA
 </template>
 
 <style scoped>
+.rev-selector {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.4rem 0.5rem;
+  border-bottom: 1px solid #ddd;
+  background: #fafafa;
+  font-family: ui-monospace, monospace;
+  font-size: 0.9em;
+}
+.rev-label {
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: center;
+  color: #555;
+}
+.apply {
+  padding: 0.25rem 0.75rem;
+  border: 1px solid #888;
+  background: #fff;
+  border-radius: 3px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: inherit;
+}
+.apply:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
 .diff-view {
   display: flex;
   gap: 1rem;
