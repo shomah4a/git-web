@@ -103,6 +103,16 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+/**
+ * DiffView の defineExpose で公開された runDiffLoad を型安全に取り出すための
+ * ユーザー定義型ガード。ADR 0010 の `as` 禁止を守りつつ narrow する。
+ */
+function hasRunDiffLoad(vm: unknown): vm is { runDiffLoad: () => Promise<void> } {
+  if (typeof vm !== 'object' || vm === null) return false
+  if (!('runDiffLoad' in vm)) return false
+  return typeof vm.runDiffLoad === 'function'
+}
+
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -580,36 +590,49 @@ describe('DiffView', () => {
     expect(wrapper.find('.side-left .row').text()).toContain('old')
   })
 
-  it('generation race: 先発の highlightFile が後発 mount の後で resolve しても tokenMap に反映されない (9-2-d)', async () => {
+  it('generation race: 同一インスタンス内で runDiffLoad を再実行し、先発の highlightFile が後発完了の後で resolve しても tokenMap に反映されない (9-2-d)', async () => {
     mockFetchByUrl({
       '/api/diff/files': () => jsonResponse(200, { files: [SUMMARY_A] }),
       '/api/diff/file|foo.ts': () => jsonResponse(200, FILE_A),
     })
     mockedFetchBlob.mockResolvedValue(BLOB_FOO)
 
-    // 1 つ目の mount の highlighter は pending のまま保留
-    const deferred1 = createDeferredFakeHighlighter()
-    const wrapper1 = mountWithHighlighter(DiffView, deferred1.highlighter)
-    await flushPromises()
-    expect(deferred1.pendingCount()).toBeGreaterThan(0)
-
-    // 1 つ目をアンマウントしてから 2 つ目の mount を立ち上げる
-    wrapper1.unmount()
-
-    // 2 つ目は即解決する fake で色付きトークンを返す
+    // 同一 highlighter だが、2 回目以降の呼び出しは即時 WIN で解決する
+    // ように setImmediateResult で挙動を切り替える。これで「1 回目 =
+    // 保留、2 回目 = 即時解決」という時系列を同一 DI 下で作れる。
+    const deferred = createDeferredFakeHighlighter()
     const winningLines = [[{ content: 'WIN', color: '#00ff00' }]]
-    const fake2 = createFakeHighlighter(new Map([['typescript', winningLines]]))
-    const wrapper2 = mountWithHighlighter(DiffView, fake2)
+    const losingLines = [[{ content: 'LOSE', color: '#ff0000' }]]
+
+    const wrapper = mountWithHighlighter(DiffView, deferred.highlighter)
+    await flushPromises()
+    // 1 回目の runDiffLoad が blob 取得後に highlightFile を呼び pending
+    expect(deferred.pendingCount()).toBeGreaterThan(0)
+
+    // 2 回目以降の highlightFile は即時 WIN を返すモードに切替
+    deferred.setImmediateResult(winningLines)
+
+    // defineExpose した runDiffLoad を同一インスタンスで再実行
+    const vm: unknown = wrapper.vm
+    if (!hasRunDiffLoad(vm)) {
+      throw new Error('runDiffLoad is not exposed on DiffView instance')
+    }
+    const secondRun = vm.runDiffLoad()
+    await secondRun
     await flushPromises()
 
-    // 2 つ目のほうは WIN が描画されている
-    const firstRow = wrapper2.find('.side-left .row .row-content')
-    expect(firstRow.html()).toContain('WIN')
+    // 2 回目が完了しているので WIN が DOM に出ている
+    const afterSecond = wrapper.find('.side-left .row .row-content').html()
+    expect(afterSecond).toContain('WIN')
 
-    // 先発を後から解決しても wrapper2 の tokenMap には影響しない
-    deferred1.resolveAll([[{ content: 'LOSE', color: '#ff0000' }]])
+    // 先発 (generation=1) を後から解決する。先発の runDiffLoad は
+    // myGen !== generation (現在 2) で早期 return して tokenMap を
+    // 上書きしないはず
+    deferred.resolveAll(losingLines)
     await flushPromises()
-    expect(wrapper2.find('.side-left .row .row-content').html()).toContain('WIN')
-    expect(wrapper2.find('.side-left .row .row-content').html()).not.toContain('LOSE')
+
+    const afterLose = wrapper.find('.side-left .row .row-content').html()
+    expect(afterLose).toContain('WIN')
+    expect(afterLose).not.toContain('LOSE')
   })
 })

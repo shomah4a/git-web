@@ -92,8 +92,12 @@ const blobSizeEncoder = new TextEncoder()
 /**
  * Highlighter は main.ts から provide される。テスト / provide 無しの場合は
  * no-op にフォールバックする (ADR 0017)。
+ *
+ * `inject` の第 3 引数 `true` は default を factory として扱う指定で、
+ * provide があった場合は factory 呼び出しをスキップし、無駄な no-op
+ * インスタンス生成を避ける。
  */
-const highlighter = inject(highlighterKey, createNoOpHighlighter())
+const highlighter = inject(highlighterKey, () => createNoOpHighlighter(), true)
 
 /**
  * 左右スクロール同期 (Task C, ADR 0015 補遺)。
@@ -205,11 +209,17 @@ async function runDiffLoad(): Promise<void> {
 
     const newTokens = await loadAllTokens(successFiles)
     if (myGen !== generation) return
-    applyTokenMapWithScrollPreserve(newTokens)
+    applyTokenMap(newTokens)
   } catch (err) {
+    if (myGen !== generation) return
     listError.value = err instanceof Error ? err.message : 'unknown error'
   } finally {
-    loadingList.value = false
+    // 後発 runDiffLoad が走っている場合、先発の finally で loadingList を
+    // 書き戻すと後発が設定した true を上書きしてしまう (MEDIUM-1)。
+    // 自分の世代が最新のときだけ false を設定する。
+    if (myGen === generation) {
+      loadingList.value = false
+    }
   }
 }
 
@@ -271,44 +281,33 @@ function isTooLarge(content: string): boolean {
 }
 
 /**
- * tokenMap の差し替え前後で、表示中のスクロール位置を保存・復元する
- * (ADR 0017 / 防衛評価 M3)。
+ * tokenMap をバッチで差し替える。
  *
- * `.side-inner` の `width: max-content` はトークン span の再計算で
- * わずかに幅が変わる可能性があり、ブラウザが scrollLeft を clamp し直して
- * 意図せず左に戻るケースを避ける。
+ * 防衛評価 M3 では max-content の幅変動で `.side-*` の scrollLeft が
+ * clamp される懸念に対して保存 / 復元する案を検討したが、
+ * 本実装では runDiffLoad が onMounted で 1 回だけ呼ばれる設計になっており、
+ * 初回呼び出し時点で scrollLeft は 0 から始まるため clamp の影響を受けない。
+ * 将来 rev 切り替え UI 等で runDiffLoad が再実行されるようになったら、
+ * wheel / touch 起点の「ユーザー操作中」フラグを導入し、そのフラグが
+ * 立っているときは復元をスキップする設計に拡張する (その時点での再 ADR)。
  */
-function applyTokenMapWithScrollPreserve(newTokens: Map<string, FileTokens>): void {
-  const root = diffRoot.value
-  if (root === null) {
-    tokenMap.value = newTokens
-    return
-  }
-  const sides = Array.from(root.querySelectorAll<HTMLElement>('.side-left, .side-right'))
-  const savedLeft = new Map<HTMLElement, number>()
-  const savedTop = new Map<HTMLElement, number>()
-  for (const side of sides) {
-    savedLeft.set(side, side.scrollLeft)
-    savedTop.set(side, side.scrollTop)
-  }
+function applyTokenMap(newTokens: Map<string, FileTokens>): void {
   tokenMap.value = newTokens
-
-  void nextTick().then(() => {
-    // 本実装では各行の高さは変わらないので window.scrollY は復元しない
-    // (jsdom の window.scrollTo 未実装警告も回避)。max-content の幅が
-    // 変動するケースのみ各 side の scrollLeft / scrollTop を書き戻す。
-    for (const [el, left] of savedLeft) {
-      el.scrollLeft = left
-    }
-    for (const [el, top] of savedTop) {
-      el.scrollTop = top
-    }
-  })
 }
 
 onMounted(() => {
-  void runDiffLoad()
+  // runDiffLoad は内部で try/catch して listError に誘導するため通常ルートで
+  // reject しない。それでも予期せぬ例外が漏れた場合のガードとして明示的な
+  // catch を付け、unhandled rejection を Promise 上位に流さない。
+  runDiffLoad().catch((err: unknown) => {
+    listError.value = err instanceof Error ? err.message : 'unknown error'
+  })
 })
+
+// テスト側から同一インスタンス内で runDiffLoad を再実行できるようにして、
+// generation race を直接検証する (ADR 0017 / 防衛評価 MEDIUM-5 対応)。
+// 本番では外部から呼ぶ経路は無く、rev 切り替え UI 等の将来拡張で利用予定。
+defineExpose({ runDiffLoad })
 
 // entries 差し替え時にのみ scroll sync を再 setup する。tokenMap の更新は
 // entries を触らないので本 watch は発火しない。これは ADR 0017 の判断通り

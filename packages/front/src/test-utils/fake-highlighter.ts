@@ -32,22 +32,32 @@ export function createFakeHighlighter(
  * `highlightFile` の解決を外部から制御できるフェイク。
  *
  * - `highlighter` を DI 注入する
- * - テスト側で `resolveAll(result)` を呼ぶまで、すべての highlightFile
- *   呼び出しが pending のまま
- * - `resolveAll` は呼び出し時点で pending な全てを一括解決する
+ * - デフォルトでは全ての `highlightFile` 呼び出しが pending のまま
+ * - `resolveAll(result)` で、現在 pending な呼び出しを一括解決する
+ * - `setImmediateResult(result)` を呼ぶと、それ以降の新規 `highlightFile`
+ *   呼び出しは即座に `result` で解決する。race テストで 1 回目と 2 回目の
+ *   呼び出しを区別するために使う
  */
 export function createDeferredFakeHighlighter(): {
   highlighter: Highlighter
   pendingCount(): number
   resolveAll(result: HighlightedLines | null): void
+  setImmediateResult(result: HighlightedLines | null): void
 } {
   type Pending = { resolve: (value: HighlightedLines | null) => void }
   const pending: Pending[] = []
+  // pending モード = null 以外の 'pending' シンボル相当を保持するため
+  // boolean フラグと値を分ける
+  let immediateMode = false
+  let immediateResult: HighlightedLines | null = null
   const highlighter: Highlighter = {
     preload() {
       return Promise.resolve()
     },
     highlightFile() {
+      if (immediateMode) {
+        return Promise.resolve(immediateResult)
+      }
       return new Promise<HighlightedLines | null>((resolve) => {
         pending.push({ resolve })
       })
@@ -63,6 +73,10 @@ export function createDeferredFakeHighlighter(): {
       for (const p of snapshot) {
         p.resolve(result)
       }
+    },
+    setImmediateResult(result) {
+      immediateMode = true
+      immediateResult = result
     },
   }
 }
