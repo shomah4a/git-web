@@ -965,6 +965,31 @@ describe('DiffView', () => {
     }
   })
 
+  it('popstate で同一 range のときは再フェッチしない (ADR 0020 LOW-3)', async () => {
+    const tracker = mockFetchByUrlTracked({
+      '/api/diff/files': () => jsonResponse(200, { files: [] }),
+    })
+    const wrapper = mountWithHighlighter(DiffView, undefined, { attachTo: document.body })
+    await flushPromises()
+    try {
+      // 一度 popstate で range を別の値に動かしてから、同一 URL で 2 度目の
+      // popstate を飛ばし、2 度目で fetch が走らないことを検証する。
+      window.history.replaceState({}, '', '/?from=main&to=develop')
+      window.dispatchEvent(new PopStateEvent('popstate'))
+      await flushPromises()
+      tracker.urls.length = 0
+
+      window.dispatchEvent(new PopStateEvent('popstate'))
+      await flushPromises()
+
+      const filesCall = tracker.urls.find((u) => u.startsWith('/api/diff/files'))
+      expect(filesCall).toBeUndefined()
+    } finally {
+      wrapper.unmount()
+      resetUrl()
+    }
+  })
+
   it('デフォルト状態 (HEAD / worktree) では URL query が空のまま (ADR 0020)', async () => {
     mockFetchByUrl({
       '/api/diff/files': () => jsonResponse(200, { files: [] }),

@@ -30,14 +30,28 @@ export type DiffRangeUrlState = {
 /**
  * URL search 文字列 (先頭 '?' 有無どちらでも可) から range を復元する。
  * キーが無い / 空文字のときはデフォルト値に倒す。
+ *
+ * 前処理:
+ * - `URLSearchParams` は application/x-www-form-urlencoded 仕様で `+` を
+ *   半角スペースにデコードするが、git の ref 名には `+` が合法なので
+ *   化けないように事前に `%2B` に置換する (LOW-1 対応)。
+ *
+ * 正規化:
+ * - `from === WORKTREE_SENTINEL` は UI 契約上起きないが、URL 手入力経由で
+ *   混入したケースでは DEFAULT_FROM に倒して表示と fetch の乖離を防ぐ
+ *   (LOW-2 対応)
  */
 export function readDiffRangeFromSearch(search: string): DiffRangeUrlState {
-  const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
-  const from = params.get('from')
-  const to = params.get('to')
+  const raw = search.startsWith('?') ? search.slice(1) : search
+  const safe = raw.replace(/\+/g, '%2B')
+  const params = new URLSearchParams(safe)
+  const fromRaw = params.get('from')
+  const toRaw = params.get('to')
+  const from = fromRaw !== null && fromRaw !== '' ? fromRaw : DEFAULT_FROM
+  const to = toRaw !== null && toRaw !== '' ? toRaw : DEFAULT_TO
   return {
-    from: from !== null && from !== '' ? from : DEFAULT_FROM,
-    to: to !== null && to !== '' ? to : DEFAULT_TO,
+    from: from === WORKTREE_SENTINEL ? DEFAULT_FROM : from,
+    to,
   }
 }
 

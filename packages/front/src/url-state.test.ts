@@ -52,6 +52,27 @@ describe('readDiffRangeFromSearch', () => {
       to: WORKTREE_SENTINEL,
     })
   })
+
+  it('ref 名に含まれる + がスペースに化けない (LOW-1)', () => {
+    expect(readDiffRangeFromSearch('?from=foo+bar&to=baz+qux')).toEqual({
+      from: 'foo+bar',
+      to: 'baz+qux',
+    })
+  })
+
+  it('%2B エンコード済みの + も正しく読み戻せる', () => {
+    expect(readDiffRangeFromSearch('?from=foo%2Bbar')).toEqual({
+      from: 'foo+bar',
+      to: WORKTREE_SENTINEL,
+    })
+  })
+
+  it('from=(worktree) は DEFAULT_FROM に正規化される (LOW-2)', () => {
+    expect(readDiffRangeFromSearch('?from=%28worktree%29&to=main')).toEqual({
+      from: 'HEAD',
+      to: 'main',
+    })
+  })
 })
 
 describe('buildDiffRangeSearch', () => {

@@ -461,6 +461,10 @@ function onRevSubmit(): void {
  */
 function onPopState(): void {
   const range = readDiffRangeFromSearch(window.location.search)
+  // LOW-3: 他機能が history を触って popstate が飛んだとき、range が変わって
+  // いなければ runDiffLoad は冗長なので早期 return する。generation カウンタで
+  // race は吸収されるが、無駄な fetch を撒かない。
+  if (range.from === fromRev.value && range.to === toRev.value) return
   fromRev.value = range.from
   toRev.value = range.to
   runDiffLoad(currentRange()).catch((err: unknown) => {
