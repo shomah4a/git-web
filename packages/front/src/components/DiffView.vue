@@ -25,6 +25,7 @@ import { type DiffRangeQuery, fetchDiffFile, fetchDiffFiles } from '../api/diff.
 import { fetchRefs } from '../api/refs.js'
 import {
   type DiffRangeUrlState,
+  WORKTREE_SENTINEL,
   pushDiffRangeToUrl,
   readDiffRangeFromSearch,
 } from '../url-state.js'
@@ -62,12 +63,10 @@ type FileTokens = {
   readonly new: HighlightedLines | null
 }
 
-/**
- * UI 上の仮想 ref 文字列 (ADR 0019)。`to === WORKTREE_SENTINEL` で「作業ツリー」
- * を表し、API クエリ上は `to` キーを送らない形にマッピングする。from 側には
- * worktree 項目を出さないため、from がこの値になることは通常起きない。
- */
-const WORKTREE_SENTINEL = '(worktree)' as const
+// UI 上の仮想 ref 文字列 (ADR 0019 / 0020)。`to === WORKTREE_SENTINEL` で
+// 「作業ツリー」を表し、API クエリ上は `to` キーを送らない形にマッピングする。
+// from 側には worktree 項目を出さないため、from がこの値になることは通常起きない。
+// MEDIUM-1 対応で `url-state.ts` を単一の真実として import 共有する。
 
 const entries = ref<FileEntry[]>([])
 const loadingList = ref(false)
