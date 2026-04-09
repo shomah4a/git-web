@@ -13,6 +13,12 @@ describe('parseDiffPath', () => {
       'file.name.with.dots.ts',
       'file with space.ts',
       'ファイル.ts', // 日本語
+      // ADR 0016: segment ベース検査により正規ファイル名中の ".." は許可する
+      'foo..bar',
+      '..foo',
+      'foo..',
+      'a..b/c.ts',
+      'Dockerfile.node..alpine',
     ]
 
     for (const input of accepted) {
@@ -27,8 +33,10 @@ describe('parseDiffPath', () => {
       ['', 'empty path'],
       ['/abs.ts', 'absolute path'],
       ['/etc/passwd', 'absolute path'],
-      ['../escape.ts', 'contains ..'],
-      ['a/../b.ts', 'contains ..'],
+      ['..', 'bare parent segment'],
+      ['../escape.ts', 'leading parent segment'],
+      ['a/../b.ts', 'middle parent segment'],
+      ['a/..', 'trailing parent segment'],
       ['a\\b.ts', 'contains backslash'],
       ['foo\u0000.ts', 'contains NUL'],
       ['foo\nbar.ts', 'contains newline (control)'],
@@ -57,14 +65,14 @@ describe('parseDiffPath', () => {
 
   it('エラーの reason に拒否理由が含まれる', () => {
     try {
-      parseDiffPath('../')
+      parseDiffPath('../foo')
       throw new Error('expected to throw')
     } catch (err) {
       if (!(err instanceof InvalidDiffPathError)) {
         throw err
       }
-      expect(err.reason).toBe('contains ..')
-      expect(err.input).toBe('../')
+      expect(err.reason).toBe('contains parent segment')
+      expect(err.input).toBe('../foo')
     }
   })
 })
