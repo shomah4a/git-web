@@ -396,6 +396,22 @@ function onApply(): void {
   })
 }
 
+/**
+ * RevisionCombobox の `submit` イベントを受けて自動適用する (ADR 0019)。
+ *
+ * Vue の v-model emit は onRevSubmit より前に走るため、`fromRev`/`toRev` は
+ * すでに最新値に更新されている。currentRange() がその最新値を拾う。
+ *
+ * loadingList 中でも呼ぶ: runDiffLoad の generation カウンタが race を吸収
+ * するため、前発の処理は自動的に破棄される。適用ボタンの disabled は UI
+ * 明示操作に対する二重押下防止であり、ここには適用しない。
+ */
+function onRevSubmit(): void {
+  runDiffLoad(currentRange()).catch((err: unknown) => {
+    listError.value = err instanceof Error ? err.message : 'unknown error'
+  })
+}
+
 // entries 差し替え時にのみ scroll sync を再 setup する。tokenMap の更新は
 // entries を触らないので本 watch は発火しない。これは ADR 0017 の判断通り
 // で、tokenMap 差し替え時に v-for key=path で .side-* の DOM identity が
@@ -509,6 +525,7 @@ function enrichHunk(path: string, hunk: DiffFileDto['hunks'][number]): ReadonlyA
         :initial-refs="initialRefs"
         :allow-worktree="false"
         :has-error="listError !== null"
+        @submit="onRevSubmit"
       />
     </label>
     <label class="rev-label">
@@ -518,6 +535,7 @@ function enrichHunk(path: string, hunk: DiffFileDto['hunks'][number]): ReadonlyA
         :initial-refs="initialRefs"
         :allow-worktree="true"
         :has-error="listError !== null"
+        @submit="onRevSubmit"
       />
     </label>
     <button type="button" class="apply" :disabled="loadingList" @click="onApply">適用</button>

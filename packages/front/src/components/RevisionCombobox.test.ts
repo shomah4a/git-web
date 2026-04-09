@@ -256,6 +256,110 @@ describe('RevisionCombobox', () => {
     wrapper.unmount()
   })
 
+  it('入力中は_update_modelValue_を_emit_しない_テキストフィールドは検索専用', async () => {
+    const wrapper = mount(RevisionCombobox, {
+      attachTo: document.body,
+      props: {
+        modelValue: 'HEAD',
+        initialRefs: SAMPLE_REFS,
+        allowWorktree: false,
+      },
+    })
+    const input = wrapper.find('input')
+    await input.setValue('fe')
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    expect(wrapper.emitted('submit')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('候補クリックで_submit_も_emit_される', async () => {
+    const wrapper = mount(RevisionCombobox, {
+      attachTo: document.body,
+      props: {
+        modelValue: '',
+        initialRefs: SAMPLE_REFS,
+        allowWorktree: false,
+      },
+    })
+    await wrapper.find('input').trigger('focus')
+    const options = wrapper.findAll('[role="option"]')
+    await options[1]?.trigger('mousedown')
+    expect(wrapper.emitted('submit')?.[0]).toEqual(['feature/foo'])
+    wrapper.unmount()
+  })
+
+  it('Enter_確定で_submit_も_emit_される', async () => {
+    const wrapper = mount(RevisionCombobox, {
+      attachTo: document.body,
+      props: {
+        modelValue: '',
+        initialRefs: SAMPLE_REFS,
+        allowWorktree: false,
+      },
+    })
+    const input = wrapper.find('input')
+    await input.setValue('HEAD^^')
+    await input.trigger('keydown', { key: 'Enter' })
+    expect(wrapper.emitted('submit')?.[0]).toEqual(['HEAD^^'])
+    wrapper.unmount()
+  })
+
+  it('blur_で_modelValue_は_emit_されるが_submit_は_emit_されない', async () => {
+    const wrapper = mount(RevisionCombobox, {
+      attachTo: document.body,
+      props: {
+        modelValue: 'HEAD',
+        initialRefs: SAMPLE_REFS,
+        allowWorktree: false,
+      },
+    })
+    const input = wrapper.find('input')
+    await input.setValue('main')
+    await input.trigger('blur')
+    // blur の遅延 close (150ms) を進める
+    await vi.advanceTimersByTimeAsync(200)
+    expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual(['main'])
+    expect(wrapper.emitted('submit')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('blur_で値が変わっていない場合は_emit_しない', async () => {
+    const wrapper = mount(RevisionCombobox, {
+      attachTo: document.body,
+      props: {
+        modelValue: 'HEAD',
+        initialRefs: SAMPLE_REFS,
+        allowWorktree: false,
+      },
+    })
+    const input = wrapper.find('input')
+    await input.trigger('focus')
+    await input.trigger('blur')
+    await vi.advanceTimersByTimeAsync(200)
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('候補クリック時は_blur_経由の重複_commit_が走らない', async () => {
+    const wrapper = mount(RevisionCombobox, {
+      attachTo: document.body,
+      props: {
+        modelValue: '',
+        initialRefs: SAMPLE_REFS,
+        allowWorktree: false,
+      },
+    })
+    await wrapper.find('input').trigger('focus')
+    const options = wrapper.findAll('[role="option"]')
+    // mousedown.prevent で blur は抑止されている想定。クリック後に時間を進めても
+    // submit は 1 回だけ、update:modelValue も 1 回だけ。
+    await options[1]?.trigger('mousedown')
+    await vi.advanceTimersByTimeAsync(200)
+    expect(wrapper.emitted('submit')).toHaveLength(1)
+    expect(wrapper.emitted('update:modelValue')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
   it('unmount_時の_debounce_保留はキャンセルされる', async () => {
     const wrapper = mount(RevisionCombobox, {
       attachTo: document.body,

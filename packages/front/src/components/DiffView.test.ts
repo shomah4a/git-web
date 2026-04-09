@@ -807,6 +807,53 @@ describe('DiffView', () => {
     expect(wrapper.find('.apply').attributes('disabled')).toBeUndefined()
   })
 
+  it('候補クリック相当の操作で runDiffLoad が自動適用される (ADR 0019)', async () => {
+    mockedFetchRefs.mockResolvedValue({
+      head: 'main',
+      branches: ['main', 'feature/foo'],
+      tags: [],
+      truncated: false,
+    })
+    const tracker = mockFetchByUrlTracked({
+      '/api/diff/files': () => jsonResponse(200, { files: [] }),
+    })
+    const wrapper = mountWithHighlighter(DiffView, undefined, { attachTo: document.body })
+    await flushPromises()
+    tracker.urls.length = 0
+
+    // from 側 combobox の候補をクリック (候補は head=main + branches)
+    const fromInput = wrapper.findAll('input[role="combobox"]')[0]
+    await fromInput?.trigger('focus')
+    const options = wrapper.findAll('[role="option"]')
+    // [0]=main (head と branches の重複排除), [1]=feature/foo
+    await options[1]?.trigger('mousedown')
+    await flushPromises()
+
+    const filesCall = tracker.urls.find((u) => u.startsWith('/api/diff/files'))
+    expect(filesCall).toContain('from=feature%2Ffoo')
+    wrapper.unmount()
+  })
+
+  it('blur 経由 (値だけ変えてフォーカスを外す) では自動適用されない (ADR 0019)', async () => {
+    const tracker = mockFetchByUrlTracked({
+      '/api/diff/files': () => jsonResponse(200, { files: [] }),
+    })
+    const wrapper = mountWithHighlighter(DiffView, undefined, { attachTo: document.body })
+    await flushPromises()
+    tracker.urls.length = 0
+
+    const fromInput = wrapper.findAll('input[role="combobox"]')[0]
+    await fromInput?.setValue('main')
+    await fromInput?.trigger('blur')
+    // blur の 150ms 遅延 close と commitImplicit を進める
+    await new Promise((r) => setTimeout(r, 200))
+    await flushPromises()
+
+    const filesCall = tracker.urls.find((u) => u.startsWith('/api/diff/files'))
+    expect(filesCall).toBeUndefined()
+    wrapper.unmount()
+  })
+
   it('listError があると from/to combobox に has-error クラスが伝播する (ADR 0019 MEDIUM-1)', async () => {
     mockFetchByUrl({
       '/api/diff/files': () => new Response('boom', { status: 500 }),

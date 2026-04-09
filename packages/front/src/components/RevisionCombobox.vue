@@ -14,7 +14,7 @@
  */
 
 import type { RefListDto } from '@git-web/common'
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, useId, watch } from 'vue'
 import { fetchRefs } from '../api/refs.js'
 
 const props = withDefaults(
@@ -54,6 +54,7 @@ const refs = ref<RefListDto | null>(props.initialRefs)
  */
 let lastIssuedGen = 0
 let debounceHandle: ReturnType<typeof setTimeout> | null = null
+let blurHandle: ReturnType<typeof setTimeout> | null = null
 let isUnmounted = false
 
 // 親から modelValue が変わったら input に反映する (双方向の整合)
@@ -105,18 +106,42 @@ function close(): void {
   highlightIdx.value = -1
 }
 
-function commit(value: string): void {
+/**
+ * ユーザー明示操作による確定 (クリック / Enter)。
+ *
+ * - modelValue を更新する
+ * - `submit` を emit し、DiffView 側で自動適用の契機に使う (ADR 0019)
+ * - candidate list を閉じる
+ */
+function commitExplicit(value: string): void {
   inputText.value = value
-  emit('update:modelValue', value)
+  if (value !== props.modelValue) {
+    emit('update:modelValue', value)
+  }
   emit('submit', value)
   close()
+}
+
+/**
+ * blur による暗黙確定。
+ *
+ * - modelValue を更新するだけで `submit` は emit しない (自動適用なし)
+ * - フォーカス外しは「入力中→別の操作へ移動」の自然な流れであり、ここで勝手に
+ *   diff を再ロードするとユーザー意図に反する
+ * - 値が変わっていない場合は何もしない
+ */
+function commitImplicit(value: string): void {
+  if (value !== props.modelValue) {
+    emit('update:modelValue', value)
+  }
 }
 
 function onInput(ev: Event): void {
   const target = ev.target
   if (!(target instanceof HTMLInputElement)) return
+  // 入力中は inputText のみ更新する。modelValue / submit は commit 経路でのみ
+  // 発火させ、テキストフィールドを「検索ボックス」として扱う (ADR 0019)。
   inputText.value = target.value
-  emit('update:modelValue', target.value)
   isOpen.value = true
   highlightIdx.value = -1
   scheduleFetch(target.value)
@@ -172,11 +197,11 @@ function onKeydown(ev: KeyboardEvent): void {
     if (isOpen.value && idx >= 0 && idx < options.value.length) {
       const picked = options.value[idx]
       if (picked !== undefined) {
-        commit(picked)
+        commitExplicit(picked)
         return
       }
     }
-    commit(inputText.value)
+    commitExplicit(inputText.value)
     return
   }
   if (ev.key === 'Escape') {
@@ -186,7 +211,7 @@ function onKeydown(ev: KeyboardEvent): void {
 }
 
 function onOptionClick(value: string): void {
-  commit(value)
+  commitExplicit(value)
 }
 
 function onFocus(): void {
@@ -194,11 +219,20 @@ function onFocus(): void {
 }
 
 function onBlur(): void {
-  // blur 時に即閉じると候補クリックが拾えなくなる。mousedown.prevent で
-  // フォーカスを保持しているのでここでは何もしない設計もあるが、シンプルに
-  // setTimeout で遅延クローズする
-  setTimeout(() => {
+  // blur 時に即閉じると候補クリックが拾えなくなる (候補の mousedown より先に
+  // blur が走るため)。setTimeout で遅延クローズすることで、候補クリック経由の
+  // commitExplicit を先に走らせる。
+  //
+  // blur 時に inputText が最新 modelValue と異なっていれば、自動適用なしで
+  // 親 state にだけ反映する (commitImplicit)。フォーカス外れたタイミングで
+  // diff を再ロードはしたくないが、親 state の取り漏らしは避けたい。
+  if (blurHandle !== null) {
+    clearTimeout(blurHandle)
+  }
+  blurHandle = setTimeout(() => {
+    blurHandle = null
     if (isUnmounted) return
+    commitImplicit(inputText.value)
     close()
   }, 150)
 }
@@ -209,9 +243,13 @@ onBeforeUnmount(() => {
     clearTimeout(debounceHandle)
     debounceHandle = null
   }
+  if (blurHandle !== null) {
+    clearTimeout(blurHandle)
+    blurHandle = null
+  }
 })
 
-const listboxId = `rev-combobox-listbox-${Math.random().toString(36).slice(2, 10)}`
+const listboxId = `rev-combobox-listbox-${useId()}`
 </script>
 
 <template>
@@ -251,11 +289,24 @@ const listboxId = `rev-combobox-listbox-${Math.random().toString(36).slice(2, 10
 }
 .revision-combobox input {
   width: 14em;
-  padding: 0.25rem 0.4rem;
+  /*
+   * 右側 1.8em 分はルーペアイコン用の空間 (ADR 0019)。
+   * 検索ボックスであることを視覚的に示すため、SVG inline の背景画像を
+   * 右寄せで配置する。追加依存なしに済ませるため CSS のみで完結させる。
+   */
+  padding: 0.25rem 1.8rem 0.25rem 0.4rem;
   border: 1px solid #bbb;
   border-radius: 3px;
   font-family: ui-monospace, monospace;
   font-size: 0.9em;
+  /*
+   * ルーペ (magnifying glass) SVG。feather-icons の search と同型の
+   * 単純な円 + ハンドル。色は #888 ベースで入力テキストと混同しない明度。
+   */
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='11' cy='11' r='7'/><line x1='21' y1='21' x2='16.65' y2='16.65'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 0.5em center;
+  background-size: 14px 14px;
 }
 .revision-combobox.has-error input {
   border-color: #c33;
