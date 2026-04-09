@@ -58,6 +58,28 @@ export function buildDiffRangeSearch(range: DiffRangeUrlState): string {
 }
 
 /**
+ * `pushDiffRangeToUrl` が必要とする History の最小部分型 (ADR 0020)。
+ *
+ * プロジェクトのコーディング規約で型アサーションを禁じているため、`History`
+ * 全体ではなく構造的 narrow 型として定義する。`window.history` はこの型と
+ * 構造的に互換なので DiffView からはそのまま渡せる。テストでは手書きの
+ * 単純オブジェクトで代用できる。
+ */
+export type HistoryPusher = {
+  pushState(state: unknown, title: string, url: string): void
+}
+
+/**
+ * `pushDiffRangeToUrl` が必要とする Location の最小部分型 (ADR 0020)。
+ * 理由は `HistoryPusher` と同じ。
+ */
+export type LocationView = {
+  readonly pathname: string
+  readonly search: string
+  readonly hash: string
+}
+
+/**
  * 現在の URL と比較して差分があるときのみ `history.pushState` する。
  *
  * - 同一 range の連続書き込みで履歴が膨らむのを防ぐ
@@ -65,8 +87,8 @@ export function buildDiffRangeSearch(range: DiffRangeUrlState): string {
  * - state オブジェクトは空 (本アプリは state を使わず URL のみを真とする)
  */
 export function pushDiffRangeToUrl(
-  history: History,
-  location: Location,
+  history: HistoryPusher,
+  location: LocationView,
   range: DiffRangeUrlState,
 ): void {
   const nextSearch = buildDiffRangeSearch(range)

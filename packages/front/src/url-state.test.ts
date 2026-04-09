@@ -81,13 +81,18 @@ describe('buildDiffRangeSearch', () => {
 describe('pushDiffRangeToUrl', () => {
   type FakeHistoryCall = { readonly state: unknown; readonly title: string; readonly url: string }
 
-  function createFakeHistory(): { history: History; calls: FakeHistoryCall[] } {
+  type FakeHistory = {
+    readonly history: { pushState(state: unknown, title: string, url: string): void }
+    readonly calls: FakeHistoryCall[]
+  }
+
+  function createFakeHistory(): FakeHistory {
     const calls: FakeHistoryCall[] = []
     const history = {
-      pushState(state: unknown, title: string, url?: string | null) {
-        calls.push({ state, title, url: url ?? '' })
+      pushState(state: unknown, title: string, url: string) {
+        calls.push({ state, title, url })
       },
-    } as unknown as History
+    }
     return { history, calls }
   }
 
@@ -95,8 +100,8 @@ describe('pushDiffRangeToUrl', () => {
     pathname: string,
     search: string,
     hash: string,
-  ): Location {
-    return { pathname, search, hash } as unknown as Location
+  ): { readonly pathname: string; readonly search: string; readonly hash: string } {
+    return { pathname, search, hash }
   }
 
   it('差分があれば pushState を呼ぶ', () => {

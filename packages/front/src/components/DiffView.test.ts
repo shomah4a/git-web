@@ -956,9 +956,9 @@ describe('DiffView', () => {
       expect(filesCall).toContain('to=main')
 
       // UI state (combobox の input 値) も URL に追従していること
-      const inputs = wrapper.findAll('input[role="combobox"]')
-      expect((inputs[0]?.element as HTMLInputElement).value).toBe('release-1')
-      expect((inputs[1]?.element as HTMLInputElement).value).toBe('main')
+      const inputs = wrapper.findAll<HTMLInputElement>('input[role="combobox"]')
+      expect(inputs[0]?.element.value).toBe('release-1')
+      expect(inputs[1]?.element.value).toBe('main')
     } finally {
       wrapper.unmount()
       resetUrl()
