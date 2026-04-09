@@ -1,7 +1,20 @@
 import { flushPromises } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { fetchBlob } from '../api/blob.js'
+import {
+  createDeferredFakeHighlighter,
+  createFakeHighlighter,
+} from '../test-utils/fake-highlighter.js'
 import { mountWithHighlighter } from '../test-utils/mount-with-highlighter.js'
 import DiffView from './DiffView.vue'
+
+// /api/blob の fetch はテスト全体で stub する。default は null (404 相当)
+// にすることで、既存テスト (blob に関心のないケース) では silent fallback に
+// 倒れて挙動が変わらないようにする。
+vi.mock('../api/blob.js', () => ({
+  fetchBlob: vi.fn(),
+}))
+const mockedFetchBlob = vi.mocked(fetchBlob)
 
 const SUMMARY_A = {
   path: 'foo.ts',
@@ -72,6 +85,11 @@ let scrollIntoViewCalls = 0
 
 beforeEach(() => {
   vi.restoreAllMocks()
+  // fetchBlob の default は null (404 相当、既存テストと同等の silent fallback)
+  // vi.mock で差し替えた mock の呼び出し履歴は restoreAllMocks でクリアされない
+  // ケースがあるので明示的にクリアする
+  mockedFetchBlob.mockClear()
+  mockedFetchBlob.mockResolvedValue(null)
   // jsdom は scrollIntoView を実装していないので差し替える。
   // vitest 4.x の vi.fn ジェネリクスが Element.scrollIntoView の型と噛み合わないため、
   // 手動でコールカウントを取る。
@@ -402,5 +420,196 @@ describe('DiffView', () => {
     await wrapper.find('.file-header').trigger('click')
     expect(body.style.display).toBe('')
     expect(wrapper.find('.toggle').text()).toBe('▾')
+  })
+
+  // ---------- 構文ハイライト (ADR 0017) ----------
+
+  const BLOB_FOO = {
+    path: 'foo.ts',
+    rev: null,
+    content: 'old\ntail\n',
+    binary: false,
+    language: 'typescript',
+  }
+
+  it('no-op Highlighter 注入時は従来通り content がそのまま描画される (9-2-a)', async () => {
+    mockFetchByUrl({
+      '/api/diff/files': () => jsonResponse(200, { files: [SUMMARY_A] }),
+      '/api/diff/file|foo.ts': () => jsonResponse(200, FILE_A),
+    })
+    mockedFetchBlob.mockResolvedValue(BLOB_FOO)
+
+    const wrapper = mountWithHighlighter(DiffView)
+    await flushPromises()
+
+    // row-content 内の text が従来通りに出る (no-op は null を返さずプレーンなトークン列を返す)
+    // どちらであっても最終的な textContent は同じ
+    const rows = wrapper.findAll('.side-left .row')
+    expect(rows[0]?.text()).toContain('old')
+    expect(rows[1]?.text()).toContain('tail')
+  })
+
+  it('フェイク Highlighter 注入時はトークンに対応する色付き span が描画される (9-2-b)', async () => {
+    mockFetchByUrl({
+      '/api/diff/files': () => jsonResponse(200, { files: [SUMMARY_A] }),
+      '/api/diff/file|foo.ts': () => jsonResponse(200, FILE_A),
+    })
+    mockedFetchBlob.mockResolvedValue(BLOB_FOO)
+
+    // typescript の全行に対して同じトークン列 (赤 'KW' + 黒 'rest') を返す
+    const red = '#ff0000'
+    const black = '#000000'
+    const lines = [
+      [
+        { content: 'KW', color: red },
+        { content: ' rest', color: black },
+      ],
+      [
+        { content: 'KW', color: red },
+        { content: ' rest', color: black },
+      ],
+      [{ content: '', color: null }],
+    ]
+    const fake = createFakeHighlighter(new Map([['typescript', lines]]))
+
+    const wrapper = mountWithHighlighter(DiffView, fake)
+    await flushPromises()
+
+    // 最初の .side-left .row の row-content 内に色付き span が存在する
+    const firstRowContent = wrapper.find('.side-left .row .row-content')
+    const spans = firstRowContent.findAll('span')
+    expect(spans.length).toBeGreaterThan(0)
+    // 赤色を持つ span が少なくとも 1 つある
+    const hasRedSpan = spans.some((s) => (s.attributes('style') ?? '').includes('rgb(255, 0, 0)'))
+    expect(hasRedSpan).toBe(true)
+  })
+
+  it('blob 取得が失敗するとそのファイルはプレーン fallback される (9-2-c)', async () => {
+    mockFetchByUrl({
+      '/api/diff/files': () => jsonResponse(200, { files: [SUMMARY_A] }),
+      '/api/diff/file|foo.ts': () => jsonResponse(200, FILE_A),
+    })
+    mockedFetchBlob.mockRejectedValue(new Error('blob fetch boom'))
+
+    const fake = createFakeHighlighter(
+      new Map([['typescript', [[{ content: 'should-not-appear', color: '#ff0000' }]]]]),
+    )
+    const wrapper = mountWithHighlighter(DiffView, fake)
+    await flushPromises()
+
+    // blob が取れない → highlightFile が呼ばれない → プレーン描画
+    const leftRow = wrapper.find('.side-left .row')
+    expect(leftRow.text()).toContain('old')
+    expect(leftRow.text()).not.toContain('should-not-appear')
+  })
+
+  it('binary ファイルと language===null のファイルでは fetchBlob が呼ばれない (9-2-f)', async () => {
+    const BINARY_SUMMARY = { ...SUMMARY_A, path: 'logo.png', binary: true }
+    const BINARY_FILE = {
+      ...FILE_A,
+      path: 'logo.png',
+      binary: true,
+      language: null,
+      hunks: [],
+    }
+    const PLAIN_SUMMARY = { ...SUMMARY_A, path: 'README' }
+    const PLAIN_FILE = { ...FILE_A, path: 'README', language: null }
+
+    mockFetchByUrl({
+      '/api/diff/files': () => jsonResponse(200, { files: [BINARY_SUMMARY, PLAIN_SUMMARY] }),
+      '/api/diff/file|logo.png': () => jsonResponse(200, BINARY_FILE),
+      '/api/diff/file|README': () => jsonResponse(200, PLAIN_FILE),
+    })
+
+    mountWithHighlighter(DiffView)
+    await flushPromises()
+
+    expect(mockedFetchBlob).not.toHaveBeenCalled()
+  })
+
+  it('status=added では old 側の blob を取得せず、status=deleted では new 側を取得しない (9-2-g)', async () => {
+    const ADDED_SUMMARY = { ...SUMMARY_A, path: 'added.ts', status: 'added' }
+    const ADDED_FILE = { ...FILE_A, path: 'added.ts', status: 'added' }
+    const DELETED_SUMMARY = { ...SUMMARY_A, path: 'deleted.ts', status: 'deleted' }
+    const DELETED_FILE = { ...FILE_A, path: 'deleted.ts', status: 'deleted' }
+
+    mockFetchByUrl({
+      '/api/diff/files': () => jsonResponse(200, { files: [ADDED_SUMMARY, DELETED_SUMMARY] }),
+      '/api/diff/file|added.ts': () => jsonResponse(200, ADDED_FILE),
+      '/api/diff/file|deleted.ts': () => jsonResponse(200, DELETED_FILE),
+    })
+    mockedFetchBlob.mockResolvedValue(BLOB_FOO)
+
+    mountWithHighlighter(DiffView)
+    await flushPromises()
+
+    // added.ts: new (rev=null) のみ、old (HEAD) は呼ばない
+    // deleted.ts: old (HEAD) のみ、new (rev=null) は呼ばない
+    const calls = mockedFetchBlob.mock.calls
+    const addedCalls = calls.filter((c) => c[0] === 'added.ts')
+    const deletedCalls = calls.filter((c) => c[0] === 'deleted.ts')
+
+    expect(addedCalls).toHaveLength(1)
+    expect(addedCalls[0]?.[1]).toBeNull()
+    expect(deletedCalls).toHaveLength(1)
+    expect(deletedCalls[0]?.[1]).toBe('HEAD')
+  })
+
+  it('512KB を超える blob はプレーン fallback され highlightFile が呼ばれない (9-2-h)', async () => {
+    mockFetchByUrl({
+      '/api/diff/files': () => jsonResponse(200, { files: [SUMMARY_A] }),
+      '/api/diff/file|foo.ts': () => jsonResponse(200, FILE_A),
+    })
+    const hugeContent = 'a'.repeat(513 * 1024) // 閾値 512KB を超える
+    mockedFetchBlob.mockResolvedValue({ ...BLOB_FOO, content: hugeContent })
+
+    // フェイクは呼ばれたら例外を投げ、呼び出し検知に使う
+    let highlightCalled = false
+    const fake = createFakeHighlighter(new Map())
+    const wrapHighlight = fake.highlightFile.bind(fake)
+    fake.highlightFile = (content, lang) => {
+      highlightCalled = true
+      return wrapHighlight(content, lang)
+    }
+
+    const wrapper = mountWithHighlighter(DiffView, fake)
+    await flushPromises()
+
+    expect(highlightCalled).toBe(false)
+    // プレーン描画のまま (content はそのまま)
+    expect(wrapper.find('.side-left .row').text()).toContain('old')
+  })
+
+  it('generation race: 先発の highlightFile が後発 mount の後で resolve しても tokenMap に反映されない (9-2-d)', async () => {
+    mockFetchByUrl({
+      '/api/diff/files': () => jsonResponse(200, { files: [SUMMARY_A] }),
+      '/api/diff/file|foo.ts': () => jsonResponse(200, FILE_A),
+    })
+    mockedFetchBlob.mockResolvedValue(BLOB_FOO)
+
+    // 1 つ目の mount の highlighter は pending のまま保留
+    const deferred1 = createDeferredFakeHighlighter()
+    const wrapper1 = mountWithHighlighter(DiffView, deferred1.highlighter)
+    await flushPromises()
+    expect(deferred1.pendingCount()).toBeGreaterThan(0)
+
+    // 1 つ目をアンマウントしてから 2 つ目の mount を立ち上げる
+    wrapper1.unmount()
+
+    // 2 つ目は即解決する fake で色付きトークンを返す
+    const winningLines = [[{ content: 'WIN', color: '#00ff00' }]]
+    const fake2 = createFakeHighlighter(new Map([['typescript', winningLines]]))
+    const wrapper2 = mountWithHighlighter(DiffView, fake2)
+    await flushPromises()
+
+    // 2 つ目のほうは WIN が描画されている
+    const firstRow = wrapper2.find('.side-left .row .row-content')
+    expect(firstRow.html()).toContain('WIN')
+
+    // 先発を後から解決しても wrapper2 の tokenMap には影響しない
+    deferred1.resolveAll([[{ content: 'LOSE', color: '#ff0000' }]])
+    await flushPromises()
+    expect(wrapper2.find('.side-left .row .row-content').html()).toContain('WIN')
+    expect(wrapper2.find('.side-left .row .row-content').html()).not.toContain('LOSE')
   })
 })
