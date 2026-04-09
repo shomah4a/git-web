@@ -1,0 +1,197 @@
+# 0018. リビジョン指定の拡張と refs 一覧 API
+
+## ステータス
+
+承認済み (タスク A: API 側のみを対象とする。フロント側 UI は別 ADR で扱う予定)
+
+## 文脈
+
+ADR 0012 §5 の初版 `Revision` 許可形式は SHA / `HEAD` / `HEAD~N` / `HEAD^N` に限定しており、ブランチ名・タグ名・`refs/heads/...` 形式を明示的に拒否していた。また ADR 0009 §1 で将来計画とされていた `GET /api/refs` は未実装だった。
+
+ユーザーからの要望により、diff 画面上で from / to を指定できるようにする。その前提として:
+
+1. from / to にブランチ名・タグ名を書けるようにしたい
+2. `HEAD^^`, `HEAD~3`, `main~3`, `feature/foo^2` のような相対修飾付きも書けるようにしたい
+3. フロントが入力を絞り込んで候補を出せるよう、ブランチ/タグ一覧を返すエンドポイントが要る
+4. 候補の絞り込みはクライアント全件キャッシュではなく、入力文字列をサーバに渡して絞り込む (フィルタ API 化)
+
+本 ADR はそのバックエンド側変更を定める。フロントエンド側 UI 設計は後続 ADR (0019 予定) で扱い、本 ADR には含めない。
+
+## 決定
+
+### 1. Revision 許可形式の拡張
+
+ADR 0012 §5 の許可リストを次の文法に置き換える。
+
+```
+revision  := sha | named
+sha       := [0-9a-f]{4,40}
+named     := base modifier*
+base      := "HEAD" | refname
+refname   := [A-Za-z0-9_.] [A-Za-z0-9_./-]{0,254}
+modifier  := "^" | "^" digit | "~" digit{1,3}
+```
+
+追加制約 (`refname` に対して):
+
+- 先頭が `-` / `/` で始まらない
+- 連続スラッシュ `//` を含まない
+- `..` を含まない
+- `@{` を含まない
+- 末尾が `/` でない
+- 末尾が `.lock` でない
+- 制御文字 (`\u0000`〜`\u001f` / `\u007f`) を含まない
+- 全体長 1〜255 文字
+
+追加制約 (`modifier` に対して):
+
+- `^N` の N は 0〜9 (桁数 1)
+- `~N` の N は 0〜999 (桁数 1〜3)
+
+この文法により次の入力が受理される:
+
+- `main`, `feature/foo`, `v1.0.0`, `release-1.2`
+- `refs/heads/main`, `refs/tags/v1.0.0` (内部スラッシュは許容)
+- `HEAD`, `HEAD^`, `HEAD^^`, `HEAD^^^`, `HEAD^2`, `HEAD~1`, `HEAD~10`
+- `main~3`, `feature/foo^2`, `v1.0.0^`
+
+次の入力は引き続き拒否される:
+
+- 空文字列
+- `HEAD@{N}` (reflog 形式、非ゴール)
+- `-flag`, `/abs`, `..`, `HEAD;`, `HEAD$()`, NUL バイト混入
+- `HEAD~1000` (桁数超過), `HEAD^10` (桁数超過)
+- `refs/heads/main.lock`
+
+#### ADR 0012 §5 からの差分 (明示的な仕様変更)
+
+| 入力 | ADR 0012 §5 | 本 ADR |
+| ---- | ----------- | ------ |
+| `main` | 拒否 | 受理 |
+| `v1.0.0` | 拒否 | 受理 |
+| `refs/heads/main` | 拒否 | 受理 |
+| `HEAD^^` | 拒否 | 受理 |
+| `HEAD~3` | 受理 | 受理 (変更なし) |
+
+ADR 0012 §5 の当時の判断はそのまま残し、コンテキストに本 ADR へのリンクを追記する。
+
+### 2. CLI 側二層防御: `--end-of-options`
+
+入力バリデーション (一層目) が破れても git がフラグとして解釈しないよう、`cli-client.ts` の `toRangeArgs` 呼び出し箇所を次のように統一する。
+
+```
+git diff --end-of-options <from> [<to>] -- <path>
+git diff --raw -z -M --end-of-options <from> [<to>]
+git diff --numstat -z -M --end-of-options <from> [<to>]
+```
+
+`--end-of-options` は git 2.24 以降でサポートされている。git-web が想定する開発環境はそれ以降を前提とする。既存の `cli-client.test.ts` の期待引数配列は本 ADR 適用時に更新する。
+
+### 3. InvalidRevisionError.reason の追加
+
+フロント (タスク B) が入力エラーの原因を分岐できるよう、`InvalidRevisionError` に `reason` フィールドを追加する。
+
+```
+type InvalidRevisionReason =
+  | 'empty'
+  | 'too-long'
+  | 'forbidden-chars'
+  | 'reflog-form'   // HEAD@{N}
+  | 'bad-modifier'
+  | 'shape'
+```
+
+controller 層では従来どおり 400 にマップする。reason はレスポンスに含めるかどうかをタスク B 側で決める (本 ADR の射程外)。
+
+### 4. `GET /api/refs` エンドポイント
+
+ADR 0009 §1 で将来計画とされていた `/api/refs` を実装する。
+
+#### リクエスト
+
+| クエリ | 型 | 必須 | 既定 | 説明 |
+| ------ | -- | ---- | ---- | ---- |
+| `q` | string | 任意 | `""` | 絞り込み文字列 (部分一致、大小区別なし、literal) |
+| `limit` | 整数 | 任意 | 100 | 返却件数上限 (1〜500) |
+
+`q` 自体の制約:
+
+- 長さ 0〜255
+- 制御文字禁止
+- 正規表現は使わない (ReDoS 回避)。`name.toLowerCase().includes(q.toLowerCase())` のみで判定
+
+`limit` 自体の制約:
+
+- 整数、1〜500、範囲外は 400
+
+いずれの違反も `InvalidRefsQueryError` (新設) で 400 にマップする。
+
+#### レスポンス
+
+```
+type RefListDto = {
+  readonly head: string | null
+  readonly branches: readonly string[]
+  readonly tags: readonly string[]
+  readonly truncated: boolean
+}
+```
+
+- `head`:
+  - 通常は `git symbolic-ref --short HEAD` の結果 (例: `main`)
+  - 空リポジトリ (unborn HEAD) / detached HEAD の場合は `null`
+  - `q` によるフィルタ対象外、常に実体を返す
+- `branches` / `tags`:
+  - `git for-each-ref --format='%(refname:short)' refs/heads refs/tags` で取得
+  - Node 側で `q` によるフィルタを適用
+  - フィルタ後、ブランチを先に詰め、残り枠でタグを詰める
+  - 合計件数が `limit` を超えたら切り詰め、`truncated: true`
+  - 切り詰め順序: タグを先に削る (ブランチ切替を主要ユースケースとみなすため)
+- ソート:
+  - ブランチ: `git for-each-ref` のデフォルト順 (refname 昇順)
+  - タグ: 同上
+
+#### 実装方針
+
+- `execFile` の `maxBuffer` は diff 系と同じ 50 MB
+- `git for-each-ref` には `q` を渡さない。glob と literal 部分一致の意味論差を避けるため、取得は常に全件、絞り込みは Node 側で実施する
+- 取得コマンドは以下の 2 本:
+  - `git for-each-ref --format='%(refname:short)' refs/heads refs/tags`
+  - `git symbolic-ref --short HEAD` (例外時は null を返し、エラーは握りつぶす)
+- note: tag と branch が同名の場合、`refname:short` は衝突回避のため `refs/tags/...` のような長い形式に化けることがある。初版はこの出力をそのまま返し、UI 側で fully-qualified な表示として扱う
+
+### 5. `RefListDto` の配置
+
+`@git-web/common` パッケージに追加する (ADR 0006 準拠)。タスク B (フロント) が同じ型を import できるようにする。
+
+### 6. ADR 0009 の更新
+
+- §1 のエンドポイント一覧に `/api/refs` が「実装済み (ADR 0018)」と書き加えるリンクを追記
+- §2 の許可文字集合リストに本 ADR へのリンクを追記 (過去判断の保存)
+
+### 7. ADR 0012 の更新
+
+- §Revision バリデーション節のコンテキストに本 ADR へのリンクを追記 (過去判断の保存)
+
+## 結果
+
+### メリット
+
+- diff 画面でブランチ・タグを自然に指定できるようになる (タスク B の前提が整う)
+- `HEAD^^` や `feature/foo^2` など git CLI で書ける形が UI からも書ける
+- `/api/refs` にフィルタを備えることでキャッシュ設計を後回しにしてよい
+- 二層防御 (入力検査 + `--end-of-options`) によりリビジョン引数からのフラグ注入経路が閉じる
+
+### デメリット
+
+- ADR 0012 §5 の判断を実質的に反転する仕様変更のため、既存テストの明示的更新が必要
+- `refname` 文法はあえて git 公式の `check-ref-format` より絞っている。ユーザが `@` や `!` を含む特殊な ref 名を作っていた場合は弾かれる (ただし git 側では警告対象の文字でもある)
+- UI 既定値 `from=HEAD, to=(worktree)` が API 到達時には `DiffRange.working-vs-rev({raw:'HEAD'})` にマッピングされ、既存の `working-vs-head` kind とは異なる。CLI 出力は `git diff HEAD` と同一なので機能差は無いが、既存テストで kind を比較している箇所は影響を受ける可能性がある (タスク B の引き継ぎメモ)
+
+### 関連
+
+- ADR 0006: 共有型の common パッケージ配置
+- ADR 0007: git CLI via execFile
+- ADR 0009: セキュリティ境界 (§1 エンドポイント一覧 / §2 許可文字集合を本 ADR で更新)
+- ADR 0011: API レイヤ構造
+- ADR 0012: diff 表示アーキテクチャ (§5 Revision バリデーションを本 ADR で更新)
