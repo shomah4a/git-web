@@ -53,6 +53,25 @@ export type StartedServer = {
 }
 
 /**
+ * execFile の非ゼロ終了を表現する Error ラッパ。
+ *
+ * 元の ExecFileException を mutate せず cause として保持し、adapter の
+ * `isBlobNotFoundError` が必要とする `code` / `stderr` を自前のプロパティ
+ * として露出する。
+ */
+class ExecFileFailure extends Error {
+  readonly code: number | string | undefined
+  readonly stderr: Buffer
+
+  constructor(original: Error, code: number | string | undefined, stderr: Buffer) {
+    super(original.message, { cause: original })
+    this.name = 'ExecFileFailure'
+    this.code = code
+    this.stderr = stderr
+  }
+}
+
+/**
  * node:child_process.execFile をラップして
  * `git cat-file blob` が必要とする Buffer 返却型に揃える。
  *
@@ -60,6 +79,9 @@ export type StartedServer = {
  * encoding: 'buffer' オプションを指定したときの戻り値型を直接取り出せない。
  * ここでは Node の callback 形式を Promise でくるみ直して ExecFileFn
  * シグネチャに合わせる。
+ *
+ * 非ゼロ終了時は元の ExecFileException を mutate せず、ExecFileFailure に
+ * ラップしてから reject する。元例外は `cause` に保持する。
  */
 const nodeExecFile: ExecFileFn = (file, args, options) =>
   new Promise((resolve, reject) => {
@@ -67,11 +89,12 @@ const nodeExecFile: ExecFileFn = (file, args, options) =>
       const stdoutBuf = Buffer.isBuffer(stdout) ? stdout : Buffer.from(stdout, 'utf8')
       const stderrBuf = Buffer.isBuffer(stderr) ? stderr : Buffer.from(stderr, 'utf8')
       if (err !== null) {
-        // 非ゼロ終了時の err は ExecFileException で code / stderr を持つ。
-        // stderr を Buffer で統一して adapter の isBlobNotFoundError が
-        // Buffer#toString('utf8') で読めるようにする。
-        const enriched: Error = Object.assign(err, { stderr: stderrBuf })
-        reject(enriched)
+        // err は Node の ExecFileException。code は number (exit code) か
+        // string ('ENOENT' 等の systemd error) のいずれかを取る。
+        const rawCode = 'code' in err ? err.code : undefined
+        const code =
+          typeof rawCode === 'number' || typeof rawCode === 'string' ? rawCode : undefined
+        reject(new ExecFileFailure(err, code, stderrBuf))
         return
       }
       resolve({ stdout: stdoutBuf, stderr: stderrBuf })
@@ -92,8 +115,8 @@ export async function start(options: StartOptions = {}): Promise<StartedServer> 
   let repoRoot: string
   try {
     repoRoot = await git.repoRoot()
-  } catch {
-    throw new NotAGitRepositoryError(cwd)
+  } catch (err) {
+    throw new NotAGitRepositoryError(cwd, { cause: err })
   }
 
   const diffService = createDiffService(git, jsdiffParser)
