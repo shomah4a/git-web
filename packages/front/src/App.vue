@@ -35,7 +35,6 @@ onMounted(async () => {
 <style scoped>
 main {
   font-family: system-ui, sans-serif;
-  max-width: 1200px;
   margin: 2rem auto;
   padding: 0 1rem;
 }
