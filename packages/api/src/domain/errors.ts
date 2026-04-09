@@ -93,6 +93,21 @@ export class InvalidDiffRangeError extends DomainError {
 }
 
 /**
+ * /api/refs クエリパラメータがバリデーションに失敗したことを表す例外。
+ *
+ * ADR 0018 の q / limit 制約を満たさない入力はこのエラーで拒否する。
+ * controller の error-mapper で 400 にマップされる。
+ */
+export class InvalidRefsQueryError extends DomainError {
+  readonly reason: string
+
+  constructor(reason: string) {
+    super(`invalid refs query: ${reason}`)
+    this.reason = reason
+  }
+}
+
+/**
  * クライアントから渡された diff 対象の path がバリデーションに失敗したことを
  * 表す例外。
  *

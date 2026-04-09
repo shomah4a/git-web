@@ -18,6 +18,7 @@ import { jsdiffParser } from './adapter/jsdiff/parser.js'
 import { createBlobHandler } from './controller/blob-controller.js'
 import { createDiffFileHandler, createDiffFilesHandler } from './controller/diff-controller.js'
 import { mapDomainErrorToHttpResponse } from './controller/error-mapper.js'
+import { createRefsHandler } from './controller/refs-controller.js'
 import { createRepoHandler } from './controller/repo-controller.js'
 import { NotAGitRepositoryError } from './domain/errors.js'
 import type { Route } from './http/router.js'
@@ -25,6 +26,7 @@ import { close, createApiServer, listen } from './http/server.js'
 import { createStaticHandler } from './http/static.js'
 import { createBlobService } from './service/blob-service.js'
 import { createDiffService } from './service/diff-service.js'
+import { createRefsService } from './service/refs-service.js'
 
 export type StartOptions = {
   /**
@@ -120,6 +122,7 @@ export async function start(options: StartOptions = {}): Promise<StartedServer> 
   }
 
   const diffService = createDiffService(git, jsdiffParser)
+  const refsService = createRefsService(git)
 
   const worktreeReader = createWorktreeBlobReader(repoRoot, {
     realpath: (p) => realpath(p),
@@ -133,6 +136,7 @@ export async function start(options: StartOptions = {}): Promise<StartedServer> 
     { method: 'GET', path: '/api/repo', handler: createRepoHandler(git) },
     { method: 'GET', path: '/api/diff/files', handler: createDiffFilesHandler(diffService) },
     { method: 'GET', path: '/api/diff/file', handler: createDiffFileHandler(diffService) },
+    { method: 'GET', path: '/api/refs', handler: createRefsHandler(refsService) },
     { method: 'GET', path: '/api/blob', handler: createBlobHandler(blobService) },
   ]
 

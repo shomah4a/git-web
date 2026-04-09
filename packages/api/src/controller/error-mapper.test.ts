@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   InvalidDiffPathError,
   InvalidDiffRangeError,
+  InvalidRefsQueryError,
   InvalidRevisionError,
   NotAGitRepositoryError,
 } from '../domain/errors.js'
@@ -56,6 +57,20 @@ describe('mapDomainErrorToHttpResponse', () => {
     expect(parseJsonBody(response.body)).toEqual({
       error: 'invalid_diff_path',
       message: 'invalid diff path: contains ..',
+    })
+  })
+
+  it('InvalidRefsQueryError は 400 invalid_refs_query に変換される', () => {
+    const err = new InvalidRefsQueryError('limit out of range')
+
+    const response = mapDomainErrorToHttpResponse(err)
+
+    expect(response).not.toBeNull()
+    if (response === null) throw new Error('expected non-null')
+    expect(response.status).toBe(400)
+    expect(parseJsonBody(response.body)).toEqual({
+      error: 'invalid_refs_query',
+      message: 'invalid refs query: limit out of range',
     })
   })
 
