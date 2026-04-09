@@ -19,7 +19,8 @@ import { parseDiffPath } from '../domain/diff-path.js'
 import { InvalidDiffPathError } from '../domain/errors.js'
 import type { Revision } from '../domain/revision.js'
 import { parseRevision } from '../domain/revision.js'
-import type { Handler, HttpResponse } from '../http/router.js'
+import { jsonResponse, notFoundResponse } from '../http/response.js'
+import type { Handler } from '../http/router.js'
 import type { BlobService } from '../service/blob-service.js'
 
 export function createBlobHandler(service: BlobService): Handler {
@@ -50,28 +51,6 @@ function parseRevParam(params: URLSearchParams): Revision | null {
   }
   const raw = params.get('rev') ?? ''
   return parseRevision(raw)
-}
-
-function jsonResponse(status: number, body: unknown): HttpResponse {
-  return {
-    status,
-    headers: {
-      'content-type': 'application/json; charset=utf-8',
-      'cache-control': 'no-store',
-    },
-    body: JSON.stringify(body),
-  }
-}
-
-function notFoundResponse(message: string): HttpResponse {
-  return {
-    status: 404,
-    headers: {
-      'content-type': 'application/json; charset=utf-8',
-      'cache-control': 'no-store',
-    },
-    body: JSON.stringify({ error: 'not_found', message }),
-  }
 }
 
 function toBlobDto(blob: Blob): BlobDto {
