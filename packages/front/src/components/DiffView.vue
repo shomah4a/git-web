@@ -23,6 +23,11 @@ import { inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { fetchBlob } from '../api/blob.js'
 import { type DiffRangeQuery, fetchDiffFile, fetchDiffFiles } from '../api/diff.js'
 import { fetchRefs } from '../api/refs.js'
+import {
+  type DiffRangeUrlState,
+  pushDiffRangeToUrl,
+  readDiffRangeFromSearch,
+} from '../url-state.js'
 import { createLimiter } from '../diff/highlighter/limit.js'
 import { createNoOpHighlighter } from '../diff/highlighter/no-op.js'
 import {
@@ -83,11 +88,17 @@ const tokenMap = ref<Map<string, FileTokens>>(new Map())
 let isUnmounted = false
 
 /**
- * from/to セレクタの現在値 (ADR 0019)。初期値は現行挙動と等価な
- * `from = 'HEAD'`, `to = '(worktree)'` とする。
+ * from/to セレクタの現在値 (ADR 0019 / 0020)。
+ *
+ * 初期値は URL の query から復元する。query が空の場合は
+ * `from = 'HEAD'`, `to = '(worktree)'` (ADR 0019 の既定) と等価。
+ * url-state モジュールの WORKTREE_SENTINEL と本ファイルの WORKTREE_SENTINEL が
+ * 同値であることが前提で、この不変量は url-state.test.ts と本ファイル側の
+ * 定数宣言で二重化して担保する。
  */
-const fromRev = ref<string>('HEAD')
-const toRev = ref<string>(WORKTREE_SENTINEL)
+const initialRange = readDiffRangeFromSearch(window.location.search)
+const fromRev = ref<string>(initialRange.from)
+const toRev = ref<string>(initialRange.to)
 
 /**
  * RevisionCombobox に渡す初期候補 (ADR 0019)。
@@ -390,6 +401,8 @@ onMounted(() => {
       if (isUnmounted) return
       console.warn('[DiffView] initial fetchRefs failed', err)
     })
+  // ADR 0020: back/forward で URL が書き換わったら range を同期する。
+  window.addEventListener('popstate', onPopState)
 })
 
 // テスト側から同一インスタンス内で runDiffLoad を再実行できるようにして、
@@ -398,13 +411,26 @@ onMounted(() => {
 defineExpose({ runDiffLoad })
 
 /**
- * 適用ボタンハンドラ (ADR 0019)。
+ * 現在の from/to を URL へ push する (ADR 0020)。
+ *
+ * DiffRangeUrlState は必ず文字列ペアで持つため、WORKTREE_SENTINEL をそのまま
+ * 渡せる。url-state 側でデフォルト値のキー省略を判断する。
+ */
+function syncUrlFromState(): void {
+  const range: DiffRangeUrlState = { from: fromRev.value, to: toRev.value }
+  pushDiffRangeToUrl(window.history, window.location, range)
+}
+
+/**
+ * 適用ボタンハンドラ (ADR 0019 / 0020)。
  *
  * 現在の from/to state を明示的にスナップショットして runDiffLoad に渡す。
  * loadingList 中は template 側で disabled にしているが、防御的に確認する。
+ * URL は runDiffLoad 発火と同時に更新する (pushState は同一 range なら no-op)。
  */
 function onApply(): void {
   if (loadingList.value) return
+  syncUrlFromState()
   runDiffLoad(currentRange()).catch((err: unknown) => {
     listError.value = err instanceof Error ? err.message : 'unknown error'
   })
@@ -421,6 +447,23 @@ function onApply(): void {
  * 明示操作に対する二重押下防止であり、ここには適用しない。
  */
 function onRevSubmit(): void {
+  syncUrlFromState()
+  runDiffLoad(currentRange()).catch((err: unknown) => {
+    listError.value = err instanceof Error ? err.message : 'unknown error'
+  })
+}
+
+/**
+ * popstate ハンドラ (ADR 0020)。
+ *
+ * ブラウザの back/forward で URL が書き換わったとき、URL から range を
+ * 読み直して state に反映し runDiffLoad を発火する。URL は window が既に
+ * 更新済みなので、本経路では pushDiffRangeToUrl は呼ばない (二重 push 回避)。
+ */
+function onPopState(): void {
+  const range = readDiffRangeFromSearch(window.location.search)
+  fromRev.value = range.from
+  toRev.value = range.to
   runDiffLoad(currentRange()).catch((err: unknown) => {
     listError.value = err instanceof Error ? err.message : 'unknown error'
   })
@@ -441,6 +484,7 @@ watch(
 
 onBeforeUnmount(() => {
   isUnmounted = true
+  window.removeEventListener('popstate', onPopState)
   teardownScrollSync()
 })
 
