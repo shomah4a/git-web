@@ -71,6 +71,18 @@ const diffRoot = ref<HTMLElement | null>(null)
 const tokenMap = ref<Map<string, FileTokens>>(new Map())
 
 /**
+ * unmount 済みフラグ (ADR 0019 LOW-2)。
+ *
+ * onMounted で並列発火する fetchRefs が遅れて解決したとき、本コンポーネントが
+ * すでに unmount されていれば `initialRefs.value = result` の副作用をスキップ
+ * する。Vue 3 では unmounted ref への代入自体は警告にならないが、combobox
+ * 世代カウンタ / runDiffLoad generation カウンタと同じ防御パターンに揃える
+ * ことで、将来 mount/unmount を繰り返すテストや SSR hydration 周辺で思わぬ
+ * 副作用が混入するのを防ぐ。
+ */
+let isUnmounted = false
+
+/**
  * from/to セレクタの現在値 (ADR 0019)。初期値は現行挙動と等価な
  * `from = 'HEAD'`, `to = '(worktree)'` とする。
  */
@@ -371,9 +383,11 @@ onMounted(() => {
   // 影響させず、combobox が自由入力のみになる形にフォールバックする。
   fetchRefs('', 50)
     .then((result) => {
+      if (isUnmounted) return
       initialRefs.value = result
     })
     .catch((err: unknown) => {
+      if (isUnmounted) return
       console.warn('[DiffView] initial fetchRefs failed', err)
     })
 })
@@ -426,6 +440,7 @@ watch(
 )
 
 onBeforeUnmount(() => {
+  isUnmounted = true
   teardownScrollSync()
 })
 

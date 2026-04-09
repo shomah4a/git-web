@@ -78,20 +78,28 @@ watch(
 )
 
 const options = computed<readonly string[]>(() => {
+  // 重複排除は Set で O(1) 判定する (ADR 0019 LOW-3)。
+  // 将来 limit を 500 まで上げた場合に O(n²) にならないようにする。
+  const seen = new Set<string>()
   const result: string[] = []
+  const push = (value: string): void => {
+    if (seen.has(value)) return
+    seen.add(value)
+    result.push(value)
+  }
   if (props.allowWorktree) {
-    result.push(WORKTREE_SENTINEL)
+    push(WORKTREE_SENTINEL)
   }
   const current = refs.value
   if (current !== null) {
-    if (current.head !== null && !result.includes(current.head)) {
-      result.push(current.head)
+    if (current.head !== null) {
+      push(current.head)
     }
     for (const b of current.branches) {
-      if (!result.includes(b)) result.push(b)
+      push(b)
     }
     for (const t of current.tags) {
-      if (!result.includes(t)) result.push(t)
+      push(t)
     }
   }
   return result
