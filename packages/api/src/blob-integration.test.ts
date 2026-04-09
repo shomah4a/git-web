@@ -10,7 +10,7 @@
  */
 
 import { execFile } from 'node:child_process'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -44,10 +44,14 @@ beforeAll(async () => {
   await writeFile(join(repoDir, 'README.md'), '# test\n')
   // NUL バイトを含む擬似 binary ファイル
   await writeFile(join(repoDir, 'image.bin'), Buffer.from([0x89, 0x50, 0x00, 0x4e]))
-  // 適当なサブディレクトリ
+  // 拡張子から language が推定されない平文
   await writeFile(join(repoDir, 'a.txt'), 'plain\n')
+  // ディレクトリ指定 (tree object) を cat-file blob が拒否することを
+  // 実証するためのサブディレクトリ。`src` 自体は tree object となる
+  await mkdir(join(repoDir, 'src'))
+  await writeFile(join(repoDir, 'src', 'inner.ts'), 'export const x = 1\n')
 
-  await runGit(repoDir, ['add', 'README.md', 'image.bin', 'a.txt'])
+  await runGit(repoDir, ['add', 'README.md', 'image.bin', 'a.txt', 'src/inner.ts'])
   await runGit(repoDir, ['commit', '-q', '-m', 'initial'])
 
   // worktree 状態で README.md を変更 (worktree と HEAD で内容が違うことを
@@ -120,11 +124,29 @@ describe('GET /api/blob (integration)', () => {
     expect(res.status).toBe(404)
   })
 
-  it('ディレクトリを rev 付きで指定すると 404 (cat-file blob が blob 以外を拒否する)', async () => {
-    // git init 直後の empty bare には subdir が無いので、単ファイルを commit した
-    // 今のリポジトリでもサブツリー相当のパスは存在しない。代わりに "." を指定
-    // したときの挙動をチェック。"." は parseDiffPath で拒否されないが、存在しない
-    // blob として 404 を期待する。
+  it('サブディレクトリ配下のファイルは rev=HEAD で取得できる', async () => {
+    const res = await fetch(`${server.url}/api/blob?path=src/inner.ts&rev=HEAD`)
+
+    expect(res.status).toBe(200)
+    const body: unknown = await res.json()
+    expect(body).toMatchObject({
+      path: 'src/inner.ts',
+      rev: 'HEAD',
+      language: 'typescript',
+    })
+  })
+
+  it('ディレクトリ (tree object) を rev 付きで指定すると 404', async () => {
+    // git cat-file blob HEAD:src は tree object を受けて
+    // `fatal: git cat-file ...: bad file` で非ゼロ終了するため 404 にマップされる。
+    // git show HEAD:src だと tree listing を 200 で返してしまう事故が起きる
+    // ので、本エンドポイントが cat-file blob を使っていることの回帰テストを
+    // 兼ねる (ADR 0016)
+    const res = await fetch(`${server.url}/api/blob?path=src&rev=HEAD`)
+    expect(res.status).toBe(404)
+  })
+
+  it('存在しないサブパスも 404', async () => {
     const res = await fetch(`${server.url}/api/blob?path=nope/sub/file.ts&rev=HEAD`)
     expect(res.status).toBe(404)
   })
