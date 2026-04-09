@@ -21,7 +21,7 @@
 import type { DiffFileDto, DiffFileSummaryDto } from '@git-web/common'
 import { inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { fetchBlob } from '../api/blob.js'
-import { fetchDiffFile, fetchDiffFiles } from '../api/diff.js'
+import { type DiffRangeQuery, fetchDiffFile, fetchDiffFiles } from '../api/diff.js'
 import { createLimiter } from '../diff/highlighter/limit.js'
 import { createNoOpHighlighter } from '../diff/highlighter/no-op.js'
 import {
@@ -158,6 +158,35 @@ function setupScrollSync(): void {
 }
 
 /**
+ * 現在の from/to state から DiffRangeQuery を組み立てる (ADR 0019)。
+ *
+ * 本ステップでは UI state 未導入のため、初期値として現行挙動と等価な
+ * `{ from: 'HEAD' }` を返す。ADR 0018 の backend 側で working-vs-head と
+ * working-vs-rev(HEAD) は CLI 引数 `['--end-of-options', 'HEAD']` に畳まれて
+ * 同一扱いとなるため、この差し替えで diff の結果は変わらない。
+ *
+ * 次ステップ (fromRev/toRev state 追加) でこの関数が ref を読む形に差し替わる。
+ */
+function currentRange(): DiffRangeQuery {
+  return { from: 'HEAD' }
+}
+
+/**
+ * blob fetch 用の old/new rev を range から 1 度だけ決定する (ADR 0019)。
+ *
+ * - from=HEAD, to=(worktree) の初期状態では { old: 'HEAD', new: null } となり、
+ *   改修前の挙動と完全一致する
+ * - range を引き回すことで「fetch 開始時の range と blob 取得時の range が
+ *   同一世代内でズレる」経路を構造的に排除する
+ */
+function resolveBlobRevs(range: DiffRangeQuery): { old: string | null; new: string | null } {
+  return {
+    old: range.from ?? null,
+    new: range.to ?? null,
+  }
+}
+
+/**
  * 非同期処理の単一 entrypoint。
  *
  * - 呼び出しごとに generation++ して myGen に保存
@@ -165,12 +194,19 @@ function setupScrollSync(): void {
  *   → tokenMap バッチ反映 の順で実行
  * - 途中で generation が進んだら結果を破棄 (後発優先)
  * - 例外は listError に載せる (既存挙動との互換)
+ *
+ * ADR 0019: `rangeArg` を受け取れるようにし、呼び出し冒頭で range を 1 度だけ
+ * 確定させる (range スナップショット)。引数省略時は現在の ref から組み立てる
+ * `currentRange()` を呼ぶ。これで fetch 中に fromRev/toRev が書き換えられても
+ * 単一世代内の整合が保たれる。
  */
-async function runDiffLoad(): Promise<void> {
+async function runDiffLoad(rangeArg?: DiffRangeQuery): Promise<void> {
+  const range = rangeArg ?? currentRange()
+  const blobRevs = resolveBlobRevs(range)
   const myGen = ++generation
   loadingList.value = true
   try {
-    const response = await fetchDiffFiles()
+    const response = await fetchDiffFiles(range)
     if (myGen !== generation) return
 
     entries.value = response.files.map(
@@ -183,7 +219,7 @@ async function runDiffLoad(): Promise<void> {
     tokenMap.value = new Map()
 
     const diffResults = await Promise.allSettled(
-      response.files.map((summary) => fetchDiffFile(summary.path)),
+      response.files.map((summary) => fetchDiffFile(summary.path, range)),
     )
     if (myGen !== generation) return
 
@@ -207,7 +243,7 @@ async function runDiffLoad(): Promise<void> {
       }
     })
 
-    const newTokens = await loadAllTokens(successFiles)
+    const newTokens = await loadAllTokens(successFiles, blobRevs)
     if (myGen !== generation) return
     applyTokenMap(newTokens)
   } catch (err) {
@@ -230,6 +266,7 @@ async function runDiffLoad(): Promise<void> {
  */
 async function loadAllTokens(
   files: ReadonlyArray<{ summary: DiffFileSummaryDto; file: DiffFileDto }>,
+  blobRevs: { old: string | null; new: string | null },
 ): Promise<Map<string, FileTokens>> {
   const result = new Map<string, FileTokens>()
   const tasks = files
@@ -238,8 +275,8 @@ async function loadAllTokens(
       const needsOld = summary.status !== 'added'
       const needsNew = summary.status !== 'deleted'
       const [oldLines, newLines] = await Promise.all([
-        needsOld ? fetchAndHighlight(file.path, 'HEAD', 'old') : Promise.resolve(null),
-        needsNew ? fetchAndHighlight(file.path, null, 'new') : Promise.resolve(null),
+        needsOld ? fetchAndHighlight(file.path, blobRevs.old, 'old') : Promise.resolve(null),
+        needsNew ? fetchAndHighlight(file.path, blobRevs.new, 'new') : Promise.resolve(null),
       ])
       if (oldLines !== null || newLines !== null) {
         result.set(summary.path, { old: oldLines, new: newLines })
