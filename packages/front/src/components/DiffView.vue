@@ -18,10 +18,11 @@
  * - blob 取得 / ハイライト失敗は該当ファイルだけプレーン fallback
  */
 
-import type { DiffFileDto, DiffFileSummaryDto } from '@git-web/common'
+import type { DiffFileDto, DiffFileSummaryDto, RefListDto } from '@git-web/common'
 import { inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { fetchBlob } from '../api/blob.js'
 import { type DiffRangeQuery, fetchDiffFile, fetchDiffFiles } from '../api/diff.js'
+import { fetchRefs } from '../api/refs.js'
 import { createLimiter } from '../diff/highlighter/limit.js'
 import { createNoOpHighlighter } from '../diff/highlighter/no-op.js'
 import {
@@ -55,11 +56,32 @@ type FileTokens = {
   readonly new: HighlightedLines | null
 }
 
+/**
+ * UI 上の仮想 ref 文字列 (ADR 0019)。`to === WORKTREE_SENTINEL` で「作業ツリー」
+ * を表し、API クエリ上は `to` キーを送らない形にマッピングする。from 側には
+ * worktree 項目を出さないため、from がこの値になることは通常起きない。
+ */
+const WORKTREE_SENTINEL = '(worktree)' as const
+
 const entries = ref<FileEntry[]>([])
 const loadingList = ref(false)
 const listError = ref<string | null>(null)
 const diffRoot = ref<HTMLElement | null>(null)
 const tokenMap = ref<Map<string, FileTokens>>(new Map())
+
+/**
+ * from/to セレクタの現在値 (ADR 0019)。初期値は現行挙動と等価な
+ * `from = 'HEAD'`, `to = '(worktree)'` とする。
+ */
+const fromRev = ref<string>('HEAD')
+const toRev = ref<string>(WORKTREE_SENTINEL)
+
+/**
+ * RevisionCombobox に渡す初期候補 (ADR 0019)。
+ * onMounted で runDiffLoad と並列に `fetchRefs('', 50)` を発火し、結果を
+ * ここへ入れる。取得失敗時は null のままで、combobox は自由入力のみ可となる。
+ */
+const initialRefs = ref<RefListDto | null>(null)
 
 /**
  * runDiffLoad の世代カウンタ (ADR 0017)。
@@ -160,15 +182,20 @@ function setupScrollSync(): void {
 /**
  * 現在の from/to state から DiffRangeQuery を組み立てる (ADR 0019)。
  *
- * 本ステップでは UI state 未導入のため、初期値として現行挙動と等価な
- * `{ from: 'HEAD' }` を返す。ADR 0018 の backend 側で working-vs-head と
- * working-vs-rev(HEAD) は CLI 引数 `['--end-of-options', 'HEAD']` に畳まれて
- * 同一扱いとなるため、この差し替えで diff の結果は変わらない。
- *
- * 次ステップ (fromRev/toRev state 追加) でこの関数が ref を読む形に差し替わる。
+ * - `to === WORKTREE_SENTINEL` のとき、API クエリの `to` は undefined にして
+ *   URL に載せない (backend は working-vs-rev(from) 側に分岐する)
+ * - from が `WORKTREE_SENTINEL` になるのは UI 上起きない想定だが、防御的に
+ *   undefined に倒す
  */
 function currentRange(): DiffRangeQuery {
-  return { from: 'HEAD' }
+  const result: { from?: string; to?: string } = {}
+  if (fromRev.value !== WORKTREE_SENTINEL) {
+    result.from = fromRev.value
+  }
+  if (toRev.value !== WORKTREE_SENTINEL) {
+    result.to = toRev.value
+  }
+  return result
 }
 
 /**
@@ -339,6 +366,15 @@ onMounted(() => {
   runDiffLoad().catch((err: unknown) => {
     listError.value = err instanceof Error ? err.message : 'unknown error'
   })
+  // 並列で refs 一覧を先読みしておく (ADR 0019)。失敗しても runDiffLoad には
+  // 影響させず、combobox が自由入力のみになる形にフォールバックする。
+  fetchRefs('', 50)
+    .then((result) => {
+      initialRefs.value = result
+    })
+    .catch((err: unknown) => {
+      console.warn('[DiffView] initial fetchRefs failed', err)
+    })
 })
 
 // テスト側から同一インスタンス内で runDiffLoad を再実行できるようにして、
