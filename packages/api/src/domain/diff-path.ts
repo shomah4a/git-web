@@ -1,11 +1,13 @@
 /**
- * diff 対象の path パラメータのバリデーション。
+ * diff / blob エンドポイント共通の path パラメータのバリデーション。
  *
- * 設計方針 (ADR 0009 §2 / ADR 0012):
+ * 設計方針 (ADR 0009 §2 / ADR 0012 / ADR 0016):
  * - 受け取った入力は unknown 由来なのでこの関数で narrow する
  * - 危険な形式はすべて InvalidDiffPathError で拒否する
- * - 受け取る path は「ファイルリストエンドポイントで返ったパス」である前提だが
- *   サーバーは state を持たないため形式チェックのみ行う
+ * - diff 経路では「ファイルリストエンドポイントで返ったパス」である前提だが
+ *   blob 経路ではクライアントが任意 path を指定する入口となる
+ * - サーバーは state を持たないため形式チェックのみ行う (realpath 境界検査は
+ *   worktree adapter 側で別途実施)
  */
 
 import { InvalidDiffPathError } from './errors.js'
@@ -19,7 +21,8 @@ const MAX_PATH_LENGTH = 4096
  * - 空文字列
  * - 4096 文字超
  * - 絶対パス (先頭が "/")
- * - ".." を含む
+ * - segment が ".." に完全一致するものを含む (ADR 0016: 部分一致ではなく
+ *   segment ベース。`foo..bar` のような正規ファイル名は許可する)
  * - NUL バイト (U+0000) を含む
  * - バックスラッシュを含む (Windows パス事故防止)
  * - "//" 連続スラッシュ
@@ -35,8 +38,8 @@ export function parseDiffPath(input: string): string {
   if (input.startsWith('/')) {
     throw new InvalidDiffPathError(input, 'absolute path')
   }
-  if (input.includes('..')) {
-    throw new InvalidDiffPathError(input, 'contains ..')
+  if (input.split('/').some((segment) => segment === '..')) {
+    throw new InvalidDiffPathError(input, 'contains parent segment')
   }
   if (input.includes('\\')) {
     throw new InvalidDiffPathError(input, 'contains backslash')

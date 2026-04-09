@@ -15,8 +15,8 @@
  * このクラス自体は直接 throw しない。必ずサブクラスを定義して投げる。
  */
 export class DomainError extends Error {
-  constructor(message: string) {
-    super(message)
+  constructor(message: string, options?: { readonly cause?: unknown }) {
+    super(message, options)
     this.name = new.target.name
   }
 }
@@ -27,12 +27,13 @@ export class DomainError extends Error {
  * - message 文字列は従来の互換性のため `not a git repository: ${cwd}`
  *   形式を維持する
  * - start() の事前チェックで投げられる。HTTP 経路で投げられることは現状なし
+ * - 元の git CLI エラーを cause に保持して原因の追跡を可能にする
  */
 export class NotAGitRepositoryError extends DomainError {
   readonly cwd: string
 
-  constructor(cwd: string) {
-    super(`not a git repository: ${cwd}`)
+  constructor(cwd: string, options?: { readonly cause?: unknown }) {
+    super(`not a git repository: ${cwd}`, options)
     this.cwd = cwd
   }
 }

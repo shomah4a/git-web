@@ -23,7 +23,8 @@ import type { DiffRange } from '../domain/diff-range.js'
 import { buildDiffRange } from '../domain/diff-range.js'
 import { InvalidDiffPathError } from '../domain/errors.js'
 import { parseRevision } from '../domain/revision.js'
-import type { Handler, HttpResponse } from '../http/router.js'
+import { jsonResponse, notFoundResponse } from '../http/response.js'
+import type { Handler } from '../http/router.js'
 import type { DiffService } from '../service/diff-service.js'
 
 /**
@@ -78,29 +79,6 @@ function parseRangeFromSearchParams(params: URLSearchParams): DiffRange {
   const from = fromRaw === null ? undefined : parseRevision(fromRaw)
   const to = toRaw === null ? undefined : parseRevision(toRaw)
   return buildDiffRange(from, to)
-}
-
-function jsonResponse(status: number, body: unknown): HttpResponse {
-  return {
-    status,
-    headers: {
-      'content-type': 'application/json; charset=utf-8',
-      // diff の内容はリビジョンによって変動するためキャッシュ禁止
-      'cache-control': 'no-store',
-    },
-    body: JSON.stringify(body),
-  }
-}
-
-function notFoundResponse(message: string): HttpResponse {
-  return {
-    status: 404,
-    headers: {
-      'content-type': 'application/json; charset=utf-8',
-      'cache-control': 'no-store',
-    },
-    body: JSON.stringify({ error: 'not_found', message }),
-  }
 }
 
 function toDiffFileSummaryDto(file: DiffFileSummary): DiffFileSummaryDto {

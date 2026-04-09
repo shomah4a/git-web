@@ -1,6 +1,7 @@
 import type { RepoInfoDto } from '@git-web/common'
 import type { GitClient } from '../domain/ports/git-client.js'
 import type { RepoInfo } from '../domain/repo.js'
+import { jsonResponse } from '../http/response.js'
 import type { Handler } from '../http/router.js'
 import { getRepoInfo } from '../service/repo-service.js'
 
@@ -16,15 +17,7 @@ export function createRepoHandler(git: GitClient): Handler {
   return async () => {
     const info = await getRepoInfo(git)
     const body: RepoInfoDto = toRepoInfoDto(info)
-    return {
-      status: 200,
-      headers: {
-        'content-type': 'application/json; charset=utf-8',
-        // HEAD SHA はリポジトリの状態に応じて変動するためキャッシュ禁止
-        'cache-control': 'no-store',
-      },
-      body: JSON.stringify(body),
-    }
+    return jsonResponse(200, body)
   }
 }
 

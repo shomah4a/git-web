@@ -22,6 +22,7 @@ import {
   InvalidRevisionError,
   NotAGitRepositoryError,
 } from '../domain/errors.js'
+import { errorJsonResponse } from '../http/response.js'
 import type { HttpResponse } from '../http/router.js'
 
 /**
@@ -32,27 +33,16 @@ import type { HttpResponse } from '../http/router.js'
  */
 export function mapDomainErrorToHttpResponse(err: unknown): HttpResponse | null {
   if (err instanceof InvalidRevisionError) {
-    return errorJson(400, 'invalid_revision', err.message)
+    return errorJsonResponse(400, 'invalid_revision', err.message)
   }
   if (err instanceof InvalidDiffRangeError) {
-    return errorJson(400, 'invalid_diff_range', err.message)
+    return errorJsonResponse(400, 'invalid_diff_range', err.message)
   }
   if (err instanceof InvalidDiffPathError) {
-    return errorJson(400, 'invalid_diff_path', err.message)
+    return errorJsonResponse(400, 'invalid_diff_path', err.message)
   }
   if (err instanceof NotAGitRepositoryError) {
-    return errorJson(500, 'not_a_git_repository', err.message)
+    return errorJsonResponse(500, 'not_a_git_repository', err.message)
   }
   return null
-}
-
-function errorJson(status: number, code: string, message: string): HttpResponse {
-  return {
-    status,
-    headers: {
-      'content-type': 'application/json; charset=utf-8',
-      'cache-control': 'no-store',
-    },
-    body: JSON.stringify({ error: code, message }),
-  }
 }

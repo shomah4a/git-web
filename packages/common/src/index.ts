@@ -22,3 +22,5 @@ export type {
   DiffLineDto,
   DiffLineKindDto,
 } from './diff.js'
+
+export type { BlobDto } from './blob.js'
