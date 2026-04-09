@@ -166,8 +166,12 @@ describe('GET /api/blob (integration)', () => {
     expect(res.status).toBe(400)
   })
 
-  it('rev=<ブランチ名> は 400', async () => {
-    const res = await fetch(`${server.url}/api/blob?path=README.md&rev=main`)
+  it('rev=<シェルメタ混入> は 400', async () => {
+    // ADR 0018 で main / ブランチ名は許可されたため、
+    // 明示的に拒否される形を使う
+    const res = await fetch(
+      `${server.url}/api/blob?path=README.md&rev=${encodeURIComponent('HEAD;')}`,
+    )
     expect(res.status).toBe(400)
   })
 

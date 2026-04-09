@@ -17,7 +17,7 @@ function parseJsonBody(body: string | Uint8Array): unknown {
 
 describe('mapDomainErrorToHttpResponse', () => {
   it('InvalidRevisionError は 400 invalid_revision に変換される', () => {
-    const err = new InvalidRevisionError('bad-rev')
+    const err = new InvalidRevisionError('bad-rev', 'shape')
 
     const response = mapDomainErrorToHttpResponse(err)
 
@@ -27,7 +27,7 @@ describe('mapDomainErrorToHttpResponse', () => {
     expect(response.headers?.['content-type']).toBe('application/json; charset=utf-8')
     expect(parseJsonBody(response.body)).toEqual({
       error: 'invalid_revision',
-      message: 'invalid revision: bad-rev',
+      message: 'invalid revision (shape): bad-rev',
     })
   })
 

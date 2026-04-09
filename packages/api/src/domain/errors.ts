@@ -39,18 +39,40 @@ export class NotAGitRepositoryError extends DomainError {
 }
 
 /**
+ * InvalidRevisionError が拒否理由を表すタグ。
+ *
+ * - empty: 空文字列
+ * - too-long: 255 文字超
+ * - forbidden-chars: 制御文字 / シェルメタ / NUL など
+ * - reflog-form: HEAD@{N} などの reflog 形式 (非ゴール)
+ * - bad-modifier: `^` / `~` の連結部が不正 (`HEAD^10` / `HEAD~1000` など)
+ * - shape: base 部分 (ref 名 / HEAD) の形として成立しない
+ */
+export type InvalidRevisionReason =
+  | 'empty'
+  | 'too-long'
+  | 'forbidden-chars'
+  | 'reflog-form'
+  | 'bad-modifier'
+  | 'shape'
+
+/**
  * クライアントから渡されたリビジョン文字列がバリデーションに失敗したことを
  * 表す例外。
  *
- * ADR 0009 §2 の許可リスト方式に従い、許可されない形式の入力は
+ * ADR 0009 §2 / ADR 0018 の許可リスト方式に従い、許可されない形式の入力は
  * このエラーで拒否する。controller の error-mapper で 400 にマップされる。
+ *
+ * reason は後続 UI (タスク B) で入力欄のエラーメッセージを分岐するために持つ。
  */
 export class InvalidRevisionError extends DomainError {
   readonly input: string
+  readonly reason: InvalidRevisionReason
 
-  constructor(input: string) {
-    super(`invalid revision: ${input}`)
+  constructor(input: string, reason: InvalidRevisionReason) {
+    super(`invalid revision (${reason}): ${input}`)
     this.input = input
+    this.reason = reason
   }
 }
 

@@ -41,20 +41,21 @@ describe('NotAGitRepositoryError', () => {
 })
 
 describe('InvalidRevisionError', () => {
-  it('messageにinvalid revisionプレフィックスとinput文字列が含まれる', () => {
-    const err = new InvalidRevisionError('bad-rev')
+  it('messageにinvalid revisionプレフィックスとreasonとinput文字列が含まれる', () => {
+    const err = new InvalidRevisionError('bad-rev', 'shape')
 
-    expect(err.message).toBe('invalid revision: bad-rev')
+    expect(err.message).toBe('invalid revision (shape): bad-rev')
   })
 
-  it('inputプロパティに元の入力が保持される', () => {
-    const err = new InvalidRevisionError('bad-rev')
+  it('inputとreasonプロパティが保持される', () => {
+    const err = new InvalidRevisionError('bad-rev', 'forbidden-chars')
 
     expect(err.input).toBe('bad-rev')
+    expect(err.reason).toBe('forbidden-chars')
   })
 
   it('DomainErrorを継承している', () => {
-    const err = new InvalidRevisionError('bad-rev')
+    const err = new InvalidRevisionError('bad-rev', 'shape')
 
     expect(err).toBeInstanceOf(DomainError)
   })
