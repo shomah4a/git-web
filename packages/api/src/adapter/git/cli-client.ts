@@ -52,13 +52,13 @@ export class CliGitClient implements GitClient, GitDiffClient, GitRefsClient {
   }
 
   async diffSummary(range: DiffRange): Promise<ReadonlyArray<DiffFileSummary>> {
-    const rangeArgs = toRangeArgs(range)
+    const rangeArgs = toGuardedRangeArgs(range)
     const [rawResult, numResult] = await Promise.all([
-      execFileAsync('git', ['diff', '--raw', '-z', '-M', '--end-of-options', ...rangeArgs], {
+      execFileAsync('git', ['diff', '--raw', '-z', '-M', ...rangeArgs], {
         cwd: this.#cwd,
         maxBuffer: DIFF_MAX_BUFFER,
       }),
-      execFileAsync('git', ['diff', '--numstat', '-z', '-M', '--end-of-options', ...rangeArgs], {
+      execFileAsync('git', ['diff', '--numstat', '-z', '-M', ...rangeArgs], {
         cwd: this.#cwd,
         maxBuffer: DIFF_MAX_BUFFER,
       }),
@@ -127,15 +127,11 @@ export class CliGitClient implements GitClient, GitDiffClient, GitRefsClient {
   }
 
   async diffFile(range: DiffRange, path: string): Promise<string> {
-    const rangeArgs = toRangeArgs(range)
-    const { stdout } = await execFileAsync(
-      'git',
-      ['diff', '-M', '--end-of-options', ...rangeArgs, '--', path],
-      {
-        cwd: this.#cwd,
-        maxBuffer: DIFF_MAX_BUFFER,
-      },
-    )
+    const rangeArgs = toGuardedRangeArgs(range)
+    const { stdout } = await execFileAsync('git', ['diff', '-M', ...rangeArgs, '--', path], {
+      cwd: this.#cwd,
+      maxBuffer: DIFF_MAX_BUFFER,
+    })
     return stdout
   }
 }
@@ -143,16 +139,21 @@ export class CliGitClient implements GitClient, GitDiffClient, GitRefsClient {
 /**
  * DiffRange を git diff コマンドの範囲引数に変換する。
  *
- * - working-vs-head → ['HEAD'] (git diff HEAD)
- * - working-vs-rev → [from]    (git diff <from>)
- * - rev-vs-rev     → [from, to] (git diff <from> <to>)
+ * ADR 0018 の二層防御方針に従い、revision 引数の前に必ず `--end-of-options`
+ * を置く。これにより parseRevision のバリデーションが崩れても git 側で
+ * フラグとして解釈されない。呼び出し側で `--end-of-options` を手書きしない
+ * ことで、将来の diff 系コマンド追加時の付け忘れを構造的に防ぐ。
+ *
+ * - working-vs-head → ['--end-of-options', 'HEAD']      (git diff HEAD)
+ * - working-vs-rev  → ['--end-of-options', from]        (git diff <from>)
+ * - rev-vs-rev      → ['--end-of-options', from, to]    (git diff <from> <to>)
  */
-function toRangeArgs(range: DiffRange): ReadonlyArray<string> {
-  if (range.kind === 'working-vs-head') {
-    return ['HEAD']
-  }
-  if (range.kind === 'working-vs-rev') {
-    return [range.from.raw]
-  }
-  return [range.from.raw, range.to.raw]
+function toGuardedRangeArgs(range: DiffRange): ReadonlyArray<string> {
+  const revs =
+    range.kind === 'working-vs-head'
+      ? ['HEAD']
+      : range.kind === 'working-vs-rev'
+        ? [range.from.raw]
+        : [range.from.raw, range.to.raw]
+  return ['--end-of-options', ...revs]
 }

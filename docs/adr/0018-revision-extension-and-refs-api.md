@@ -77,15 +77,21 @@ ADR 0012 §5 の当時の判断はそのまま残し、コンテキストに本 
 
 ### 2. CLI 側二層防御: `--end-of-options`
 
-入力バリデーション (一層目) が破れても git がフラグとして解釈しないよう、`cli-client.ts` の `toRangeArgs` 呼び出し箇所を次のように統一する。
+入力バリデーション (一層目) が破れても git がフラグとして解釈しないよう、`cli-client.ts` の range 変換関数 `toGuardedRangeArgs` の戻り値先頭に必ず `--end-of-options` を含める。呼び出し側は `toGuardedRangeArgs` を展開するだけで `--end-of-options` を意識しない。これにより将来 diff 系コマンドを追加したときに `--end-of-options` を付け忘れる経路が構造的に塞がれる。
 
 ```
-git diff --end-of-options <from> [<to>] -- <path>
-git diff --raw -z -M --end-of-options <from> [<to>]
-git diff --numstat -z -M --end-of-options <from> [<to>]
+git diff -M <toGuardedRangeArgs> -- <path>
+git diff --raw -z -M <toGuardedRangeArgs>
+git diff --numstat -z -M <toGuardedRangeArgs>
 ```
 
-`--end-of-options` は git 2.24 以降でサポートされている。git-web が想定する開発環境はそれ以降を前提とする。既存の `cli-client.test.ts` の期待引数配列は本 ADR 適用時に更新する。
+`toGuardedRangeArgs(range)` の戻り値:
+
+- `working-vs-head` → `['--end-of-options', 'HEAD']`
+- `working-vs-rev` → `['--end-of-options', from]`
+- `rev-vs-rev` → `['--end-of-options', from, to]`
+
+`--end-of-options` は git 2.24 以降でサポートされている。git-web が想定する開発環境はそれ以降を前提とする。
 
 ### 3. InvalidRevisionError.reason の追加
 
