@@ -18,6 +18,7 @@ import type { DiffFileSummary } from '../../domain/diff.js'
 import type { DiffRange } from '../../domain/diff-range.js'
 import type { GitClient } from '../../domain/ports/git-client.js'
 import type { GitDiffClient } from '../../domain/ports/git-diff-client.js'
+import type { GitRefsClient } from '../../domain/ports/git-refs-client.js'
 import { parseNumstatZ, parseRawZ } from './diff-summary-parser.js'
 
 const execFileAsync = promisify(execFile)
@@ -31,7 +32,7 @@ const DIFF_MAX_BUFFER = 50 * 1024 * 1024
 /**
  * 子プロセスとして git CLI を起動する GitClient / GitDiffClient 実装。
  */
-export class CliGitClient implements GitClient, GitDiffClient {
+export class CliGitClient implements GitClient, GitDiffClient, GitRefsClient {
   readonly #cwd: string
 
   constructor(cwd: string) {
@@ -82,6 +83,47 @@ export class CliGitClient implements GitClient, GitDiffClient {
       })
     }
     return result
+  }
+
+  async headRef(): Promise<string | null> {
+    // symbolic-ref は detached HEAD / unborn HEAD のとき非 0 終了で stderr にメッセージを出す。
+    // その場合は null を返すだけにし、他のドメイン例外と区別する。
+    try {
+      const { stdout } = await execFileAsync('git', ['symbolic-ref', '--short', 'HEAD'], {
+        cwd: this.#cwd,
+      })
+      const trimmed = stdout.trim()
+      return trimmed.length > 0 ? trimmed : null
+    } catch {
+      return null
+    }
+  }
+
+  async listBranches(): Promise<ReadonlyArray<string>> {
+    return this.#listRefsBySpec('refs/heads')
+  }
+
+  async listTags(): Promise<ReadonlyArray<string>> {
+    return this.#listRefsBySpec('refs/tags')
+  }
+
+  async #listRefsBySpec(refSpec: string): Promise<ReadonlyArray<string>> {
+    const { stdout } = await execFileAsync(
+      'git',
+      ['for-each-ref', '--format=%(refname:short)', refSpec],
+      {
+        cwd: this.#cwd,
+        maxBuffer: DIFF_MAX_BUFFER,
+      },
+    )
+    if (stdout.length === 0) {
+      return []
+    }
+    // ref 名に改行は入らない (git check-ref-format の制約)
+    return stdout
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
   }
 
   async diffFile(range: DiffRange, path: string): Promise<string> {
