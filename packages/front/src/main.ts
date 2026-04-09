@@ -1,4 +1,11 @@
 import { createApp } from 'vue'
 import App from './App.vue'
+import { createShikiHighlighter } from './diff/highlighter/shiki.js'
+import { highlighterKey } from './diff/highlighter/types.js'
 
-createApp(App).mount('#app')
+// Shiki の Highlighter インスタンスは同期 factory で作り、wasm の
+// 実ロードは初回利用時まで lazy (ADR 0017)。main.ts で top-level await は
+// 使わない。
+const highlighter = createShikiHighlighter()
+
+createApp(App).provide(highlighterKey, highlighter).mount('#app')

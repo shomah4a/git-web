@@ -1,5 +1,6 @@
-import { flushPromises, mount } from '@vue/test-utils'
+import { flushPromises } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { mountWithHighlighter } from '../test-utils/mount-with-highlighter.js'
 import DiffView from './DiffView.vue'
 
 const SUMMARY_A = {
@@ -121,7 +122,7 @@ describe('DiffView', () => {
       '/api/diff/file|bar.py': () => jsonResponse(200, FILE_B),
     })
 
-    const wrapper = mount(DiffView)
+    const wrapper = mountWithHighlighter(DiffView)
     await flushPromises()
 
     const items = wrapper.findAll('.file-list li')
@@ -135,7 +136,7 @@ describe('DiffView', () => {
       '/api/diff/files': () => new Response('boom', { status: 500 }),
     })
 
-    const wrapper = mount(DiffView)
+    const wrapper = mountWithHighlighter(DiffView)
     await flushPromises()
 
     expect(wrapper.text()).toContain('error:')
@@ -147,7 +148,7 @@ describe('DiffView', () => {
       '/api/diff/files': () => jsonResponse(200, { files: [] }),
     })
 
-    const wrapper = mount(DiffView)
+    const wrapper = mountWithHighlighter(DiffView)
     await flushPromises()
 
     expect(wrapper.text()).toContain('no changes')
@@ -160,7 +161,7 @@ describe('DiffView', () => {
       '/api/diff/file|bar.py': () => jsonResponse(200, FILE_B),
     })
 
-    const wrapper = mount(DiffView)
+    const wrapper = mountWithHighlighter(DiffView)
     await flushPromises()
 
     const cards = wrapper.findAll('.file-card')
@@ -196,7 +197,7 @@ describe('DiffView', () => {
       '/api/diff/file|bar.py': () => jsonResponse(200, FILE_B),
     })
 
-    const wrapper = mount(DiffView)
+    const wrapper = mountWithHighlighter(DiffView)
     await flushPromises()
 
     const cards = wrapper.findAll('.file-card')
@@ -213,7 +214,7 @@ describe('DiffView', () => {
       '/api/diff/file|bar.py': () => jsonResponse(200, FILE_B),
     })
 
-    const wrapper = mount(DiffView)
+    const wrapper = mountWithHighlighter(DiffView)
     await flushPromises()
 
     const cards = wrapper.findAll('.file-card')
@@ -228,7 +229,7 @@ describe('DiffView', () => {
       '/api/diff/file|bar.py': () => jsonResponse(200, FILE_B),
     })
 
-    const wrapper = mount(DiffView, { attachTo: document.body })
+    const wrapper = mountWithHighlighter(DiffView, undefined, { attachTo: document.body })
     await flushPromises()
 
     scrollIntoViewCalls = 0
@@ -244,7 +245,7 @@ describe('DiffView', () => {
       '/api/diff/file|foo.ts': () => jsonResponse(200, FILE_A),
     })
 
-    const wrapper = mount(DiffView, { attachTo: document.body })
+    const wrapper = mountWithHighlighter(DiffView, undefined, { attachTo: document.body })
     await flushPromises()
 
     const left = wrapper.find<HTMLElement>('.side-left').element
@@ -263,7 +264,7 @@ describe('DiffView', () => {
       '/api/diff/file|foo.ts': () => jsonResponse(200, FILE_A),
     })
 
-    const wrapper = mount(DiffView, { attachTo: document.body })
+    const wrapper = mountWithHighlighter(DiffView, undefined, { attachTo: document.body })
     await flushPromises()
 
     const left = wrapper.find<HTMLElement>('.side-left').element
@@ -282,7 +283,7 @@ describe('DiffView', () => {
       '/api/diff/file|foo.ts': () => jsonResponse(200, FILE_A),
     })
 
-    const wrapper = mount(DiffView, { attachTo: document.body })
+    const wrapper = mountWithHighlighter(DiffView, undefined, { attachTo: document.body })
     await flushPromises()
 
     const left = wrapper.find<HTMLElement>('.side-left').element
@@ -345,7 +346,7 @@ describe('DiffView', () => {
       '/api/diff/file|foo.ts': () => jsonResponse(200, FILE_TWO_HUNKS),
     })
 
-    const wrapper = mount(DiffView, { attachTo: document.body })
+    const wrapper = mountWithHighlighter(DiffView, undefined, { attachTo: document.body })
     await flushPromises()
 
     const hunks = wrapper.findAll('.hunk-content')
@@ -383,7 +384,7 @@ describe('DiffView', () => {
       '/api/diff/file|foo.ts': () => jsonResponse(200, FILE_A),
     })
 
-    const wrapper = mount(DiffView)
+    const wrapper = mountWithHighlighter(DiffView)
     await flushPromises()
 
     // 初期状態は展開 (v-show なので DOM は常に存在する)
