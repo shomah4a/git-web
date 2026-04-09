@@ -16,6 +16,7 @@
 import type { RefListDto } from '@git-web/common'
 import { computed, onBeforeUnmount, ref, useId, watch } from 'vue'
 import { fetchRefs } from '../api/refs.js'
+import { WORKTREE_SENTINEL } from '../url-state.js'
 
 const props = withDefaults(
   defineProps<{
@@ -36,12 +37,8 @@ const emit = defineEmits<{
   (e: 'submit', value: string): void
 }>()
 
-/**
- * UI 上の仮想 ref 文字列。`to === WORKTREE_SENTINEL` で「作業ツリー」を表す。
- * DiffView 側の定数と一致させる必要があるが、props で受け取るより定数同値を
- * 守るほうが実装が単純なため、コンポーネント間で同じリテラルを持つ。
- */
-const WORKTREE_SENTINEL = '(worktree)' as const
+// UI 上の仮想 ref 文字列 `(worktree)` は ADR 0020 に従い `url-state.ts` から
+// import 共有する (MEDIUM-1 対応: 定数の多重定義による乖離検知漏れを防ぐ)。
 
 const inputText = ref<string>(props.modelValue)
 const isOpen = ref(false)

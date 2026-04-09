@@ -866,4 +866,143 @@ describe('DiffView', () => {
       expect(c.classes()).toContain('has-error')
     }
   })
+
+  // ------------------------------------------------------------------
+  // ADR 0020: URL query 同期
+  // ------------------------------------------------------------------
+
+  /**
+   * URL query 同期テストで `window.history` / `window.location` を弄るため、
+   * 各ケースで確実に URL を初期状態に戻す補助関数。
+   */
+  function resetUrl(): void {
+    window.history.replaceState({}, '', '/')
+  }
+
+  it('URL に from/to クエリがあると初回 fetchDiffFiles がその range で呼ばれる (ADR 0020)', async () => {
+    window.history.replaceState({}, '', '/?from=feature%2Ffoo&to=main')
+    try {
+      const tracker = mockFetchByUrlTracked({
+        '/api/diff/files': () => jsonResponse(200, { files: [] }),
+      })
+      mountWithHighlighter(DiffView)
+      await flushPromises()
+      const filesCall = tracker.urls.find((u) => u.startsWith('/api/diff/files'))
+      expect(filesCall).toContain('from=feature%2Ffoo')
+      expect(filesCall).toContain('to=main')
+    } finally {
+      resetUrl()
+    }
+  })
+
+  it('URL に from だけあると to はデフォルト (worktree) で解釈される (ADR 0020)', async () => {
+    window.history.replaceState({}, '', '/?from=main')
+    try {
+      const tracker = mockFetchByUrlTracked({
+        '/api/diff/files': () => jsonResponse(200, { files: [] }),
+      })
+      mountWithHighlighter(DiffView)
+      await flushPromises()
+      const filesCall = tracker.urls.find((u) => u.startsWith('/api/diff/files'))
+      expect(filesCall).toContain('from=main')
+      expect(filesCall).not.toContain('to=')
+    } finally {
+      resetUrl()
+    }
+  })
+
+  it('候補クリック経由の submit で URL query が pushState される (ADR 0020)', async () => {
+    mockedFetchRefs.mockResolvedValue({
+      head: 'main',
+      branches: ['main', 'feature/foo'],
+      tags: [],
+      truncated: false,
+    })
+    mockFetchByUrl({
+      '/api/diff/files': () => jsonResponse(200, { files: [] }),
+    })
+    const wrapper = mountWithHighlighter(DiffView, undefined, { attachTo: document.body })
+    await flushPromises()
+    try {
+      const fromInput = wrapper.findAll('input[role="combobox"]')[0]
+      await fromInput?.trigger('focus')
+      const options = wrapper.findAll('[role="option"]')
+      // [0]=main (head), [1]=feature/foo
+      await options[1]?.trigger('mousedown')
+      await flushPromises()
+
+      expect(window.location.search).toBe('?from=feature%2Ffoo')
+    } finally {
+      wrapper.unmount()
+      resetUrl()
+    }
+  })
+
+  it('popstate で URL が書き換わると range を再フェッチする (ADR 0020)', async () => {
+    const tracker = mockFetchByUrlTracked({
+      '/api/diff/files': () => jsonResponse(200, { files: [] }),
+    })
+    const wrapper = mountWithHighlighter(DiffView, undefined, { attachTo: document.body })
+    await flushPromises()
+    try {
+      tracker.urls.length = 0
+
+      window.history.replaceState({}, '', '/?from=release-1&to=main')
+      window.dispatchEvent(new PopStateEvent('popstate'))
+      await flushPromises()
+
+      const filesCall = tracker.urls.find((u) => u.startsWith('/api/diff/files'))
+      expect(filesCall).toContain('from=release-1')
+      expect(filesCall).toContain('to=main')
+
+      // UI state (combobox の input 値) も URL に追従していること
+      const inputs = wrapper.findAll<HTMLInputElement>('input[role="combobox"]')
+      expect(inputs[0]?.element.value).toBe('release-1')
+      expect(inputs[1]?.element.value).toBe('main')
+    } finally {
+      wrapper.unmount()
+      resetUrl()
+    }
+  })
+
+  it('popstate で同一 range のときは再フェッチしない (ADR 0020 LOW-3)', async () => {
+    const tracker = mockFetchByUrlTracked({
+      '/api/diff/files': () => jsonResponse(200, { files: [] }),
+    })
+    const wrapper = mountWithHighlighter(DiffView, undefined, { attachTo: document.body })
+    await flushPromises()
+    try {
+      // 一度 popstate で range を別の値に動かしてから、同一 URL で 2 度目の
+      // popstate を飛ばし、2 度目で fetch が走らないことを検証する。
+      window.history.replaceState({}, '', '/?from=main&to=develop')
+      window.dispatchEvent(new PopStateEvent('popstate'))
+      await flushPromises()
+      tracker.urls.length = 0
+
+      window.dispatchEvent(new PopStateEvent('popstate'))
+      await flushPromises()
+
+      const filesCall = tracker.urls.find((u) => u.startsWith('/api/diff/files'))
+      expect(filesCall).toBeUndefined()
+    } finally {
+      wrapper.unmount()
+      resetUrl()
+    }
+  })
+
+  it('デフォルト状態 (HEAD / worktree) では URL query が空のまま (ADR 0020)', async () => {
+    mockFetchByUrl({
+      '/api/diff/files': () => jsonResponse(200, { files: [] }),
+    })
+    const wrapper = mountWithHighlighter(DiffView, undefined, { attachTo: document.body })
+    await flushPromises()
+    try {
+      await wrapper.find('.apply').trigger('click')
+      await flushPromises()
+      expect(window.location.search).toBe('')
+    } finally {
+      wrapper.unmount()
+      resetUrl()
+    }
+  })
 })
