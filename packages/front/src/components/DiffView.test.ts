@@ -1,6 +1,7 @@
 import { flushPromises } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fetchBlob } from '../api/blob.js'
+import { fetchRefs } from '../api/refs.js'
 import {
   createDeferredFakeHighlighter,
   createFakeHighlighter,
@@ -15,6 +16,13 @@ vi.mock('../api/blob.js', () => ({
   fetchBlob: vi.fn(),
 }))
 const mockedFetchBlob = vi.mocked(fetchBlob)
+
+// ADR 0019: DiffView マウント時に fetchRefs('', 50) が並列発火されるため、
+// refs API もテスト全体で stub する。既定では空の RefList を返す。
+vi.mock('../api/refs.js', () => ({
+  fetchRefs: vi.fn(),
+}))
+const mockedFetchRefs = vi.mocked(fetchRefs)
 
 const SUMMARY_A = {
   path: 'foo.ts',
@@ -90,6 +98,13 @@ beforeEach(() => {
   // ケースがあるので明示的にクリアする
   mockedFetchBlob.mockClear()
   mockedFetchBlob.mockResolvedValue(null)
+  mockedFetchRefs.mockClear()
+  mockedFetchRefs.mockResolvedValue({
+    head: 'main',
+    branches: ['main'],
+    tags: [],
+    truncated: false,
+  })
   // jsdom は scrollIntoView を実装していないので差し替える。
   // vitest 4.x の vi.fn ジェネリクスが Element.scrollIntoView の型と噛み合わないため、
   // 手動でコールカウントを取る。
@@ -106,8 +121,12 @@ afterEach(() => {
 /**
  * DiffView の defineExpose で公開された runDiffLoad を型安全に取り出すための
  * ユーザー定義型ガード。ADR 0010 の `as` 禁止を守りつつ narrow する。
+ *
+ * ADR 0019 で runDiffLoad は range?: DiffRangeQuery を受け取れるよう拡張された。
  */
-function hasRunDiffLoad(vm: unknown): vm is { runDiffLoad: () => Promise<void> } {
+type RunDiffLoadFn = (range?: { from?: string; to?: string }) => Promise<void>
+
+function hasRunDiffLoad(vm: unknown): vm is { runDiffLoad: RunDiffLoadFn } {
   if (typeof vm !== 'object' || vm === null) return false
   if (!('runDiffLoad' in vm)) return false
   return typeof vm.runDiffLoad === 'function'
@@ -634,5 +653,217 @@ describe('DiffView', () => {
     const afterLose = wrapper.find('.side-left .row .row-content').html()
     expect(afterLose).toContain('WIN')
     expect(afterLose).not.toContain('LOSE')
+  })
+
+  // ------------------------------------------------------------------
+  // ADR 0019: from/to セレクタ
+  // ------------------------------------------------------------------
+
+  /**
+   * 適用ボタンクリック経由で runDiffLoad が range 付きで呼ばれることを
+   * 検証するため、fetch の呼び出し URL を記録するユーティリティ。
+   */
+  function mockFetchByUrlTracked(handlers: Readonly<Record<string, () => Response>>): {
+    urls: string[]
+  } {
+    const urls: string[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const url =
+          typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+        urls.push(url)
+        const [base, query] = url.split('?')
+        const params = new URLSearchParams(query ?? '')
+        const pathParam = params.get('path')
+        const key = pathParam === null ? (base ?? url) : `${base ?? url}|${pathParam}`
+        const handler = handlers[key] ?? (() => new Response('not mocked', { status: 500 }))
+        return Promise.resolve(handler())
+      }),
+    )
+    return { urls }
+  }
+
+  it('マウント時に fetchRefs が空文字 q で呼ばれ初期候補を読み込む (ADR 0019)', async () => {
+    mockFetchByUrl({
+      '/api/diff/files': () => jsonResponse(200, { files: [] }),
+    })
+    mountWithHighlighter(DiffView)
+    await flushPromises()
+    expect(mockedFetchRefs).toHaveBeenCalledTimes(1)
+    expect(mockedFetchRefs).toHaveBeenCalledWith('', 50)
+  })
+
+  it('マウント時の fetchDiffFiles は from=HEAD クエリ付きで呼ばれる (ADR 0019)', async () => {
+    const tracker = mockFetchByUrlTracked({
+      '/api/diff/files': () => jsonResponse(200, { files: [] }),
+    })
+    mountWithHighlighter(DiffView)
+    await flushPromises()
+    const filesCall = tracker.urls.find((u) => u.startsWith('/api/diff/files'))
+    expect(filesCall).toBeDefined()
+    expect(filesCall).toContain('from=HEAD')
+    expect(filesCall).not.toContain('to=')
+  })
+
+  it('runDiffLoad に range を渡すと fetchDiffFiles と blob fetch の rev が range から決まる (ADR 0019 HIGH-1)', async () => {
+    const tracker = mockFetchByUrlTracked({
+      '/api/diff/files': () => jsonResponse(200, { files: [SUMMARY_A] }),
+      '/api/diff/file|foo.ts': () => jsonResponse(200, FILE_A),
+    })
+    mockedFetchBlob.mockResolvedValue(BLOB_FOO)
+
+    const wrapper = mountWithHighlighter(DiffView)
+    await flushPromises()
+    mockedFetchBlob.mockClear()
+    tracker.urls.length = 0
+
+    const vm: unknown = wrapper.vm
+    if (!hasRunDiffLoad(vm)) {
+      throw new Error('runDiffLoad is not exposed on DiffView instance')
+    }
+    await vm.runDiffLoad({ from: 'feature/foo', to: 'main' })
+    await flushPromises()
+
+    const filesCall = tracker.urls.find((u) => u.startsWith('/api/diff/files'))
+    expect(filesCall).toContain('from=feature%2Ffoo')
+    expect(filesCall).toContain('to=main')
+
+    // blob fetch の old/new rev が range から導出される
+    const blobCalls = mockedFetchBlob.mock.calls.filter((c) => c[0] === 'foo.ts')
+    const oldSideCall = blobCalls.find((c) => c[1] === 'feature/foo')
+    const newSideCall = blobCalls.find((c) => c[1] === 'main')
+    expect(oldSideCall).toBeDefined()
+    expect(newSideCall).toBeDefined()
+  })
+
+  it('to=(worktree) のときは API クエリの to が省略される (ADR 0019)', async () => {
+    const tracker = mockFetchByUrlTracked({
+      '/api/diff/files': () => jsonResponse(200, { files: [SUMMARY_A] }),
+      '/api/diff/file|foo.ts': () => jsonResponse(200, FILE_A),
+    })
+    mockedFetchBlob.mockResolvedValue(BLOB_FOO)
+
+    const wrapper = mountWithHighlighter(DiffView)
+    await flushPromises()
+    mockedFetchBlob.mockClear()
+    tracker.urls.length = 0
+
+    const vm: unknown = wrapper.vm
+    if (!hasRunDiffLoad(vm)) {
+      throw new Error('runDiffLoad is not exposed on DiffView instance')
+    }
+    // 適用ボタン経由を模倣: range は現在の state から作られる前提
+    await vm.runDiffLoad({ from: 'main' })
+    await flushPromises()
+
+    const filesCall = tracker.urls.find((u) => u.startsWith('/api/diff/files'))
+    expect(filesCall).toContain('from=main')
+    expect(filesCall).not.toContain('to=')
+
+    // new 側 blob は worktree (rev=null)
+    const blobCalls = mockedFetchBlob.mock.calls.filter((c) => c[0] === 'foo.ts')
+    expect(blobCalls.some((c) => c[1] === null)).toBe(true)
+    expect(blobCalls.some((c) => c[1] === 'main')).toBe(true)
+  })
+
+  it('適用ボタンクリックで runDiffLoad が current range で呼ばれる (ADR 0019)', async () => {
+    const tracker = mockFetchByUrlTracked({
+      '/api/diff/files': () => jsonResponse(200, { files: [] }),
+    })
+    const wrapper = mountWithHighlighter(DiffView)
+    await flushPromises()
+    tracker.urls.length = 0
+
+    const button = wrapper.find('.apply')
+    expect(button.exists()).toBe(true)
+    await button.trigger('click')
+    await flushPromises()
+
+    const filesCall = tracker.urls.find((u) => u.startsWith('/api/diff/files'))
+    expect(filesCall).toContain('from=HEAD')
+  })
+
+  it('loadingList 中は適用ボタンが disabled になる (ADR 0019 MEDIUM-4)', async () => {
+    // fetchDiffFiles の解決を手動で制御するため deferred Response を使う
+    let resolveFetch: (value: Response) => void = () => {}
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        () =>
+          new Promise<Response>((r) => {
+            resolveFetch = r
+          }),
+      ),
+    )
+    const wrapper = mountWithHighlighter(DiffView)
+    await flushPromises()
+    const button = wrapper.find('.apply')
+    expect(button.attributes('disabled')).toBeDefined()
+
+    // 解決するとボタンが押せるようになる
+    resolveFetch(jsonResponse(200, { files: [] }))
+    await flushPromises()
+    expect(wrapper.find('.apply').attributes('disabled')).toBeUndefined()
+  })
+
+  it('候補クリック相当の操作で runDiffLoad が自動適用される (ADR 0019)', async () => {
+    mockedFetchRefs.mockResolvedValue({
+      head: 'main',
+      branches: ['main', 'feature/foo'],
+      tags: [],
+      truncated: false,
+    })
+    const tracker = mockFetchByUrlTracked({
+      '/api/diff/files': () => jsonResponse(200, { files: [] }),
+    })
+    const wrapper = mountWithHighlighter(DiffView, undefined, { attachTo: document.body })
+    await flushPromises()
+    tracker.urls.length = 0
+
+    // from 側 combobox の候補をクリック (候補は head=main + branches)
+    const fromInput = wrapper.findAll('input[role="combobox"]')[0]
+    await fromInput?.trigger('focus')
+    const options = wrapper.findAll('[role="option"]')
+    // [0]=main (head と branches の重複排除), [1]=feature/foo
+    await options[1]?.trigger('mousedown')
+    await flushPromises()
+
+    const filesCall = tracker.urls.find((u) => u.startsWith('/api/diff/files'))
+    expect(filesCall).toContain('from=feature%2Ffoo')
+    wrapper.unmount()
+  })
+
+  it('blur 経由 (値だけ変えてフォーカスを外す) では自動適用されない (ADR 0019)', async () => {
+    const tracker = mockFetchByUrlTracked({
+      '/api/diff/files': () => jsonResponse(200, { files: [] }),
+    })
+    const wrapper = mountWithHighlighter(DiffView, undefined, { attachTo: document.body })
+    await flushPromises()
+    tracker.urls.length = 0
+
+    const fromInput = wrapper.findAll('input[role="combobox"]')[0]
+    await fromInput?.setValue('main')
+    await fromInput?.trigger('blur')
+    // blur の 150ms 遅延 close と commitImplicit を進める
+    await new Promise((r) => setTimeout(r, 200))
+    await flushPromises()
+
+    const filesCall = tracker.urls.find((u) => u.startsWith('/api/diff/files'))
+    expect(filesCall).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('listError があると from/to combobox に has-error クラスが伝播する (ADR 0019 MEDIUM-1)', async () => {
+    mockFetchByUrl({
+      '/api/diff/files': () => new Response('boom', { status: 500 }),
+    })
+    const wrapper = mountWithHighlighter(DiffView)
+    await flushPromises()
+    const comboboxes = wrapper.findAll('.revision-combobox')
+    expect(comboboxes).toHaveLength(2)
+    for (const c of comboboxes) {
+      expect(c.classes()).toContain('has-error')
+    }
   })
 })

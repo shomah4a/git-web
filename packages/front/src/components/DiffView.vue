@@ -18,10 +18,11 @@
  * - blob 取得 / ハイライト失敗は該当ファイルだけプレーン fallback
  */
 
-import type { DiffFileDto, DiffFileSummaryDto } from '@git-web/common'
+import type { DiffFileDto, DiffFileSummaryDto, RefListDto } from '@git-web/common'
 import { inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { fetchBlob } from '../api/blob.js'
-import { fetchDiffFile, fetchDiffFiles } from '../api/diff.js'
+import { type DiffRangeQuery, fetchDiffFile, fetchDiffFiles } from '../api/diff.js'
+import { fetchRefs } from '../api/refs.js'
 import { createLimiter } from '../diff/highlighter/limit.js'
 import { createNoOpHighlighter } from '../diff/highlighter/no-op.js'
 import {
@@ -30,6 +31,7 @@ import {
   highlighterKey,
 } from '../diff/highlighter/types.js'
 import { pairLines } from '../diff/pair-lines.js'
+import RevisionCombobox from './RevisionCombobox.vue'
 
 type DiffLineDto = DiffFileDto['hunks'][number]['lines'][number]
 
@@ -55,11 +57,44 @@ type FileTokens = {
   readonly new: HighlightedLines | null
 }
 
+/**
+ * UI 上の仮想 ref 文字列 (ADR 0019)。`to === WORKTREE_SENTINEL` で「作業ツリー」
+ * を表し、API クエリ上は `to` キーを送らない形にマッピングする。from 側には
+ * worktree 項目を出さないため、from がこの値になることは通常起きない。
+ */
+const WORKTREE_SENTINEL = '(worktree)' as const
+
 const entries = ref<FileEntry[]>([])
 const loadingList = ref(false)
 const listError = ref<string | null>(null)
 const diffRoot = ref<HTMLElement | null>(null)
 const tokenMap = ref<Map<string, FileTokens>>(new Map())
+
+/**
+ * unmount 済みフラグ (ADR 0019 LOW-2)。
+ *
+ * onMounted で並列発火する fetchRefs が遅れて解決したとき、本コンポーネントが
+ * すでに unmount されていれば `initialRefs.value = result` の副作用をスキップ
+ * する。Vue 3 では unmounted ref への代入自体は警告にならないが、combobox
+ * 世代カウンタ / runDiffLoad generation カウンタと同じ防御パターンに揃える
+ * ことで、将来 mount/unmount を繰り返すテストや SSR hydration 周辺で思わぬ
+ * 副作用が混入するのを防ぐ。
+ */
+let isUnmounted = false
+
+/**
+ * from/to セレクタの現在値 (ADR 0019)。初期値は現行挙動と等価な
+ * `from = 'HEAD'`, `to = '(worktree)'` とする。
+ */
+const fromRev = ref<string>('HEAD')
+const toRev = ref<string>(WORKTREE_SENTINEL)
+
+/**
+ * RevisionCombobox に渡す初期候補 (ADR 0019)。
+ * onMounted で runDiffLoad と並列に `fetchRefs('', 50)` を発火し、結果を
+ * ここへ入れる。取得失敗時は null のままで、combobox は自由入力のみ可となる。
+ */
+const initialRefs = ref<RefListDto | null>(null)
 
 /**
  * runDiffLoad の世代カウンタ (ADR 0017)。
@@ -158,6 +193,40 @@ function setupScrollSync(): void {
 }
 
 /**
+ * 現在の from/to state から DiffRangeQuery を組み立てる (ADR 0019)。
+ *
+ * - `to === WORKTREE_SENTINEL` のとき、API クエリの `to` は undefined にして
+ *   URL に載せない (backend は working-vs-rev(from) 側に分岐する)
+ * - from が `WORKTREE_SENTINEL` になるのは UI 上起きない想定だが、防御的に
+ *   undefined に倒す
+ */
+function currentRange(): DiffRangeQuery {
+  const result: { from?: string; to?: string } = {}
+  if (fromRev.value !== WORKTREE_SENTINEL) {
+    result.from = fromRev.value
+  }
+  if (toRev.value !== WORKTREE_SENTINEL) {
+    result.to = toRev.value
+  }
+  return result
+}
+
+/**
+ * blob fetch 用の old/new rev を range から 1 度だけ決定する (ADR 0019)。
+ *
+ * - from=HEAD, to=(worktree) の初期状態では { old: 'HEAD', new: null } となり、
+ *   改修前の挙動と完全一致する
+ * - range を引き回すことで「fetch 開始時の range と blob 取得時の range が
+ *   同一世代内でズレる」経路を構造的に排除する
+ */
+function resolveBlobRevs(range: DiffRangeQuery): { old: string | null; new: string | null } {
+  return {
+    old: range.from ?? null,
+    new: range.to ?? null,
+  }
+}
+
+/**
  * 非同期処理の単一 entrypoint。
  *
  * - 呼び出しごとに generation++ して myGen に保存
@@ -165,12 +234,19 @@ function setupScrollSync(): void {
  *   → tokenMap バッチ反映 の順で実行
  * - 途中で generation が進んだら結果を破棄 (後発優先)
  * - 例外は listError に載せる (既存挙動との互換)
+ *
+ * ADR 0019: `rangeArg` を受け取れるようにし、呼び出し冒頭で range を 1 度だけ
+ * 確定させる (range スナップショット)。引数省略時は現在の ref から組み立てる
+ * `currentRange()` を呼ぶ。これで fetch 中に fromRev/toRev が書き換えられても
+ * 単一世代内の整合が保たれる。
  */
-async function runDiffLoad(): Promise<void> {
+async function runDiffLoad(rangeArg?: DiffRangeQuery): Promise<void> {
+  const range = rangeArg ?? currentRange()
+  const blobRevs = resolveBlobRevs(range)
   const myGen = ++generation
   loadingList.value = true
   try {
-    const response = await fetchDiffFiles()
+    const response = await fetchDiffFiles(range)
     if (myGen !== generation) return
 
     entries.value = response.files.map(
@@ -183,7 +259,7 @@ async function runDiffLoad(): Promise<void> {
     tokenMap.value = new Map()
 
     const diffResults = await Promise.allSettled(
-      response.files.map((summary) => fetchDiffFile(summary.path)),
+      response.files.map((summary) => fetchDiffFile(summary.path, range)),
     )
     if (myGen !== generation) return
 
@@ -207,7 +283,7 @@ async function runDiffLoad(): Promise<void> {
       }
     })
 
-    const newTokens = await loadAllTokens(successFiles)
+    const newTokens = await loadAllTokens(successFiles, blobRevs)
     if (myGen !== generation) return
     applyTokenMap(newTokens)
   } catch (err) {
@@ -230,6 +306,7 @@ async function runDiffLoad(): Promise<void> {
  */
 async function loadAllTokens(
   files: ReadonlyArray<{ summary: DiffFileSummaryDto; file: DiffFileDto }>,
+  blobRevs: { old: string | null; new: string | null },
 ): Promise<Map<string, FileTokens>> {
   const result = new Map<string, FileTokens>()
   const tasks = files
@@ -238,8 +315,8 @@ async function loadAllTokens(
       const needsOld = summary.status !== 'added'
       const needsNew = summary.status !== 'deleted'
       const [oldLines, newLines] = await Promise.all([
-        needsOld ? fetchAndHighlight(file.path, 'HEAD', 'old') : Promise.resolve(null),
-        needsNew ? fetchAndHighlight(file.path, null, 'new') : Promise.resolve(null),
+        needsOld ? fetchAndHighlight(file.path, blobRevs.old, 'old') : Promise.resolve(null),
+        needsNew ? fetchAndHighlight(file.path, blobRevs.new, 'new') : Promise.resolve(null),
       ])
       if (oldLines !== null || newLines !== null) {
         result.set(summary.path, { old: oldLines, new: newLines })
@@ -302,12 +379,52 @@ onMounted(() => {
   runDiffLoad().catch((err: unknown) => {
     listError.value = err instanceof Error ? err.message : 'unknown error'
   })
+  // 並列で refs 一覧を先読みしておく (ADR 0019)。失敗しても runDiffLoad には
+  // 影響させず、combobox が自由入力のみになる形にフォールバックする。
+  fetchRefs('', 50)
+    .then((result) => {
+      if (isUnmounted) return
+      initialRefs.value = result
+    })
+    .catch((err: unknown) => {
+      if (isUnmounted) return
+      console.warn('[DiffView] initial fetchRefs failed', err)
+    })
 })
 
 // テスト側から同一インスタンス内で runDiffLoad を再実行できるようにして、
 // generation race を直接検証する (ADR 0017 / 防衛評価 MEDIUM-5 対応)。
-// 本番では外部から呼ぶ経路は無く、rev 切り替え UI 等の将来拡張で利用予定。
+// ADR 0019 では適用ボタンの click ハンドラ経由で同じエントリポイントを使う。
 defineExpose({ runDiffLoad })
+
+/**
+ * 適用ボタンハンドラ (ADR 0019)。
+ *
+ * 現在の from/to state を明示的にスナップショットして runDiffLoad に渡す。
+ * loadingList 中は template 側で disabled にしているが、防御的に確認する。
+ */
+function onApply(): void {
+  if (loadingList.value) return
+  runDiffLoad(currentRange()).catch((err: unknown) => {
+    listError.value = err instanceof Error ? err.message : 'unknown error'
+  })
+}
+
+/**
+ * RevisionCombobox の `submit` イベントを受けて自動適用する (ADR 0019)。
+ *
+ * Vue の v-model emit は onRevSubmit より前に走るため、`fromRev`/`toRev` は
+ * すでに最新値に更新されている。currentRange() がその最新値を拾う。
+ *
+ * loadingList 中でも呼ぶ: runDiffLoad の generation カウンタが race を吸収
+ * するため、前発の処理は自動的に破棄される。適用ボタンの disabled は UI
+ * 明示操作に対する二重押下防止であり、ここには適用しない。
+ */
+function onRevSubmit(): void {
+  runDiffLoad(currentRange()).catch((err: unknown) => {
+    listError.value = err instanceof Error ? err.message : 'unknown error'
+  })
+}
 
 // entries 差し替え時にのみ scroll sync を再 setup する。tokenMap の更新は
 // entries を触らないので本 watch は発火しない。これは ADR 0017 の判断通り
@@ -323,6 +440,7 @@ watch(
 )
 
 onBeforeUnmount(() => {
+  isUnmounted = true
   teardownScrollSync()
 })
 
@@ -414,6 +532,29 @@ function enrichHunk(path: string, hunk: DiffFileDto['hunks'][number]): ReadonlyA
 </script>
 
 <template>
+  <header class="rev-selector">
+    <label class="rev-label">
+      <span>from:</span>
+      <RevisionCombobox
+        v-model="fromRev"
+        :initial-refs="initialRefs"
+        :allow-worktree="false"
+        :has-error="listError !== null"
+        @submit="onRevSubmit"
+      />
+    </label>
+    <label class="rev-label">
+      <span>to:</span>
+      <RevisionCombobox
+        v-model="toRev"
+        :initial-refs="initialRefs"
+        :allow-worktree="true"
+        :has-error="listError !== null"
+        @submit="onRevSubmit"
+      />
+    </label>
+    <button type="button" class="apply" :disabled="loadingList" @click="onApply">適用</button>
+  </header>
   <div ref="diffRoot" class="diff-view">
     <aside class="file-list">
       <h2>Files</h2>
@@ -539,6 +680,35 @@ function enrichHunk(path: string, hunk: DiffFileDto['hunks'][number]): ReadonlyA
 </template>
 
 <style scoped>
+.rev-selector {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.4rem 0.5rem;
+  border-bottom: 1px solid #ddd;
+  background: #fafafa;
+  font-family: ui-monospace, monospace;
+  font-size: 0.9em;
+}
+.rev-label {
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: center;
+  color: #555;
+}
+.apply {
+  padding: 0.25rem 0.75rem;
+  border: 1px solid #888;
+  background: #fff;
+  border-radius: 3px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: inherit;
+}
+.apply:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
 .diff-view {
   display: flex;
   gap: 1rem;
