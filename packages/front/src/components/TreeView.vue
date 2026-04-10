@@ -10,7 +10,7 @@
  * - URL の rev / path クエリでステート管理
  */
 
-import type { RefListDto, TreeEntryDto } from '@git-web/common'
+import type { RefListDto, TreeEntryDto, TreeEntryStatusDto } from '@git-web/common'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { fetchRefs } from '../api/refs.js'
@@ -149,6 +149,14 @@ onMounted(() => {
     })
 })
 
+function statusLabel(status: TreeEntryStatusDto): string {
+  if (status === 'added') return 'A'
+  if (status === 'modified') return 'M'
+  if (status === 'deleted') return 'D'
+  if (status === 'untracked') return '?'
+  return ''
+}
+
 onBeforeUnmount(() => {
   isUnmounted = true
 })
@@ -165,7 +173,7 @@ onBeforeUnmount(() => {
         @update:model-value="currentRev = $event"
         @submit="onRevSubmit"
       />
-      <button class="apply-btn" :disabled="loading" @click="onApply">apply</button>
+      <button class="apply-btn" :disabled="loading" @click="onApply">適用</button>
     </div>
 
     <nav class="breadcrumb" aria-label="directory path">
@@ -205,6 +213,9 @@ onBeforeUnmount(() => {
               {{ entry.name }}
             </button>
             <span v-else class="entry-name">{{ entry.name }}</span>
+            <span v-if="entry.status !== null" class="entry-status" :data-status="entry.status">
+              {{ statusLabel(entry.status) }}
+            </span>
           </td>
         </tr>
       </tbody>
@@ -287,6 +298,8 @@ onBeforeUnmount(() => {
 }
 .col-name {
   padding: 0.35rem 0.75rem;
+  display: flex;
+  align-items: center;
 }
 .entry-icon {
   margin-right: 0.5rem;
@@ -306,6 +319,23 @@ onBeforeUnmount(() => {
 }
 .entry-name {
   color: var(--color-fg);
+}
+.entry-status {
+  margin-left: auto;
+  font-weight: bold;
+  font-size: 0.85em;
+}
+.entry-status[data-status='added'] {
+  color: var(--color-status-added);
+}
+.entry-status[data-status='modified'] {
+  color: var(--color-status-modified);
+}
+.entry-status[data-status='deleted'] {
+  color: var(--color-error);
+}
+.entry-status[data-status='untracked'] {
+  color: var(--color-fg-faint);
 }
 .error {
   color: var(--color-error);

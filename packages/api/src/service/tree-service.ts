@@ -3,14 +3,21 @@
  *
  * 設計方針 (ADR 0011):
  * - rev が指定されたら GitTreeClient (git ls-tree) を使う
- * - rev が null (worktree) なら WorktreeTreeReader (readdir) を使う
+ * - rev が null (worktree) なら git ls-files + git status を使う
  * - HTTP / DTO には依存しない
  */
 
 import type { GitTreeClient } from '../domain/ports/git-tree-client.js'
 import type { Revision } from '../domain/revision.js'
 import type { TreeEntry } from '../domain/tree.js'
-import type { WorktreeTreeReader } from '../adapter/fs/worktree-tree-reader.js'
+
+/**
+ * worktree のツリー取得を行う port。
+ * CliGitClient の listWorktreeTree を注入する。
+ */
+export type WorktreeTreeLister = {
+  listWorktreeTree(path: string): Promise<ReadonlyArray<TreeEntry>>
+}
 
 export type TreeService = {
   /**
@@ -24,12 +31,12 @@ export type TreeService = {
 
 export function createTreeService(
   gitTree: GitTreeClient,
-  worktreeReader: WorktreeTreeReader,
+  worktreeTree: WorktreeTreeLister,
 ): TreeService {
   return {
     async getTree(rev, path) {
       if (rev === null) {
-        return worktreeReader.list(path)
+        return worktreeTree.listWorktreeTree(path)
       }
       return gitTree.listTree(rev, path)
     },

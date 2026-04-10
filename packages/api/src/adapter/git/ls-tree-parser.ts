@@ -69,7 +69,7 @@ function parseRecord(record: string, basePath: string): TreeEntry | null {
   // path は basePath を前置してリポジトリルートからの相対パスにする
   const path = basePath === '' ? fullPath : `${basePath}/${fullPath}`
 
-  return { name, path, type }
+  return { name, path, type, status: null }
 }
 
 function toTreeEntryType(raw: string): TreeEntryType | null {

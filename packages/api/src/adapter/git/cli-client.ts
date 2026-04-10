@@ -23,7 +23,9 @@ import type { GitTreeClient } from '../../domain/ports/git-tree-client.js'
 import type { Revision } from '../../domain/revision.js'
 import type { TreeEntry } from '../../domain/tree.js'
 import { parseNumstatZ, parseRawZ } from './diff-summary-parser.js'
+import { extractOneLevel } from './ls-files-parser.js'
 import { parseLsTreeZ } from './ls-tree-parser.js'
+import { parseStatusZ } from './status-parser.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -146,6 +148,27 @@ export class CliGitClient implements GitClient, GitDiffClient, GitRefsClient, Gi
       maxBuffer: DIFF_MAX_BUFFER,
     })
     return parseLsTreeZ(stdout, path)
+  }
+
+  /**
+   * worktree の指定パス配下 1 階層分のエントリを返す。
+   *
+   * git ls-files で tracked + untracked (.gitignore 除外) を列挙し、
+   * git status で各ファイルの状態を付与する。
+   */
+  async listWorktreeTree(path: string): Promise<ReadonlyArray<TreeEntry>> {
+    const [lsResult, statusResult] = await Promise.all([
+      execFileAsync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], {
+        cwd: this.#cwd,
+        maxBuffer: DIFF_MAX_BUFFER,
+      }),
+      execFileAsync('git', ['status', '--porcelain=v1', '-z'], {
+        cwd: this.#cwd,
+        maxBuffer: DIFF_MAX_BUFFER,
+      }),
+    ])
+    const statusMap = parseStatusZ(statusResult.stdout)
+    return extractOneLevel(lsResult.stdout, path, statusMap)
   }
 }
 

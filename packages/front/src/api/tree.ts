@@ -48,8 +48,11 @@ function isTreeEntryDto(value: unknown): value is TreeEntryDto {
   if (!('name' in value) || typeof value.name !== 'string') return false
   if (!('path' in value) || typeof value.path !== 'string') return false
   if (!('type' in value)) return false
+  if (!('status' in value)) return false
   const t = value.type
-  return t === 'blob' || t === 'tree'
+  if (t !== 'blob' && t !== 'tree') return false
+  const s = value.status
+  return s === null || s === 'added' || s === 'modified' || s === 'deleted' || s === 'untracked'
 }
 
 function isTreeResponseDto(value: unknown): value is TreeResponseDto {
