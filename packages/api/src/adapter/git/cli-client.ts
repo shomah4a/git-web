@@ -19,7 +19,11 @@ import type { DiffRange } from '../../domain/diff-range.js'
 import type { GitClient } from '../../domain/ports/git-client.js'
 import type { GitDiffClient } from '../../domain/ports/git-diff-client.js'
 import type { GitRefsClient } from '../../domain/ports/git-refs-client.js'
+import type { GitTreeClient } from '../../domain/ports/git-tree-client.js'
+import type { Revision } from '../../domain/revision.js'
+import type { TreeEntry } from '../../domain/tree.js'
 import { parseNumstatZ, parseRawZ } from './diff-summary-parser.js'
+import { parseLsTreeZ } from './ls-tree-parser.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -32,7 +36,7 @@ const DIFF_MAX_BUFFER = 50 * 1024 * 1024
 /**
  * 子プロセスとして git CLI を起動する GitClient / GitDiffClient 実装。
  */
-export class CliGitClient implements GitClient, GitDiffClient, GitRefsClient {
+export class CliGitClient implements GitClient, GitDiffClient, GitRefsClient, GitTreeClient {
   readonly #cwd: string
 
   constructor(cwd: string) {
@@ -133,6 +137,15 @@ export class CliGitClient implements GitClient, GitDiffClient, GitRefsClient {
       maxBuffer: DIFF_MAX_BUFFER,
     })
     return stdout
+  }
+
+  async listTree(rev: Revision, path: string): Promise<ReadonlyArray<TreeEntry>> {
+    const args = path === '' ? [rev.raw] : [`${rev.raw}:${path}`]
+    const { stdout } = await execFileAsync('git', ['ls-tree', '-z', '--end-of-options', ...args], {
+      cwd: this.#cwd,
+      maxBuffer: DIFF_MAX_BUFFER,
+    })
+    return parseLsTreeZ(stdout, path)
   }
 }
 

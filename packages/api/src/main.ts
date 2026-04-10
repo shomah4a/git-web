@@ -6,7 +6,7 @@
  */
 
 import { execFile } from 'node:child_process'
-import { readFile, realpath } from 'node:fs/promises'
+import { readFile, readdir, realpath } from 'node:fs/promises'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { createCompositeBlobReader } from './adapter/blob-reader-composite.js'
@@ -20,13 +20,16 @@ import { createDiffFileHandler, createDiffFilesHandler } from './controller/diff
 import { mapDomainErrorToHttpResponse } from './controller/error-mapper.js'
 import { createRefsHandler } from './controller/refs-controller.js'
 import { createRepoHandler } from './controller/repo-controller.js'
+import { createTreeHandler } from './controller/tree-controller.js'
 import { NotAGitRepositoryError } from './domain/errors.js'
 import type { Route } from './http/router.js'
 import { close, createApiServer, listen } from './http/server.js'
 import { createStaticHandler } from './http/static.js'
+import { createWorktreeTreeReader } from './adapter/fs/worktree-tree-reader.js'
 import { createBlobService } from './service/blob-service.js'
 import { createDiffService } from './service/diff-service.js'
 import { createRefsService } from './service/refs-service.js'
+import { createTreeService } from './service/tree-service.js'
 
 export type StartOptions = {
   /**
@@ -132,12 +135,19 @@ export async function start(options: StartOptions = {}): Promise<StartedServer> 
   const blobReader = createCompositeBlobReader(worktreeReader, catFileReader)
   const blobService = createBlobService(blobReader)
 
+  const worktreeTreeReader = createWorktreeTreeReader(repoRoot, {
+    realpath: (p) => realpath(p),
+    readdir: (p, opts) => readdir(p, opts),
+  })
+  const treeService = createTreeService(git, worktreeTreeReader)
+
   const routes: ReadonlyArray<Route> = [
     { method: 'GET', path: '/api/repo', handler: createRepoHandler(git) },
     { method: 'GET', path: '/api/diff/files', handler: createDiffFilesHandler(diffService) },
     { method: 'GET', path: '/api/diff/file', handler: createDiffFileHandler(diffService) },
     { method: 'GET', path: '/api/refs', handler: createRefsHandler(refsService) },
     { method: 'GET', path: '/api/blob', handler: createBlobHandler(blobService) },
+    { method: 'GET', path: '/api/tree', handler: createTreeHandler(treeService) },
   ]
 
   const server = createApiServer({
