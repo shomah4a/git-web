@@ -39,7 +39,7 @@ main {
   padding: 0 1rem;
 }
 .error {
-  color: #c00;
+  color: var(--color-error);
 }
 dt {
   font-weight: bold;
