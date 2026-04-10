@@ -20,14 +20,15 @@
 
 import type { DiffFileDto, DiffFileSummaryDto, RefListDto } from '@git-web/common'
 import { inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { fetchBlob } from '../api/blob.js'
 import { type DiffRangeQuery, fetchDiffFile, fetchDiffFiles } from '../api/diff.js'
 import { fetchRefs } from '../api/refs.js'
 import {
   type DiffRangeUrlState,
+  DEFAULT_FROM,
+  DEFAULT_TO,
   WORKTREE_SENTINEL,
-  pushDiffRangeToUrl,
-  readDiffRangeFromSearch,
 } from '../url-state.js'
 import { createLimiter } from '../diff/highlighter/limit.js'
 import { createNoOpHighlighter } from '../diff/highlighter/no-op.js'
@@ -95,7 +96,20 @@ let isUnmounted = false
  * 同値であることが前提で、この不変量は url-state.test.ts と本ファイル側の
  * 定数宣言で二重化して担保する。
  */
-const initialRange = readDiffRangeFromSearch(window.location.search)
+const route = useRoute()
+const router = useRouter()
+
+function readRangeFromRoute(): DiffRangeUrlState {
+  const from =
+    typeof route.query.from === 'string' && route.query.from !== ''
+      ? route.query.from
+      : DEFAULT_FROM
+  const to =
+    typeof route.query.to === 'string' && route.query.to !== '' ? route.query.to : DEFAULT_TO
+  return { from, to }
+}
+
+const initialRange = readRangeFromRoute()
 const fromRev = ref<string>(initialRange.from)
 const toRev = ref<string>(initialRange.to)
 
@@ -400,8 +414,7 @@ onMounted(() => {
       if (isUnmounted) return
       console.warn('[DiffView] initial fetchRefs failed', err)
     })
-  // ADR 0020: back/forward で URL が書き換わったら range を同期する。
-  window.addEventListener('popstate', onPopState)
+  // ADR 0020 / ADR 0022: route.query の watch で back/forward に対応する。
 })
 
 // テスト側から同一インスタンス内で runDiffLoad を再実行できるようにして、
@@ -410,14 +423,20 @@ onMounted(() => {
 defineExpose({ runDiffLoad })
 
 /**
- * 現在の from/to を URL へ push する (ADR 0020)。
+ * 現在の from/to を URL へ反映する (ADR 0020 / ADR 0022)。
  *
- * DiffRangeUrlState は必ず文字列ペアで持つため、WORKTREE_SENTINEL をそのまま
- * 渡せる。url-state 側でデフォルト値のキー省略を判断する。
+ * Vue Router の replace を使い、from/to がデフォルト値のときはキーを省略する。
  */
 function syncUrlFromState(): void {
   const range: DiffRangeUrlState = { from: fromRev.value, to: toRev.value }
-  pushDiffRangeToUrl(window.history, window.location, range)
+  const query: Record<string, string> = {}
+  if (range.from !== DEFAULT_FROM) {
+    query.from = range.from
+  }
+  if (range.to !== DEFAULT_TO) {
+    query.to = range.to
+  }
+  void router.replace({ query })
 }
 
 /**
@@ -453,24 +472,24 @@ function onRevSubmit(): void {
 }
 
 /**
- * popstate ハンドラ (ADR 0020)。
+ * route.query の変更を watch して range を同期する (ADR 0020 / ADR 0022)。
  *
- * ブラウザの back/forward で URL が書き換わったとき、URL から range を
- * 読み直して state に反映し runDiffLoad を発火する。URL は window が既に
- * 更新済みなので、本経路では pushDiffRangeToUrl は呼ばない (二重 push 回避)。
+ * ブラウザの back/forward や外部からの route 変更に対応する。
+ * syncUrlFromState 経由の自発的な変更と、ブラウザの back/forward を区別せず、
+ * range が変わっていなければ何もしない。
  */
-function onPopState(): void {
-  const range = readDiffRangeFromSearch(window.location.search)
-  // LOW-3: 他機能が history を触って popstate が飛んだとき、range が変わって
-  // いなければ runDiffLoad は冗長なので早期 return する。generation カウンタで
-  // race は吸収されるが、無駄な fetch を撒かない。
-  if (range.from === fromRev.value && range.to === toRev.value) return
-  fromRev.value = range.from
-  toRev.value = range.to
-  runDiffLoad(currentRange()).catch((err: unknown) => {
-    listError.value = err instanceof Error ? err.message : 'unknown error'
-  })
-}
+watch(
+  () => route.query,
+  () => {
+    const range = readRangeFromRoute()
+    if (range.from === fromRev.value && range.to === toRev.value) return
+    fromRev.value = range.from
+    toRev.value = range.to
+    runDiffLoad(currentRange()).catch((err: unknown) => {
+      listError.value = err instanceof Error ? err.message : 'unknown error'
+    })
+  },
+)
 
 // entries 差し替え時にのみ scroll sync を再 setup する。tokenMap の更新は
 // entries を触らないので本 watch は発火しない。これは ADR 0017 の判断通り
@@ -487,7 +506,6 @@ watch(
 
 onBeforeUnmount(() => {
   isUnmounted = true
-  window.removeEventListener('popstate', onPopState)
   teardownScrollSync()
 })
 

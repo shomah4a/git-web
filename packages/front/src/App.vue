@@ -2,7 +2,6 @@
 import type { RepoInfoDto } from '@git-web/common'
 import { onMounted, ref, watch } from 'vue'
 import { fetchRepoInfo } from './api.js'
-import DiffView from './components/DiffView.vue'
 import ThemeSwitcher from './components/ThemeSwitcher.vue'
 import {
   createLocalStorageThemeStorage,
@@ -47,7 +46,9 @@ onMounted(async () => {
 <template>
   <main>
     <header class="app-header">
-      <h1>git-web</h1>
+      <h1>
+        <router-link to="/">git-web</router-link>
+      </h1>
       <ThemeSwitcher
         :model-value="themeStore.theme.value"
         @update:model-value="themeStore.setTheme"
@@ -62,7 +63,7 @@ onMounted(async () => {
     </dl>
     <p v-else>loading...</p>
 
-    <DiffView />
+    <router-view />
   </main>
 </template>
 
@@ -81,6 +82,10 @@ main {
 }
 .app-header h1 {
   margin: 0;
+}
+.app-header h1 a {
+  color: inherit;
+  text-decoration: none;
 }
 .error {
   color: var(--color-error);
