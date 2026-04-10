@@ -300,7 +300,7 @@ const listboxId = `rev-combobox-listbox-${useId()}`
    * 右寄せで配置する。追加依存なしに済ませるため CSS のみで完結させる。
    */
   padding: 0.25rem 1.8rem 0.25rem 0.4rem;
-  border: 1px solid #bbb;
+  border: 1px solid var(--color-border-strong);
   border-radius: 3px;
   font-family: ui-monospace, monospace;
   font-size: 0.9em;
@@ -314,7 +314,7 @@ const listboxId = `rev-combobox-listbox-${useId()}`
   background-size: 14px 14px;
 }
 .revision-combobox.has-error input {
-  border-color: #c33;
+  border-color: var(--color-error-strong);
 }
 .options {
   position: absolute;
@@ -324,13 +324,13 @@ const listboxId = `rev-combobox-listbox-${useId()}`
   margin: 2px 0 0;
   padding: 0;
   list-style: none;
-  background: #fff;
-  border: 1px solid #bbb;
+  background: var(--color-input-bg);
+  border: 1px solid var(--color-border-strong);
   border-radius: 3px;
   max-height: 16em;
   overflow-y: auto;
   min-width: 14em;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 2px 6px var(--color-shadow);
 }
 .options li {
   padding: 0.2rem 0.5rem;
@@ -341,6 +341,6 @@ const listboxId = `rev-combobox-listbox-${useId()}`
 }
 .options li:hover,
 .options li.highlighted {
-  background: #e8f0ff;
+  background: var(--color-option-hover);
 }
 </style>
