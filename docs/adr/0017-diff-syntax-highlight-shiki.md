@@ -7,6 +7,7 @@
 ## 補遺
 
 - ADR 0019: DiffView の `runDiffLoad` が `range` 引数を受け取るよう拡張された。世代カウンタによる後発優先と range スナップショット化を組み合わせて、fetch 中の range 書き換えによる race を排除する
+- ADR 0021: 本 ADR は `THEME = 'github-light'` 単一テーマを前提にしていたが、テーマスイッチャ導入に伴い ADR 0021 でマルチテーマ化 (`codeToTokensWithThemes` 方式、`HighlightedToken` に `colorDark` 追加) に変更された。本 ADR は当時の判断の記録として残す
 
 改訂履歴:
 
