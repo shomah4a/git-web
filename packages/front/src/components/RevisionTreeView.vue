@@ -145,7 +145,7 @@ onMounted(() => {
     })
     .catch((err: unknown) => {
       if (isUnmounted) return
-      console.warn('[TreeView] initial fetchRefs failed', err)
+      console.warn('[RevisionTreeView] initial fetchRefs failed', err)
     })
 })
 
