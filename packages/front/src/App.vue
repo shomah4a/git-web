@@ -63,6 +63,16 @@ onMounted(async () => {
     </dl>
     <p v-else>loading...</p>
 
+    <nav class="view-tabs">
+      <router-link class="view-tab" to="/" active-class="" exact-active-class="view-tab--active">
+        Worktree
+      </router-link>
+      <router-link class="view-tab" to="/diff" active-class="view-tab--active"> Diff </router-link>
+      <router-link class="view-tab" to="/tree?rev=HEAD" active-class="view-tab--active">
+        Revision
+      </router-link>
+    </nav>
+
     <router-view />
   </main>
 </template>
@@ -86,6 +96,29 @@ main {
 .app-header h1 a {
   color: inherit;
   text-decoration: none;
+}
+.view-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--color-border);
+  margin-bottom: 1rem;
+}
+.view-tab {
+  padding: 0.5rem 1rem;
+  color: var(--color-fg-muted);
+  text-decoration: none;
+  font-size: 0.9rem;
+  border-bottom: 2px solid transparent;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
+}
+.view-tab:hover {
+  color: var(--color-fg);
+}
+.view-tab--active {
+  color: var(--color-fg);
+  border-bottom-color: var(--color-fg);
 }
 .error {
   color: var(--color-error);
