@@ -4,6 +4,29 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>git-web</title>
+    <!--
+      FOUC (Flash of Unstyled Content) 防止用テーマ初期化スクリプト (ADR 0021)。
+      Vue 起動前に <html data-theme> を確定させるため defer / async を付けない。
+      NOTE: キー名 'git-web:theme' は packages/front/src/theme/theme-store.ts の
+      THEME_STORAGE_KEY と一致させること。片方だけ変更すると初期描画と
+      ストア状態がずれる。
+    -->
+    <script>
+      ;(function () {
+        try {
+          var t = localStorage.getItem('git-web:theme')
+          var resolved =
+            t === 'light' || t === 'dark'
+              ? t
+              : matchMedia('(prefers-color-scheme: dark)').matches
+                ? 'dark'
+                : 'light'
+          document.documentElement.setAttribute('data-theme', resolved)
+        } catch (e) {
+          /* localStorage / matchMedia 未対応環境は何もしない (ライト fallback) */
+        }
+      })()
+    </script>
   </head>
   <body>
     <div id="app"></div>
