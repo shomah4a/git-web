@@ -15,6 +15,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { fetchRefs } from '../api/refs.js'
 import { fetchTree } from '../api/tree.js'
+import { formatMode, formatSize } from '../format/entry.js'
 import RevisionCombobox from './RevisionCombobox.vue'
 
 const route = useRoute()
@@ -154,18 +155,6 @@ function statusLabel(status: TreeEntryStatusDto): string {
   return ''
 }
 
-function formatSize(size: number | null): string {
-  if (size === null) return '-'
-  if (size < 1024) return `${size.toString()} B`
-  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
-  return `${(size / (1024 * 1024)).toFixed(1)} MB`
-}
-
-function formatMode(mode: string | null): string {
-  if (mode === null) return '-'
-  return mode
-}
-
 onBeforeUnmount(() => {
   isUnmounted = true
 })
@@ -228,8 +217,8 @@ onBeforeUnmount(() => {
               {{ statusLabel(entry.status) }}
             </span>
           </td>
-          <td class="col-mode">{{ formatMode(entry.mode) }}</td>
-          <td class="col-size">{{ formatSize(entry.size) }}</td>
+          <td class="col-mode">{{ formatMode(entry) }}</td>
+          <td class="col-size">{{ formatSize(entry) }}</td>
         </tr>
       </tbody>
     </table>

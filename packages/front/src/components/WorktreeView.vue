@@ -14,6 +14,7 @@ import type { WorktreeEntryDto, WorktreeEntryStatusDto } from '@git-web/common'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { fetchWorktree } from '../api/worktree.js'
+import { formatMode, formatSize } from '../format/entry.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -115,18 +116,6 @@ function statusLabel(status: WorktreeEntryStatusDto): string {
   if (status === 'untracked') return '?'
   return ''
 }
-
-function formatSize(size: number | null): string {
-  if (size === null) return '-'
-  if (size < 1024) return `${size.toString()} B`
-  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
-  return `${(size / (1024 * 1024)).toFixed(1)} MB`
-}
-
-function formatMode(mode: string | null): string {
-  if (mode === null) return '-'
-  return mode
-}
 </script>
 
 <template>
@@ -177,8 +166,8 @@ function formatMode(mode: string | null): string {
             </button>
             <span v-else class="entry-name">{{ entry.name }}</span>
           </td>
-          <td class="col-mode">{{ formatMode(entry.mode) }}</td>
-          <td class="col-size">{{ formatSize(entry.size) }}</td>
+          <td class="col-mode">{{ formatMode(entry) }}</td>
+          <td class="col-size">{{ formatSize(entry) }}</td>
         </tr>
       </tbody>
     </table>

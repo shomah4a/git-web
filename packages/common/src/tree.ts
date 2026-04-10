@@ -1,11 +1,13 @@
 /**
- * ツリー表示の DTO (ADR 0022)。
+ * ツリー表示の DTO (ADR 0022, ADR 0026)。
  */
+
+import type { EntryBaseDto, EntryTypeDto } from './entry-base.js'
 
 /**
  * ツリーエントリの種別。
  */
-export type TreeEntryTypeDto = 'blob' | 'tree'
+export type TreeEntryTypeDto = EntryTypeDto
 
 /**
  * ファイルの git 状態。worktree 参照時のみ値が入り、rev 指定時は null。
@@ -15,13 +17,8 @@ export type TreeEntryStatusDto = 'added' | 'modified' | 'deleted' | 'untracked' 
 /**
  * ツリーエントリ 1 件の DTO。
  */
-export type TreeEntryDto = {
-  readonly name: string
-  readonly path: string
-  readonly type: TreeEntryTypeDto
+export type TreeEntryDto = EntryBaseDto & {
   readonly status: TreeEntryStatusDto
-  readonly mode: string | null
-  readonly size: number | null
 }
 
 /**
