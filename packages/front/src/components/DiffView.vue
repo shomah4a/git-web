@@ -48,10 +48,24 @@ type FileState =
   | { readonly kind: 'notFound' }
   | { readonly kind: 'error'; readonly message: string }
 
+type ActiveTab = 'diff' | 'code'
+
+type CodeState =
+  | { readonly kind: 'idle' }
+  | { readonly kind: 'loading' }
+  | {
+      readonly kind: 'success'
+      readonly lines: ReadonlyArray<string>
+      readonly tokens: HighlightedLines | null
+    }
+  | { readonly kind: 'error'; readonly message: string }
+
 type FileEntry = {
   readonly summary: DiffFileSummaryDto
   state: FileState
   collapsed: boolean
+  activeTab: ActiveTab
+  codeState: CodeState
 }
 
 /**
@@ -278,6 +292,8 @@ async function runDiffLoad(rangeArg?: DiffRangeQuery): Promise<void> {
         summary,
         state: { kind: 'loading' },
         collapsed: false,
+        activeTab: 'diff',
+        codeState: { kind: 'idle' },
       }),
     )
     tokenMap.value = new Map()
@@ -290,7 +306,7 @@ async function runDiffLoad(rangeArg?: DiffRangeQuery): Promise<void> {
     entries.value = response.files.map((summary, idx) => {
       const result = diffResults[idx]
       const state = resolveState(result)
-      return { summary, state, collapsed: false }
+      return { summary, state, collapsed: false, activeTab: 'diff', codeState: { kind: 'idle' } }
     })
     // 先に loading 表示を切り上げて template に .hunk-content を描画させる。
     // これを先にやっておかないと、loadAllTokens の await 中に watch(entries)
@@ -538,6 +554,45 @@ function toggleCollapsed(entry: FileEntry): void {
   entry.collapsed = !entry.collapsed
 }
 
+/**
+ * ファイルカードのタブを切り替える。
+ * code タブ初回選択時に to 側の blob を取得して Shiki でトークン化する。
+ */
+function switchTab(entry: FileEntry, tab: ActiveTab): void {
+  entry.activeTab = tab
+  if (tab === 'code' && entry.codeState.kind === 'idle') {
+    void loadCode(entry)
+  }
+}
+
+async function loadCode(entry: FileEntry): Promise<void> {
+  entry.codeState = { kind: 'loading' }
+  try {
+    const rev = toRev.value === WORKTREE_SENTINEL ? null : toRev.value
+    const blob = await fetchBlob(entry.summary.path, rev)
+    if (blob === null || blob.binary) {
+      entry.codeState = { kind: 'error', message: blob === null ? 'file not found' : 'binary file' }
+      return
+    }
+    const lines = blob.content.split('\n')
+    // Shiki でトークン化 (blob-service が返す language を使う)
+    let tokens: HighlightedLines | null = null
+    if (blob.language !== null) {
+      try {
+        tokens = await highlighter.highlightFile(blob.content, blob.language)
+      } catch {
+        // トークン化失敗はプレーン fallback
+      }
+    }
+    entry.codeState = { kind: 'success', lines, tokens }
+  } catch (err) {
+    entry.codeState = {
+      kind: 'error',
+      message: err instanceof Error ? err.message : 'unknown error',
+    }
+  }
+}
+
 function statusInitial(status: DiffFileSummaryDto['status']): string {
   if (status === 'added') return 'A'
   if (status === 'deleted') return 'D'
@@ -686,77 +741,129 @@ function enrichHunk(path: string, hunk: DiffFileDto['hunks'][number]): ReadonlyA
             <span class="stats">+{{ entry.summary.additions }}/-{{ entry.summary.deletions }}</span>
           </header>
           <div v-show="!entry.collapsed" class="file-body">
-            <p v-if="entry.state.kind === 'loading'">loading {{ entry.summary.path }}...</p>
-            <p v-else-if="entry.state.kind === 'notFound'">
-              no diff to display for {{ entry.summary.path }}
-            </p>
-            <p v-else-if="entry.state.kind === 'error'" class="error">
-              error: {{ entry.state.message }}
-            </p>
-            <template v-else-if="successFile(entry.state) !== null">
-              <div
-                v-for="(hunk, hunkIdx) in successFile(entry.state)?.hunks ?? []"
-                :key="hunkIdx"
-                class="hunk"
+            <div class="tab-bar">
+              <button
+                class="tab-btn"
+                :class="{ active: entry.activeTab === 'diff' }"
+                @click="switchTab(entry, 'diff')"
               >
-                <div class="hunk-header">
-                  @@ -{{ hunk.oldStart }},{{ hunk.oldLines }} +{{ hunk.newStart }},{{
-                    hunk.newLines
-                  }}
-                  @@
+                diff
+              </button>
+              <button
+                class="tab-btn"
+                :class="{ active: entry.activeTab === 'code' }"
+                @click="switchTab(entry, 'code')"
+              >
+                code
+              </button>
+            </div>
+            <div v-if="entry.activeTab === 'diff'" class="tab-content">
+              <p v-if="entry.state.kind === 'loading'">loading {{ entry.summary.path }}...</p>
+              <p v-else-if="entry.state.kind === 'notFound'">
+                no diff to display for {{ entry.summary.path }}
+              </p>
+              <p v-else-if="entry.state.kind === 'error'" class="error">
+                error: {{ entry.state.message }}
+              </p>
+              <template v-else-if="successFile(entry.state) !== null">
+                <div
+                  v-for="(hunk, hunkIdx) in successFile(entry.state)?.hunks ?? []"
+                  :key="hunkIdx"
+                  class="hunk"
+                >
+                  <div class="hunk-header">
+                    @@ -{{ hunk.oldStart }},{{ hunk.oldLines }} +{{ hunk.newStart }},{{
+                      hunk.newLines
+                    }}
+                    @@
+                  </div>
+                  <div class="hunk-content">
+                    <div class="side side-left">
+                      <div class="side-inner">
+                        <div
+                          v-for="(row, rowIdx) in enrichHunk(entry.summary.path, hunk)"
+                          :key="rowIdx"
+                          class="row"
+                          :class="cellClass(row.left)"
+                        >
+                          <span class="row-lineno">{{ row.left?.oldLineNo ?? '' }}</span>
+                          <span class="row-content">
+                            <template v-if="row.leftTokens !== null">
+                              <span
+                                v-for="(tok, tokIdx) in row.leftTokens"
+                                :key="tokIdx"
+                                class="shiki-tok"
+                                :style="shikiTokenStyle(tok)"
+                                >{{ tok.content }}</span
+                              >
+                            </template>
+                            <template v-else>{{ row.left?.content ?? '' }}</template>
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="side side-right">
+                      <div class="side-inner">
+                        <div
+                          v-for="(row, rowIdx) in enrichHunk(entry.summary.path, hunk)"
+                          :key="rowIdx"
+                          class="row"
+                          :class="cellClass(row.right)"
+                        >
+                          <span class="row-lineno">{{ row.right?.newLineNo ?? '' }}</span>
+                          <span class="row-content">
+                            <template v-if="row.rightTokens !== null">
+                              <span
+                                v-for="(tok, tokIdx) in row.rightTokens"
+                                :key="tokIdx"
+                                class="shiki-tok"
+                                :style="shikiTokenStyle(tok)"
+                                >{{ tok.content }}</span
+                              >
+                            </template>
+                            <template v-else>{{ row.right?.content ?? '' }}</template>
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div class="hunk-content">
-                  <div class="side side-left">
-                    <div class="side-inner">
-                      <div
-                        v-for="(row, rowIdx) in enrichHunk(entry.summary.path, hunk)"
-                        :key="rowIdx"
-                        class="row"
-                        :class="cellClass(row.left)"
+              </template>
+            </div>
+            <div v-else class="tab-content code-view">
+              <p v-if="entry.codeState.kind === 'idle' || entry.codeState.kind === 'loading'">
+                loading code...
+              </p>
+              <p v-else-if="entry.codeState.kind === 'error'" class="error">
+                {{ entry.codeState.message }}
+              </p>
+              <div v-else class="code-lines">
+                <div
+                  v-for="(line, lineIdx) in entry.codeState.lines"
+                  :key="lineIdx"
+                  class="code-row"
+                >
+                  <span class="row-lineno">{{ lineIdx + 1 }}</span>
+                  <span class="row-content">
+                    <template
+                      v-if="
+                        entry.codeState.tokens !== null &&
+                        entry.codeState.tokens[lineIdx] !== undefined
+                      "
+                    >
+                      <span
+                        v-for="(tok, tokIdx) in entry.codeState.tokens[lineIdx]"
+                        :key="tokIdx"
+                        class="shiki-tok"
+                        :style="shikiTokenStyle(tok)"
+                        >{{ tok.content }}</span
                       >
-                        <span class="row-lineno">{{ row.left?.oldLineNo ?? '' }}</span>
-                        <span class="row-content">
-                          <template v-if="row.leftTokens !== null">
-                            <span
-                              v-for="(tok, tokIdx) in row.leftTokens"
-                              :key="tokIdx"
-                              class="shiki-tok"
-                              :style="shikiTokenStyle(tok)"
-                              >{{ tok.content }}</span
-                            >
-                          </template>
-                          <template v-else>{{ row.left?.content ?? '' }}</template>
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                  <div class="side side-right">
-                    <div class="side-inner">
-                      <div
-                        v-for="(row, rowIdx) in enrichHunk(entry.summary.path, hunk)"
-                        :key="rowIdx"
-                        class="row"
-                        :class="cellClass(row.right)"
-                      >
-                        <span class="row-lineno">{{ row.right?.newLineNo ?? '' }}</span>
-                        <span class="row-content">
-                          <template v-if="row.rightTokens !== null">
-                            <span
-                              v-for="(tok, tokIdx) in row.rightTokens"
-                              :key="tokIdx"
-                              class="shiki-tok"
-                              :style="shikiTokenStyle(tok)"
-                              >{{ tok.content }}</span
-                            >
-                          </template>
-                          <template v-else>{{ row.right?.content ?? '' }}</template>
-                        </span>
-                      </div>
-                    </div>
-                  </div>
+                    </template>
+                    <template v-else>{{ line }}</template>
+                  </span>
                 </div>
               </div>
-            </template>
+            </div>
           </div>
         </article>
       </template>
@@ -892,6 +999,57 @@ function enrichHunk(path: string, hunk: DiffFileDto['hunks'][number]): ReadonlyA
 }
 .file-body {
   font-size: 0.9em;
+}
+.tab-bar {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface-1);
+}
+.tab-btn {
+  padding: 0.3rem 0.75rem;
+  border: none;
+  background: none;
+  color: var(--color-fg-muted);
+  cursor: pointer;
+  font-family: ui-monospace, monospace;
+  font-size: 0.85em;
+  border-bottom: 2px solid transparent;
+}
+.tab-btn:hover {
+  color: var(--color-fg);
+}
+.tab-btn.active {
+  color: var(--color-fg);
+  border-bottom-color: var(--color-fg);
+}
+.tab-content {
+  min-height: 2rem;
+}
+.code-view {
+  overflow-x: auto;
+}
+.code-lines {
+  font-family: ui-monospace, monospace;
+}
+.code-row {
+  display: flex;
+  line-height: 1.4;
+}
+.code-row:hover {
+  background: var(--color-surface-hover);
+}
+.code-row .row-lineno {
+  flex: 0 0 4rem;
+  text-align: right;
+  padding-right: 0.75rem;
+  color: var(--color-fg-faint);
+  user-select: none;
+}
+.code-row .row-content {
+  flex: 1;
+  white-space: pre;
+  padding-right: 1rem;
 }
 .hunk {
   border-top: 1px solid var(--color-border-subtle);
