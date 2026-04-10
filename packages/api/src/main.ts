@@ -6,7 +6,7 @@
  */
 
 import { execFile } from 'node:child_process'
-import { readFile, realpath } from 'node:fs/promises'
+import { readFile, realpath, stat } from 'node:fs/promises'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { createCompositeBlobReader } from './adapter/blob-reader-composite.js'
@@ -14,6 +14,7 @@ import { createWorktreeBlobReader } from './adapter/fs/worktree-blob-reader.js'
 import type { ExecFileFn } from './adapter/git/cat-file-blob-reader.js'
 import { createCatFileBlobReader } from './adapter/git/cat-file-blob-reader.js'
 import { CliGitClient } from './adapter/git/cli-client.js'
+import { WorktreeLister } from './adapter/git/worktree-lister.js'
 import { jsdiffParser } from './adapter/jsdiff/parser.js'
 import { createBlobHandler } from './controller/blob-controller.js'
 import { createDiffFileHandler, createDiffFilesHandler } from './controller/diff-controller.js'
@@ -21,6 +22,7 @@ import { mapDomainErrorToHttpResponse } from './controller/error-mapper.js'
 import { createRefsHandler } from './controller/refs-controller.js'
 import { createRepoHandler } from './controller/repo-controller.js'
 import { createTreeHandler } from './controller/tree-controller.js'
+import { createWorktreeHandler } from './controller/worktree-controller.js'
 import { NotAGitRepositoryError } from './domain/errors.js'
 import type { Route } from './http/router.js'
 import { close, createApiServer, listen } from './http/server.js'
@@ -29,6 +31,7 @@ import { createBlobService } from './service/blob-service.js'
 import { createDiffService } from './service/diff-service.js'
 import { createRefsService } from './service/refs-service.js'
 import { createTreeService } from './service/tree-service.js'
+import { createWorktreeService } from './service/worktree-service.js'
 
 export type StartOptions = {
   /**
@@ -136,6 +139,9 @@ export async function start(options: StartOptions = {}): Promise<StartedServer> 
 
   const treeService = createTreeService(git, git)
 
+  const worktreeLister = new WorktreeLister(repoRoot, (p) => stat(p))
+  const worktreeService = createWorktreeService(worktreeLister)
+
   const routes: ReadonlyArray<Route> = [
     { method: 'GET', path: '/api/repo', handler: createRepoHandler(git) },
     { method: 'GET', path: '/api/diff/files', handler: createDiffFilesHandler(diffService) },
@@ -143,6 +149,7 @@ export async function start(options: StartOptions = {}): Promise<StartedServer> 
     { method: 'GET', path: '/api/refs', handler: createRefsHandler(refsService) },
     { method: 'GET', path: '/api/blob', handler: createBlobHandler(blobService) },
     { method: 'GET', path: '/api/tree', handler: createTreeHandler(treeService) },
+    { method: 'GET', path: '/api/worktree', handler: createWorktreeHandler(worktreeService) },
   ]
 
   const server = createApiServer({
