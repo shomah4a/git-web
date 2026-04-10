@@ -72,20 +72,26 @@ export function extractWorktreeOneLevel(
 }
 
 /**
- * ディレクトリ配下に変更ファイルがあるかを statusMap から判定する。
+ * ディレクトリ配下の変更ファイルから status を集約する。
  *
- * statusMap のキーを走査して `<dirPath>/` プレフィックスにマッチする
- * エントリがあれば 'modified' を返す。なければ null。
+ * - 配下に変更がなければ null
+ * - 配下の変更タイプが 1 種類なら、そのタイプをそのまま返す
+ * - 複数種類が混在する場合は 'modified' で代表させる
  */
 function aggregateDirStatus(
   dirPath: string,
   statusMap: ReadonlyMap<string, WorktreeEntryStatus>,
 ): WorktreeEntryStatus {
   const dirPrefix = `${dirPath}/`
-  for (const key of statusMap.keys()) {
+  let found: WorktreeEntryStatus = null
+  for (const [key, status] of statusMap) {
     if (key.startsWith(dirPrefix)) {
-      return 'modified'
+      if (found === null) {
+        found = status
+      } else if (found !== status) {
+        return 'modified'
+      }
     }
   }
-  return null
+  return found
 }

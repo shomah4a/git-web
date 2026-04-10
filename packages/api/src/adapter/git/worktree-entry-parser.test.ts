@@ -117,12 +117,36 @@ describe('extractWorktreeOneLevel', () => {
     ])
   })
 
-  it('配下にuntrackedファイルがあるディレクトリのstatusもmodifiedになる', () => {
+  it('配下にuntrackedファイルだけのディレクトリのstatusはuntrackedになる', () => {
     const input = 'lib/new-file.ts\0lib/index.ts\0'
     const statusMap = new Map<string, WorktreeEntryStatus>([['lib/new-file.ts', 'untracked']])
     const result = extractWorktreeOneLevel(input, '', statusMap, emptyMode, emptySize)
     expect(result).toEqual([
+      { status: 'untracked', name: 'lib', path: 'lib', type: 'tree', mode: null, size: null },
+    ])
+  })
+
+  it('配下に複数種類の変更があるディレクトリのstatusはmodifiedになる', () => {
+    const input = 'lib/new.ts\0lib/changed.ts\0lib/old.ts\0'
+    const statusMap = new Map<string, WorktreeEntryStatus>([
+      ['lib/new.ts', 'untracked'],
+      ['lib/changed.ts', 'modified'],
+    ])
+    const result = extractWorktreeOneLevel(input, '', statusMap, emptyMode, emptySize)
+    expect(result).toEqual([
       { status: 'modified', name: 'lib', path: 'lib', type: 'tree', mode: null, size: null },
+    ])
+  })
+
+  it('配下にaddedファイルだけのディレクトリのstatusはaddedになる', () => {
+    const input = 'lib/a.ts\0lib/b.ts\0'
+    const statusMap = new Map<string, WorktreeEntryStatus>([
+      ['lib/a.ts', 'added'],
+      ['lib/b.ts', 'added'],
+    ])
+    const result = extractWorktreeOneLevel(input, '', statusMap, emptyMode, emptySize)
+    expect(result).toEqual([
+      { status: 'added', name: 'lib', path: 'lib', type: 'tree', mode: null, size: null },
     ])
   })
 
