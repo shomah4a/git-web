@@ -1,0 +1,100 @@
+/*
+ * テーマカラートークン (ADR 0021)。
+ *
+ * ライト / ダークの 2 パレットを CSS Custom Properties で保持し、
+ * `<html data-theme='light|dark'>` 属性で切り替える。Auto モードでは
+ * theme-store が matchMedia の現在値を使って 'light' / 'dark' のいずれかを
+ * 実際の属性値として書き込むため、本ファイルが `auto` 値を直接扱うことは
+ * ない。
+ *
+ * `:root` (data-theme なし) もライト定義にフォールバックするが、
+ * 通常運用では index.html の FOUC ガードが描画前に `data-theme` を付与
+ * するため、未付与状態は SSR 風の状況や属性欠損の fallback でのみ露出する。
+ *
+ * カラートークンの命名と意味論は
+ * `.claude/tmp/2026-04-10_theme-switcher-palette.md` に棚卸しを置く。
+ */
+
+:root,
+:root[data-theme='light'] {
+  --color-bg: #ffffff;
+  --color-fg: #1a1a1a;
+  --color-fg-muted: #555;
+  --color-fg-subtle: #666;
+  --color-fg-faint: #999;
+  --color-fg-disabled: #888;
+  --color-border: #ddd;
+  --color-border-strong: #bbb;
+  --color-border-subtle: #eee;
+  --color-surface-1: #fafafa;
+  --color-surface-2: #f6f6f6;
+  --color-surface-hover: #f0f0f0;
+  --color-surface-hover2: #eee;
+  --color-surface-hunk: #f0f0f6;
+  --color-input-bg: #fff;
+  --color-error: #c00;
+  --color-error-strong: #c33;
+  --color-status-added: #2a6;
+  --color-status-modified: #a60;
+  --color-diff-add-bg: #e6ffe6;
+  --color-diff-del-bg: #ffe6e6;
+  --color-diff-empty-bg: #f5f5f5;
+  --color-option-hover: #e8f0ff;
+  --color-shadow: rgba(0, 0, 0, 0.08);
+}
+
+:root[data-theme='dark'] {
+  --color-bg: #0d1117;
+  --color-fg: #e6edf3;
+  --color-fg-muted: #8b949e;
+  --color-fg-subtle: #7d8590;
+  --color-fg-faint: #656d76;
+  --color-fg-disabled: #6e7681;
+  --color-border: #30363d;
+  --color-border-strong: #444c56;
+  --color-border-subtle: #21262d;
+  --color-surface-1: #161b22;
+  --color-surface-2: #161b22;
+  --color-surface-hover: #1c2128;
+  --color-surface-hover2: #1c2128;
+  --color-surface-hunk: #1c2030;
+  --color-input-bg: #0d1117;
+  --color-error: #ff6b6b;
+  --color-error-strong: #f85149;
+  --color-status-added: #3fb950;
+  --color-status-modified: #d29922;
+  --color-diff-add-bg: #033a16;
+  --color-diff-del-bg: #490202;
+  --color-diff-empty-bg: #161b22;
+  --color-option-hover: #1f3a5f;
+  --color-shadow: rgba(0, 0, 0, 0.5);
+}
+
+/*
+ * body 背景と前景は CSS 変数で常時反映する。ライト時は従来の
+ * ブラウザ default と等価なため視覚差ゼロ。
+ */
+html {
+  background-color: var(--color-bg);
+  color: var(--color-fg);
+}
+
+/*
+ * Shiki トークン色のテーマ切替。
+ *
+ * DiffView.vue のトークン描画では各 <span class="shiki-tok"> にインライン
+ * style で --shiki-l (light 色) と --shiki-d (dark 色) を埋め込む。ここでは
+ * 現在の [data-theme] に応じてどちらを採用するかだけを定義する。
+ *
+ * scoped CSS 内ではなくグローバルに置く必要がある: Vue scoped CSS は
+ * セレクタに `[data-v-xxx]` 属性を付与する transform を行うため、
+ * `:root[data-theme='dark'] .shiki-tok[data-v-xxx]` のような組合せセレクタの
+ * メンテナンスが複雑になる。単純化のためグローバル側に集約する。
+ */
+.shiki-tok {
+  color: var(--shiki-l, inherit);
+}
+
+:root[data-theme='dark'] .shiki-tok {
+  color: var(--shiki-d, inherit);
+}

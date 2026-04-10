@@ -139,9 +139,7 @@ export type PrefersColorSchemeQuery = {
  * subscribe は `addEventListener('change', ...)` を用い、解除関数は
  * `removeEventListener` を呼ぶ。
  */
-export function createMatchMediaSystemWatcher(
-  mql: PrefersColorSchemeQuery,
-): SystemThemeWatcher {
+export function createMatchMediaSystemWatcher(mql: PrefersColorSchemeQuery): SystemThemeWatcher {
   return {
     current(): ResolvedTheme {
       return mql.matches ? 'dark' : 'light'
