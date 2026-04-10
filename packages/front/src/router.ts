@@ -1,8 +1,8 @@
 /**
- * Vue Router 設定 (ADR 0022)。
+ * Vue Router 設定 (ADR 0022, ADR 0023)。
  *
  * - history mode を使用 (createWebHistory)
- * - TreeView / DiffView は lazy import で code split する
+ * - 各画面は lazy import で code split する
  */
 
 import { createRouter, createWebHistory } from 'vue-router'
@@ -10,6 +10,11 @@ import { createRouter, createWebHistory } from 'vue-router'
 const router = createRouter({
   history: createWebHistory(),
   routes: [
+    {
+      path: '/',
+      name: 'worktree',
+      component: () => import('./components/WorktreeView.vue'),
+    },
     {
       path: '/tree',
       name: 'revision-tree',
