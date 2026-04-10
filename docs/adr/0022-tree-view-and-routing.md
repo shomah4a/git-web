@@ -6,6 +6,8 @@
 
 ## コンテキスト
 
+> **注記**: `/` のルーティングと worktree 表示の扱いは [ADR 0023](./0023-worktree-view-separation.md) で変更された。
+
 現在の git-web は diff 表示のみの単一画面 SPA であり、Vue Router を使っていない。
 以下の 2 機能を追加する:
 

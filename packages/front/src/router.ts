@@ -11,9 +11,9 @@ const router = createRouter({
   history: createWebHistory(),
   routes: [
     {
-      path: '/',
-      name: 'tree',
-      component: () => import('./components/TreeView.vue'),
+      path: '/tree',
+      name: 'revision-tree',
+      component: () => import('./components/RevisionTreeView.vue'),
     },
     {
       path: '/diff',
