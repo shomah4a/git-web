@@ -1,5 +1,5 @@
 /**
- * Shiki を使った Highlighter 実装 (ADR 0017)。
+ * Shiki を使った Highlighter 実装 (ADR 0017 / ADR 0021)。
  *
  * 設計方針:
  * - `createShikiHighlighter()` は同期 factory。top-level await は使わない
@@ -13,20 +13,35 @@
  * - Shiki の BundledLanguage 型との突合は Shiki 自身の `bundledLanguages`
  *   (ランタイムオブジェクト) をキー集合として利用し、ユーザー定義型ガード
  *   1 箇所で narrow する (`as` は使わない、ADR 0010)
+ *
+ * ADR 0021 での変更点:
+ * - `THEME` 単一から light / dark 2 テーマロードに変更
+ * - `codeToTokens` (単一テーマ) から `codeToTokensWithThemes` に変更
+ * - 戻り値 `ThemedTokenWithVariants[][]` の `variants` から light / dark 両色を
+ *   `HighlightedToken.color` / `colorDark` に格納。テーマ切替時にトークン再計算
+ *   を不要にする
  */
 
-import type { BundledLanguage, Highlighter as ShikiHighlighter, ThemedToken } from 'shiki'
+import type {
+  BundledLanguage,
+  Highlighter as ShikiHighlighter,
+  ThemedTokenWithVariants,
+} from 'shiki'
 import { bundledLanguages, getSingletonHighlighter } from 'shiki'
 import type { HighlightedLines, HighlightedToken, Highlighter } from './types.js'
 
-const THEME = 'github-light'
+const LIGHT_THEME = 'github-light'
+const DARK_THEME = 'github-dark'
 
 export function createShikiHighlighter(): Highlighter {
   let instancePromise: Promise<ShikiHighlighter> | null = null
   const loadedLangs = new Map<string, Promise<void>>()
 
   function getInstance(): Promise<ShikiHighlighter> {
-    instancePromise ??= getSingletonHighlighter({ themes: [THEME], langs: [] })
+    instancePromise ??= getSingletonHighlighter({
+      themes: [LIGHT_THEME, DARK_THEME],
+      langs: [],
+    })
     return instancePromise
   }
 
@@ -59,8 +74,13 @@ export function createShikiHighlighter(): Highlighter {
     try {
       await preload(lang)
       const inst = await getInstance()
-      const result = inst.codeToTokens(content, { lang, theme: THEME })
-      return result.tokens.map(convertLine)
+      // codeToTokensWithThemes は ThemedTokenWithVariants[][] を直接返す
+      // (codeToTokens の { tokens, fg, bg } のような wrapper は無い)。
+      const lines = inst.codeToTokensWithThemes(content, {
+        themes: { light: LIGHT_THEME, dark: DARK_THEME },
+        lang,
+      })
+      return lines.map(convertLine)
     } catch (err) {
       console.warn('[highlighter] highlightFile failed', lang, err)
       return null
@@ -84,17 +104,26 @@ function isBundledLanguage(lang: string): lang is BundledLanguage {
 }
 
 /**
- * Shiki の ThemedToken[] を HighlightedToken[] に変換する。
+ * Shiki の ThemedTokenWithVariants[] を HighlightedToken[] に変換する。
  *
  * - content はそのまま
- * - color は 6 / 8 桁 hex ホワイトリストに通し、不正値 / 未指定は null
+ * - variants['light']?.color を 6 / 8 桁 hex ホワイトリストに通して color に格納
+ * - variants['dark']?.color 同様に colorDark に格納
+ * - variants キーが欠けていれば null (プレーン fallback)
  * - bgColor / fontStyle / htmlStyle 等は無視
  */
-function convertLine(line: ReadonlyArray<ThemedToken>): ReadonlyArray<HighlightedToken> {
-  return line.map((token) => ({
-    content: token.content,
-    color: normalizeColor(token.color),
-  }))
+function convertLine(
+  line: ReadonlyArray<ThemedTokenWithVariants>,
+): ReadonlyArray<HighlightedToken> {
+  return line.map((token) => {
+    const lightStyles = token.variants['light']
+    const darkStyles = token.variants['dark']
+    return {
+      content: token.content,
+      color: normalizeColor(lightStyles?.color),
+      colorDark: normalizeColor(darkStyles?.color),
+    }
+  })
 }
 
 const COLOR_PATTERN = /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/
