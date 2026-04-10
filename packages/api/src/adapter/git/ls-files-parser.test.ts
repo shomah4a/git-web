@@ -13,8 +13,15 @@ describe('extractOneLevel', () => {
     const input = 'README.md\0package.json\0'
     const result = extractOneLevel(input, '', emptyStatus)
     expect(result).toEqual([
-      { name: 'README.md', path: 'README.md', type: 'blob', status: null },
-      { name: 'package.json', path: 'package.json', type: 'blob', status: null },
+      { name: 'README.md', path: 'README.md', type: 'blob', status: null, mode: null, size: null },
+      {
+        name: 'package.json',
+        path: 'package.json',
+        type: 'blob',
+        status: null,
+        mode: null,
+        size: null,
+      },
     ])
   })
 
@@ -22,8 +29,8 @@ describe('extractOneLevel', () => {
     const input = 'src/main.ts\0src/utils.ts\0README.md\0'
     const result = extractOneLevel(input, '', emptyStatus)
     expect(result).toEqual([
-      { name: 'src', path: 'src', type: 'tree', status: null },
-      { name: 'README.md', path: 'README.md', type: 'blob', status: null },
+      { name: 'src', path: 'src', type: 'tree', status: null, mode: null, size: null },
+      { name: 'README.md', path: 'README.md', type: 'blob', status: null, mode: null, size: null },
     ])
   })
 
@@ -31,22 +38,38 @@ describe('extractOneLevel', () => {
     const input = 'src/a.ts\0src/b.ts\0src/c/d.ts\0'
     const result = extractOneLevel(input, '', emptyStatus)
     expect(result).toHaveLength(1)
-    expect(result[0]).toEqual({ name: 'src', path: 'src', type: 'tree', status: null })
+    expect(result[0]).toEqual({
+      name: 'src',
+      path: 'src',
+      type: 'tree',
+      status: null,
+      mode: null,
+      size: null,
+    })
   })
 
   it('basePath指定で配下の1階層分を抽出する', () => {
     const input = 'src/main.ts\0src/components/Foo.vue\0src/components/Bar.vue\0'
     const result = extractOneLevel(input, 'src', emptyStatus)
     expect(result).toEqual([
-      { name: 'main.ts', path: 'src/main.ts', type: 'blob', status: null },
-      { name: 'components', path: 'src/components', type: 'tree', status: null },
+      { name: 'main.ts', path: 'src/main.ts', type: 'blob', status: null, mode: null, size: null },
+      {
+        name: 'components',
+        path: 'src/components',
+        type: 'tree',
+        status: null,
+        mode: null,
+        size: null,
+      },
     ])
   })
 
   it('basePath配下にないパスはスキップされる', () => {
     const input = 'docs/adr/001.md\0src/main.ts\0'
     const result = extractOneLevel(input, 'src', emptyStatus)
-    expect(result).toEqual([{ name: 'main.ts', path: 'src/main.ts', type: 'blob', status: null }])
+    expect(result).toEqual([
+      { name: 'main.ts', path: 'src/main.ts', type: 'blob', status: null, mode: null, size: null },
+    ])
   })
 
   it('statusMapからファイルのステータスを反映する', () => {
@@ -57,9 +80,16 @@ describe('extractOneLevel', () => {
     ])
     const result = extractOneLevel(input, '', statusMap)
     expect(result).toEqual([
-      { name: 'README.md', path: 'README.md', type: 'blob', status: null },
-      { name: 'src', path: 'src', type: 'tree', status: null },
-      { name: 'new.txt', path: 'new.txt', type: 'blob', status: 'untracked' },
+      { name: 'README.md', path: 'README.md', type: 'blob', status: null, mode: null, size: null },
+      { name: 'src', path: 'src', type: 'tree', status: null, mode: null, size: null },
+      {
+        name: 'new.txt',
+        path: 'new.txt',
+        type: 'blob',
+        status: 'untracked',
+        mode: null,
+        size: null,
+      },
     ])
   })
 })

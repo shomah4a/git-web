@@ -17,14 +17,12 @@ import { fetchRefs } from '../api/refs.js'
 import { fetchTree } from '../api/tree.js'
 import RevisionCombobox from './RevisionCombobox.vue'
 
-const WORKTREE_LABEL = '(worktree)' as const
-
 const route = useRoute()
 const router = useRouter()
 
 function readRevFromRoute(): string {
   const raw = route.query.rev
-  return typeof raw === 'string' && raw !== '' ? raw : WORKTREE_LABEL
+  return typeof raw === 'string' && raw !== '' ? raw : 'HEAD'
 }
 
 function readPathFromRoute(): string {
@@ -76,8 +74,7 @@ async function loadTree(rev: string, path: string): Promise<void> {
   loading.value = true
   errorMessage.value = null
   try {
-    const apiRev = rev === WORKTREE_LABEL ? null : rev
-    const result = await fetchTree(apiRev, path)
+    const result = await fetchTree(rev, path)
     if (isUnmounted || gen !== generation) return
     entries.value = result
   } catch (err) {
@@ -93,7 +90,7 @@ async function loadTree(rev: string, path: string): Promise<void> {
 
 function syncUrl(): void {
   const query: Record<string, string> = {}
-  if (currentRev.value !== WORKTREE_LABEL) {
+  if (currentRev.value !== '') {
     query.rev = currentRev.value
   }
   if (currentPath.value !== '') {
@@ -157,6 +154,18 @@ function statusLabel(status: TreeEntryStatusDto): string {
   return ''
 }
 
+function formatSize(size: number | null): string {
+  if (size === null) return '-'
+  if (size < 1024) return `${size.toString()} B`
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function formatMode(mode: string | null): string {
+  if (mode === null) return '-'
+  return mode
+}
+
 onBeforeUnmount(() => {
   isUnmounted = true
 })
@@ -168,7 +177,7 @@ onBeforeUnmount(() => {
       <RevisionCombobox
         :model-value="currentRev"
         :initial-refs="initialRefs"
-        :allow-worktree="true"
+        :allow-worktree="false"
         placeholder="rev"
         @update:model-value="currentRev = $event"
         @submit="onRevSubmit"
@@ -192,6 +201,8 @@ onBeforeUnmount(() => {
       <thead>
         <tr>
           <th class="col-name">Name</th>
+          <th class="col-mode">Mode</th>
+          <th class="col-size">Size</th>
         </tr>
       </thead>
       <tbody>
@@ -217,6 +228,8 @@ onBeforeUnmount(() => {
               {{ statusLabel(entry.status) }}
             </span>
           </td>
+          <td class="col-mode">{{ formatMode(entry.mode) }}</td>
+          <td class="col-size">{{ formatSize(entry.size) }}</td>
         </tr>
       </tbody>
     </table>
@@ -300,6 +313,19 @@ onBeforeUnmount(() => {
   padding: 0.35rem 0.75rem;
   display: flex;
   align-items: center;
+}
+.col-mode {
+  padding: 0.35rem 0.75rem;
+  white-space: nowrap;
+  color: var(--color-fg-muted);
+  font-size: 0.85em;
+}
+.col-size {
+  padding: 0.35rem 0.75rem;
+  white-space: nowrap;
+  text-align: right;
+  color: var(--color-fg-muted);
+  font-size: 0.85em;
 }
 .entry-icon {
   margin-right: 0.5rem;

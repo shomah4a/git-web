@@ -143,10 +143,14 @@ export class CliGitClient implements GitClient, GitDiffClient, GitRefsClient, Gi
 
   async listTree(rev: Revision, path: string): Promise<ReadonlyArray<TreeEntry>> {
     const args = path === '' ? [rev.raw] : [`${rev.raw}:${path}`]
-    const { stdout } = await execFileAsync('git', ['ls-tree', '-z', '--end-of-options', ...args], {
-      cwd: this.#cwd,
-      maxBuffer: DIFF_MAX_BUFFER,
-    })
+    const { stdout } = await execFileAsync(
+      'git',
+      ['ls-tree', '-l', '-z', '--end-of-options', ...args],
+      {
+        cwd: this.#cwd,
+        maxBuffer: DIFF_MAX_BUFFER,
+      },
+    )
     return parseLsTreeZ(stdout, path)
   }
 

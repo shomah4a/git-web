@@ -49,14 +49,14 @@ export function extractOneLevel(
       const name = relative
       const path = basePath === '' ? name : `${basePath}/${name}`
       const status = statusMap.get(filePath) ?? null
-      entries.push({ name, path, type: 'blob', status })
+      entries.push({ name, path, type: 'blob', status, mode: null, size: null })
     } else {
       // ディレクトリ (tree) — 重複排除
       const dirName = relative.slice(0, slashIdx)
       if (!seenDirs.has(dirName)) {
         seenDirs.add(dirName)
         const path = basePath === '' ? dirName : `${basePath}/${dirName}`
-        entries.push({ name: dirName, path, type: 'tree', status: null })
+        entries.push({ name: dirName, path, type: 'tree', status: null, mode: null, size: null })
       }
     }
   }

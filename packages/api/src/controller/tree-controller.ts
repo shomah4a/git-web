@@ -52,6 +52,8 @@ function toTreeEntryDto(entry: TreeEntry): TreeEntryDto {
     path: entry.path,
     type: entry.type,
     status: entry.status,
+    mode: entry.mode,
+    size: entry.size,
   }
 }
 

@@ -30,10 +30,14 @@ export type TreeEntryStatus = 'added' | 'modified' | 'deleted' | 'untracked' | n
  * - path: リポジトリルートからの相対パス
  * - type: blob (ファイル) または tree (ディレクトリ)
  * - status: git 状態 (worktree 時のみ、rev 指定時は null)
+ * - mode: git ファイルモード (rev 指定時のみ、worktree 時は null)
+ * - size: ファイルサイズ (rev 指定時の blob のみ、tree や worktree 時は null)
  */
 export type TreeEntry = {
   readonly name: string
   readonly path: string
   readonly type: TreeEntryType
   readonly status: TreeEntryStatus
+  readonly mode: string | null
+  readonly size: number | null
 }

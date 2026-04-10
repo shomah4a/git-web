@@ -20,6 +20,8 @@ export type TreeEntryDto = {
   readonly path: string
   readonly type: TreeEntryTypeDto
   readonly status: TreeEntryStatusDto
+  readonly mode: string | null
+  readonly size: number | null
 }
 
 /**
