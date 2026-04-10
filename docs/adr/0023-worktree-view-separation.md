@@ -82,6 +82,12 @@ ADR 0011 に従い、worktree 用のレイヤを新設する:
 | mode             | `git ls-files --stage`              |
 | size             | `fs.stat` (deleted ファイルは null) |
 
+各 git コマンドには `-- <path>/` 引数を渡して対象を絞り、大規模リポジトリでの出力量を削減する。
+
+### ディレクトリの status 集約
+
+ディレクトリ配下に変更ファイル (status !== null) が 1 つでもあれば、そのディレクトリの status を `'modified'` とする。statusMap のキーをディレクトリプレフィックスで走査して判定するため、追加の git コマンドは不要。
+
 ### 将来の拡張 (今回スコープ外)
 
 - 最終コミット情報 (commitId, date, author): 非同期遅延ロードで別フェーズ実装
