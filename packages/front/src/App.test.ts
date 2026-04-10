@@ -1,5 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createMemoryHistory, createRouter } from 'vue-router'
 import App from './App.vue'
 
 beforeEach(() => {
@@ -71,29 +72,41 @@ describe('App.vue', () => {
     expect(wrapper.text()).toContain('HTTP 500')
   })
 
-  it('DiffView が App 内にマウントされる', async () => {
+  it('デフォルトルートで WorktreeView がマウントされる', async () => {
     mockFetchByUrl({
       '/api/repo': () => jsonResponse({ cwd: '/r', head: 'abc' }),
-      '/api/diff/files': () =>
+      '/api/worktree': () =>
         jsonResponse({
-          files: [
+          entries: [
             {
-              path: 'foo.ts',
-              oldPath: null,
-              status: 'modified',
-              additions: 2,
-              deletions: 1,
-              binary: false,
+              name: 'src',
+              path: 'src',
+              type: 'tree',
+              status: null,
+              mode: '040000',
+              size: null,
             },
           ],
         }),
     })
 
-    const wrapper = mount(App)
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        {
+          path: '/',
+          component: () => import('./components/WorktreeView.vue'),
+        },
+      ],
+    })
+    await router.push('/')
+    await router.isReady()
+
+    const wrapper = mount(App, {
+      global: { plugins: [router] },
+    })
     await flushPromises()
 
-    // DiffView のファイル一覧が表示される
-    expect(wrapper.text()).toContain('foo.ts')
-    expect(wrapper.text()).toContain('Files')
+    expect(wrapper.text()).toContain('src')
   })
 })

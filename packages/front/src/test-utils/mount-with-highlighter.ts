@@ -20,8 +20,21 @@
 
 import { type ComponentMountingOptions, mount } from '@vue/test-utils'
 import type { Component } from 'vue'
+import type { Plugin } from 'vue'
+import { createMemoryHistory, createRouter } from 'vue-router'
 import { createNoOpHighlighter } from '../diff/highlighter/no-op.js'
 import { type Highlighter, highlighterKey } from '../diff/highlighter/types.js'
+
+/**
+ * テスト用のダミー router を生成する。DiffView 等 useRoute / useRouter を
+ * 呼ぶコンポーネントをマウントする際に global.plugins へ注入する。
+ */
+function createTestRouter(): Plugin {
+  return createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/', component: { template: '<div />' } }],
+  })
+}
 
 /**
  * `mount` に `highlighterKey` で Highlighter を inject した状態でコンポーネントを
@@ -45,10 +58,15 @@ export function mountWithHighlighter<TComponent extends Component>(
   // の d.ts は string キーだけを想定しているケースがある。Symbol キーを含む
   // オブジェクトを安全に渡すため、provide マージだけを build 関数に閉じ込める。
   const provide = buildProvide(highlighter, options.global?.provide)
+  const existingPlugins = options.global?.plugins ?? []
+  // 呼び出し側が plugins を指定していればそちらを優先し、
+  // 未指定の場合のみデフォルトの memory-history router を注入する。
+  const plugins = existingPlugins.length > 0 ? existingPlugins : [createTestRouter()]
   return mount(component, {
     ...options,
     global: {
       ...options.global,
+      plugins,
       provide,
     },
   })

@@ -1,5 +1,6 @@
 import { flushPromises } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createRouter, createWebHistory } from 'vue-router'
 import { fetchBlob } from '../api/blob.js'
 import { fetchRefs } from '../api/refs.js'
 import {
@@ -890,13 +891,28 @@ describe('DiffView', () => {
     window.history.replaceState({}, '', '/')
   }
 
+  /**
+   * URL query 同期テスト用の router を生成する。
+   * createWebHistory を使うことで window.location と同期する。
+   */
+  function createUrlSyncRouter() {
+    return createRouter({
+      history: createWebHistory(),
+      routes: [{ path: '/', component: DiffView }],
+    })
+  }
+
   it('URL に from/to クエリがあると初回 fetchDiffFiles がその range で呼ばれる (ADR 0020)', async () => {
-    window.history.replaceState({}, '', '/?from=feature%2Ffoo&to=main')
+    const router = createUrlSyncRouter()
+    await router.push('/?from=feature%2Ffoo&to=main')
+    await router.isReady()
     try {
       const tracker = mockFetchByUrlTracked({
         '/api/diff/files': () => jsonResponse(200, { files: [] }),
       })
-      mountWithHighlighter(DiffView)
+      mountWithHighlighter(DiffView, undefined, {
+        global: { plugins: [router] },
+      })
       await flushPromises()
       const filesCall = tracker.urls.find((u) => u.startsWith('/api/diff/files'))
       expect(filesCall).toContain('from=feature%2Ffoo')
@@ -907,12 +923,16 @@ describe('DiffView', () => {
   })
 
   it('URL に from だけあると to はデフォルト (worktree) で解釈される (ADR 0020)', async () => {
-    window.history.replaceState({}, '', '/?from=main')
+    const router = createUrlSyncRouter()
+    await router.push('/?from=main')
+    await router.isReady()
     try {
       const tracker = mockFetchByUrlTracked({
         '/api/diff/files': () => jsonResponse(200, { files: [] }),
       })
-      mountWithHighlighter(DiffView)
+      mountWithHighlighter(DiffView, undefined, {
+        global: { plugins: [router] },
+      })
       await flushPromises()
       const filesCall = tracker.urls.find((u) => u.startsWith('/api/diff/files'))
       expect(filesCall).toContain('from=main')
@@ -923,6 +943,9 @@ describe('DiffView', () => {
   })
 
   it('候補クリック経由の submit で URL query が pushState される (ADR 0020)', async () => {
+    const router = createUrlSyncRouter()
+    await router.push('/')
+    await router.isReady()
     mockedFetchRefs.mockResolvedValue({
       head: 'main',
       branches: ['main', 'feature/foo'],
@@ -932,7 +955,10 @@ describe('DiffView', () => {
     mockFetchByUrl({
       '/api/diff/files': () => jsonResponse(200, { files: [] }),
     })
-    const wrapper = mountWithHighlighter(DiffView, undefined, { attachTo: document.body })
+    const wrapper = mountWithHighlighter(DiffView, undefined, {
+      attachTo: document.body,
+      global: { plugins: [router] },
+    })
     await flushPromises()
     try {
       const fromInput = wrapper.findAll('input[role="combobox"]')[0]
@@ -942,7 +968,7 @@ describe('DiffView', () => {
       await options[1]?.trigger('mousedown')
       await flushPromises()
 
-      expect(window.location.search).toBe('?from=feature%2Ffoo')
+      expect(router.currentRoute.value.query.from).toBe('feature/foo')
     } finally {
       wrapper.unmount()
       resetUrl()
@@ -950,16 +976,21 @@ describe('DiffView', () => {
   })
 
   it('popstate で URL が書き換わると range を再フェッチする (ADR 0020)', async () => {
+    const router = createUrlSyncRouter()
+    await router.push('/')
+    await router.isReady()
     const tracker = mockFetchByUrlTracked({
       '/api/diff/files': () => jsonResponse(200, { files: [] }),
     })
-    const wrapper = mountWithHighlighter(DiffView, undefined, { attachTo: document.body })
+    const wrapper = mountWithHighlighter(DiffView, undefined, {
+      attachTo: document.body,
+      global: { plugins: [router] },
+    })
     await flushPromises()
     try {
       tracker.urls.length = 0
 
-      window.history.replaceState({}, '', '/?from=release-1&to=main')
-      window.dispatchEvent(new PopStateEvent('popstate'))
+      await router.replace({ query: { from: 'release-1', to: 'main' } })
       await flushPromises()
 
       const filesCall = tracker.urls.find((u) => u.startsWith('/api/diff/files'))
@@ -977,20 +1008,25 @@ describe('DiffView', () => {
   })
 
   it('popstate で同一 range のときは再フェッチしない (ADR 0020 LOW-3)', async () => {
+    const router = createUrlSyncRouter()
+    await router.push('/')
+    await router.isReady()
     const tracker = mockFetchByUrlTracked({
       '/api/diff/files': () => jsonResponse(200, { files: [] }),
     })
-    const wrapper = mountWithHighlighter(DiffView, undefined, { attachTo: document.body })
+    const wrapper = mountWithHighlighter(DiffView, undefined, {
+      attachTo: document.body,
+      global: { plugins: [router] },
+    })
     await flushPromises()
     try {
-      // 一度 popstate で range を別の値に動かしてから、同一 URL で 2 度目の
-      // popstate を飛ばし、2 度目で fetch が走らないことを検証する。
-      window.history.replaceState({}, '', '/?from=main&to=develop')
-      window.dispatchEvent(new PopStateEvent('popstate'))
+      // 一度 router で range を別の値に動かしてから、同一 query で 2 度目の
+      // replace を行い、2 度目で fetch が走らないことを検証する。
+      await router.replace({ query: { from: 'main', to: 'develop' } })
       await flushPromises()
       tracker.urls.length = 0
 
-      window.dispatchEvent(new PopStateEvent('popstate'))
+      await router.replace({ query: { from: 'main', to: 'develop' } })
       await flushPromises()
 
       const filesCall = tracker.urls.find((u) => u.startsWith('/api/diff/files'))
@@ -1002,15 +1038,22 @@ describe('DiffView', () => {
   })
 
   it('デフォルト状態 (HEAD / worktree) では URL query が空のまま (ADR 0020)', async () => {
+    const router = createUrlSyncRouter()
+    await router.push('/')
+    await router.isReady()
     mockFetchByUrl({
       '/api/diff/files': () => jsonResponse(200, { files: [] }),
     })
-    const wrapper = mountWithHighlighter(DiffView, undefined, { attachTo: document.body })
+    const wrapper = mountWithHighlighter(DiffView, undefined, {
+      attachTo: document.body,
+      global: { plugins: [router] },
+    })
     await flushPromises()
     try {
       await wrapper.find('.apply').trigger('click')
       await flushPromises()
-      expect(window.location.search).toBe('')
+      const query = router.currentRoute.value.query
+      expect(Object.keys(query).length).toBe(0)
     } finally {
       wrapper.unmount()
       resetUrl()
