@@ -767,6 +767,7 @@ function enrichHunk(path: string, hunk: DiffFileDto['hunks'][number]): ReadonlyA
   padding: 0.25rem 0.75rem;
   border: 1px solid var(--color-fg-disabled);
   background: var(--color-input-bg);
+  color: var(--color-fg);
   border-radius: 3px;
   cursor: pointer;
   font-family: inherit;

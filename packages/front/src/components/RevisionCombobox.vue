@@ -302,6 +302,8 @@ const listboxId = `rev-combobox-listbox-${useId()}`
   padding: 0.25rem 1.8rem 0.25rem 0.4rem;
   border: 1px solid var(--color-border-strong);
   border-radius: 3px;
+  background-color: var(--color-input-bg);
+  color: var(--color-fg);
   font-family: ui-monospace, monospace;
   font-size: 0.9em;
   /*
@@ -335,6 +337,7 @@ const listboxId = `rev-combobox-listbox-${useId()}`
 .options li {
   padding: 0.2rem 0.5rem;
   cursor: pointer;
+  color: var(--color-fg);
   font-family: ui-monospace, monospace;
   font-size: 0.9em;
   white-space: nowrap;
