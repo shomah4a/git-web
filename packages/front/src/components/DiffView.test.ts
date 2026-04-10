@@ -504,13 +504,24 @@ describe('DiffView', () => {
     const wrapper = mountWithHighlighter(DiffView, fake)
     await flushPromises()
 
-    // 最初の .side-left .row の row-content 内に色付き span が存在する
+    // 最初の .side-left .row の row-content 内に .shiki-tok span が存在する
     const firstRowContent = wrapper.find('.side-left .row .row-content')
-    const spans = firstRowContent.findAll('span')
+    const spans = firstRowContent.findAll('span.shiki-tok')
     expect(spans.length).toBeGreaterThan(0)
-    // 赤色を持つ span が少なくとも 1 つある
-    const hasRedSpan = spans.some((s) => (s.attributes('style') ?? '').includes('rgb(255, 0, 0)'))
-    expect(hasRedSpan).toBe(true)
+    // ADR 0021 以降、Shiki トークンは CSS 変数 `--shiki-l` (light 色) と
+    // `--shiki-d` (dark 色) をインラインスタイルで持ち、theme.css の
+    // グローバルセレクタで現在の [data-theme] に応じて切替わる。
+    // ライト色に赤を持つ span が少なくとも 1 つ存在すれば OK。
+    const hasRedShikiLight = spans.some((s) => {
+      const style = s.attributes('style') ?? ''
+      // jsdom の style 正規化で #rrggbb が rgb() に変換されるケースも許容
+      return (
+        style.includes('--shiki-l: #ff0000') ||
+        style.includes('--shiki-l: rgb(255, 0, 0)') ||
+        style.includes('--shiki-l:#ff0000')
+      )
+    })
+    expect(hasRedShikiLight).toBe(true)
   })
 
   it('blob 取得が失敗するとそのファイルはプレーン fallback される (9-2-c)', async () => {

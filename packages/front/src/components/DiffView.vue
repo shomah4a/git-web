@@ -535,6 +535,24 @@ function cellClass(line: DiffLineDto | null): string {
   return 'cell-context'
 }
 
+/**
+ * Shiki トークンの色を CSS 変数としてインラインスタイルに出す (ADR 0021)。
+ *
+ * 各 <span class="shiki-tok"> に light 用 (--shiki-l) と dark 用 (--shiki-d) の
+ * 2 色を埋め込み、theme.css 側のグローバルセレクタで現在の [data-theme] に
+ * 応じて切替える。これによりテーマ変更時にトークンマップの再計算が不要
+ * になる。
+ *
+ * color が null のときは `'inherit'` を入れて親 (cell-* など) の前景色に
+ * フォールバックする。
+ */
+function shikiTokenStyle(tok: HighlightedToken): Record<string, string> {
+  return {
+    '--shiki-l': tok.color ?? 'inherit',
+    '--shiki-d': tok.colorDark ?? 'inherit',
+  }
+}
+
 function successFile(state: FileState): DiffFileDto | null {
   return state.kind === 'success' ? state.file : null
 }
@@ -684,7 +702,8 @@ function enrichHunk(path: string, hunk: DiffFileDto['hunks'][number]): ReadonlyA
                             <span
                               v-for="(tok, tokIdx) in row.leftTokens"
                               :key="tokIdx"
-                              :style="tok.color !== null ? { color: tok.color } : undefined"
+                              class="shiki-tok"
+                              :style="shikiTokenStyle(tok)"
                               >{{ tok.content }}</span
                             >
                           </template>
@@ -707,7 +726,8 @@ function enrichHunk(path: string, hunk: DiffFileDto['hunks'][number]): ReadonlyA
                             <span
                               v-for="(tok, tokIdx) in row.rightTokens"
                               :key="tokIdx"
-                              :style="tok.color !== null ? { color: tok.color } : undefined"
+                              class="shiki-tok"
+                              :style="shikiTokenStyle(tok)"
                               >{{ tok.content }}</span
                             >
                           </template>
