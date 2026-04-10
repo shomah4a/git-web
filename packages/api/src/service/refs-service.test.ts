@@ -20,6 +20,7 @@ describe('RefsService.list', () => {
     const result = await service.list({ q: '', limit: 100 })
 
     expect(result.head).toBe('main')
+    expect(result.defaultBranch).toBe('main')
     expect(result.branches).toEqual(['main', 'feature/a'])
     expect(result.tags).toEqual(['v1.0.0'])
     expect(result.truncated).toBe(false)
@@ -69,6 +70,36 @@ describe('RefsService.list', () => {
     const result = await service.list({ q: '', limit: 100 })
 
     expect(result.truncated).toBe(false)
+  })
+
+  it('defaultBranch_は_main_を優先して返す', async () => {
+    const service = createRefsService(createFakeGit('main', ['master', 'main'], []))
+    const result = await service.list({ q: '', limit: 100 })
+
+    expect(result.defaultBranch).toBe('main')
+  })
+
+  it('main_がなければ_master_を_defaultBranch_として返す', async () => {
+    const service = createRefsService(createFakeGit('master', ['master', 'develop'], []))
+    const result = await service.list({ q: '', limit: 100 })
+
+    expect(result.defaultBranch).toBe('master')
+  })
+
+  it('main_も_master_もなければ_defaultBranch_は_null', async () => {
+    const service = createRefsService(createFakeGit('develop', ['develop', 'feature/a'], []))
+    const result = await service.list({ q: '', limit: 100 })
+
+    expect(result.defaultBranch).toBeNull()
+  })
+
+  it('defaultBranch_は_limit_による切り詰め前の全件から判定する', async () => {
+    // limit=1 でも branchesAll 全件から main を見つける
+    const service = createRefsService(createFakeGit('main', ['alpha', 'beta', 'main'], []))
+    const result = await service.list({ q: '', limit: 1 })
+
+    expect(result.defaultBranch).toBe('main')
+    expect(result.branches).toEqual(['alpha'])
   })
 
   it('head が null (detached / unborn) でもそのまま返す', async () => {

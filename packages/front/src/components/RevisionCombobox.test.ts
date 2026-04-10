@@ -10,6 +10,7 @@ const mockedFetchRefs = vi.mocked(fetchRefs)
 
 const SAMPLE_REFS = {
   head: 'main',
+  defaultBranch: 'main',
   branches: ['main', 'feature/foo', 'feature/bar'],
   tags: ['v1.0.0'],
   truncated: false,
@@ -83,7 +84,7 @@ describe('RevisionCombobox', () => {
     expect(texts).toContain('main')
   })
 
-  it('head_branches_tags_の順で並ぶ_重複排除あり', async () => {
+  it('defaultBranch_HEAD_head_branches_tags_の順で並ぶ_重複排除あり', async () => {
     const wrapper = mount(RevisionCombobox, {
       attachTo: document.body,
       props: {
@@ -94,8 +95,8 @@ describe('RevisionCombobox', () => {
     })
     await wrapper.find('input').trigger('focus')
     const texts = wrapper.findAll('[role="option"]').map((o) => o.text())
-    // head=main が branches にも含まれるので重複排除後の先頭は main 1 回
-    expect(texts).toEqual(['main', 'feature/foo', 'feature/bar', 'v1.0.0'])
+    // defaultBranch=main, HEAD, head=main(重複排除), branches(main重複排除), tags
+    expect(texts).toEqual(['main', 'HEAD', 'feature/foo', 'feature/bar', 'v1.0.0'])
     wrapper.unmount()
   })
 
@@ -147,7 +148,8 @@ describe('RevisionCombobox', () => {
     })
     await wrapper.find('input').trigger('focus')
     const options = wrapper.findAll('[role="option"]')
-    await options[1]?.trigger('mousedown')
+    // [0]=main, [1]=HEAD, [2]=feature/foo
+    await options[2]?.trigger('mousedown')
     const emitted = wrapper.emitted('update:modelValue')
     expect(emitted).toBeDefined()
     expect(emitted?.[0]).toEqual(['feature/foo'])
@@ -184,11 +186,12 @@ describe('RevisionCombobox', () => {
     })
     const input = wrapper.find('input')
     await input.trigger('focus')
+    // [0]=main, [1]=HEAD, [2]=feature/foo
+    await input.trigger('keydown', { key: 'ArrowDown' })
     await input.trigger('keydown', { key: 'ArrowDown' })
     await input.trigger('keydown', { key: 'ArrowDown' })
     await input.trigger('keydown', { key: 'Enter' })
     const emitted = wrapper.emitted('update:modelValue')
-    // head=main, 1番目=feature/foo
     expect(emitted?.at(-1)).toEqual(['feature/foo'])
     wrapper.unmount()
   })
@@ -283,7 +286,8 @@ describe('RevisionCombobox', () => {
     })
     await wrapper.find('input').trigger('focus')
     const options = wrapper.findAll('[role="option"]')
-    await options[1]?.trigger('mousedown')
+    // [0]=main, [1]=HEAD, [2]=feature/foo
+    await options[2]?.trigger('mousedown')
     expect(wrapper.emitted('submit')?.[0]).toEqual(['feature/foo'])
     wrapper.unmount()
   })
@@ -353,7 +357,8 @@ describe('RevisionCombobox', () => {
     const options = wrapper.findAll('[role="option"]')
     // mousedown.prevent で blur は抑止されている想定。クリック後に時間を進めても
     // submit は 1 回だけ、update:modelValue も 1 回だけ。
-    await options[1]?.trigger('mousedown')
+    // [0]=main, [1]=HEAD, [2]=feature/foo
+    await options[2]?.trigger('mousedown')
     await vi.advanceTimersByTimeAsync(200)
     expect(wrapper.emitted('submit')).toHaveLength(1)
     expect(wrapper.emitted('update:modelValue')).toHaveLength(1)

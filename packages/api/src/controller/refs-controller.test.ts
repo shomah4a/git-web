@@ -17,6 +17,7 @@ function createFakeService(refs: RefList): RefsService & { calls: Array<RefsQuer
 
 const SAMPLE_REFS: RefList = {
   head: 'main',
+  defaultBranch: 'main',
   branches: ['main', 'feature/a'],
   tags: ['v1.0.0'],
   truncated: false,
@@ -52,6 +53,7 @@ describe('createRefsHandler', () => {
     const parsed: unknown = JSON.parse(response.body)
     expect(parsed).toEqual({
       head: 'main',
+      defaultBranch: 'main',
       branches: ['main', 'feature/a'],
       tags: ['v1.0.0'],
       truncated: false,
@@ -61,6 +63,7 @@ describe('createRefsHandler', () => {
   it('head が null でもそのまま返す', async () => {
     const service = createFakeService({
       head: null,
+      defaultBranch: null,
       branches: [],
       tags: [],
       truncated: false,
@@ -71,7 +74,13 @@ describe('createRefsHandler', () => {
 
     if (typeof response.body !== 'string') throw new Error('expected string body')
     const parsed: unknown = JSON.parse(response.body)
-    expect(parsed).toEqual({ head: null, branches: [], tags: [], truncated: false })
+    expect(parsed).toEqual({
+      head: null,
+      defaultBranch: null,
+      branches: [],
+      tags: [],
+      truncated: false,
+    })
   })
 
   it('Content-Type と Cache-Control ヘッダが付く', async () => {

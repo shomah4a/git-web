@@ -15,6 +15,17 @@ export type RefsService = {
   list(query: RefsQuery): Promise<RefList>
 }
 
+const DEFAULT_BRANCH_CANDIDATES = ['main', 'master'] as const
+
+function findDefaultBranch(branches: ReadonlyArray<string>): string | null {
+  for (const candidate of DEFAULT_BRANCH_CANDIDATES) {
+    if (branches.includes(candidate)) {
+      return candidate
+    }
+  }
+  return null
+}
+
 export function createRefsService(git: GitRefsClient): RefsService {
   return {
     async list(query) {
@@ -40,8 +51,12 @@ export function createRefsService(git: GitRefsClient): RefsService {
       const truncated =
         branches.length < filteredBranches.length || tags.length < filteredTags.length
 
+      // ADR 0025: limit 前の全件から main → master の順で探す
+      const defaultBranch = findDefaultBranch(branchesAll)
+
       return {
         head,
+        defaultBranch,
         branches,
         tags,
         truncated,

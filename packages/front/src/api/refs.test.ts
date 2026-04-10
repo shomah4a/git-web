@@ -11,6 +11,7 @@ afterEach(() => {
 
 const VALID_REFS = {
   head: 'main',
+  defaultBranch: 'main',
   branches: ['main', 'feature/foo'],
   tags: ['v1.0.0'],
   truncated: false,
@@ -77,7 +78,15 @@ describe('fetchRefs', () => {
   })
 
   it('head_が_null_でも受理する', async () => {
-    mockFetch([jsonResponse(200, { head: null, branches: [], tags: [], truncated: false })])
+    mockFetch([
+      jsonResponse(200, {
+        head: null,
+        defaultBranch: null,
+        branches: [],
+        tags: [],
+        truncated: false,
+      }),
+    ])
     const result = await fetchRefs('', 100)
     expect(result.head).toBe(null)
   })
@@ -93,17 +102,51 @@ describe('fetchRefs', () => {
   })
 
   it('型不正なレスポンスは_throw_する', async () => {
-    mockFetch([jsonResponse(200, { head: 123, branches: [], tags: [], truncated: false })])
+    mockFetch([
+      jsonResponse(200, {
+        head: 123,
+        defaultBranch: null,
+        branches: [],
+        tags: [],
+        truncated: false,
+      }),
+    ])
+    await expect(fetchRefs('', 100)).rejects.toThrow('unexpected body shape')
+  })
+
+  it('defaultBranch_フィールド欠損は_throw_する', async () => {
+    mockFetch([jsonResponse(200, { head: null, branches: [], tags: [], truncated: false })])
+    await expect(fetchRefs('', 100)).rejects.toThrow('unexpected body shape')
+  })
+
+  it('defaultBranch_が文字列でも_null_でもない場合は_throw_する', async () => {
+    mockFetch([
+      jsonResponse(200, {
+        head: null,
+        defaultBranch: 123,
+        branches: [],
+        tags: [],
+        truncated: false,
+      }),
+    ])
     await expect(fetchRefs('', 100)).rejects.toThrow('unexpected body shape')
   })
 
   it('branches_フィールド欠損は_throw_する', async () => {
-    mockFetch([jsonResponse(200, { head: null, tags: [], truncated: false })])
+    mockFetch([jsonResponse(200, { head: null, defaultBranch: null, tags: [], truncated: false })])
     await expect(fetchRefs('', 100)).rejects.toThrow('unexpected body shape')
   })
 
   it('branches_に数値混入は_throw_する', async () => {
-    mockFetch([jsonResponse(200, { head: null, branches: ['a', 1], tags: [], truncated: false })])
+    mockFetch([
+      jsonResponse(200, {
+        head: null,
+        defaultBranch: null,
+        branches: ['a', 1],
+        tags: [],
+        truncated: false,
+      }),
+    ])
     await expect(fetchRefs('', 100)).rejects.toThrow('unexpected body shape')
   })
 })
