@@ -102,6 +102,7 @@ beforeEach(() => {
   mockedFetchRefs.mockClear()
   mockedFetchRefs.mockResolvedValue({
     head: 'main',
+    defaultBranch: 'main',
     branches: ['main'],
     tags: [],
     truncated: false,
@@ -822,6 +823,7 @@ describe('DiffView', () => {
   it('候補クリック相当の操作で runDiffLoad が自動適用される (ADR 0019)', async () => {
     mockedFetchRefs.mockResolvedValue({
       head: 'main',
+      defaultBranch: 'main',
       branches: ['main', 'feature/foo'],
       tags: [],
       truncated: false,
@@ -833,12 +835,12 @@ describe('DiffView', () => {
     await flushPromises()
     tracker.urls.length = 0
 
-    // from 側 combobox の候補をクリック (候補は head=main + branches)
+    // from 側 combobox の候補をクリック (候補は defaultBranch=main + HEAD + branches)
     const fromInput = wrapper.findAll('input[role="combobox"]')[0]
     await fromInput?.trigger('focus')
     const options = wrapper.findAll('[role="option"]')
-    // [0]=main (head と branches の重複排除), [1]=feature/foo
-    await options[1]?.trigger('mousedown')
+    // [0]=main (defaultBranch), [1]=HEAD, [2]=feature/foo
+    await options[2]?.trigger('mousedown')
     await flushPromises()
 
     const filesCall = tracker.urls.find((u) => u.startsWith('/api/diff/files'))
@@ -948,6 +950,7 @@ describe('DiffView', () => {
     await router.isReady()
     mockedFetchRefs.mockResolvedValue({
       head: 'main',
+      defaultBranch: 'main',
       branches: ['main', 'feature/foo'],
       tags: [],
       truncated: false,
@@ -964,8 +967,8 @@ describe('DiffView', () => {
       const fromInput = wrapper.findAll('input[role="combobox"]')[0]
       await fromInput?.trigger('focus')
       const options = wrapper.findAll('[role="option"]')
-      // [0]=main (head), [1]=feature/foo
-      await options[1]?.trigger('mousedown')
+      // [0]=main (defaultBranch), [1]=HEAD, [2]=feature/foo
+      await options[2]?.trigger('mousedown')
       await flushPromises()
 
       expect(router.currentRoute.value.query.from).toBe('feature/foo')

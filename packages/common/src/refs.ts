@@ -12,6 +12,7 @@
  */
 export type RefListDto = {
   readonly head: string | null
+  readonly defaultBranch: string | null
   readonly branches: readonly string[]
   readonly tags: readonly string[]
   readonly truncated: boolean

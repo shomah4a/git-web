@@ -30,6 +30,7 @@ export function createRefsHandler(service: RefsService): Handler {
 function toRefListDto(refs: RefList): RefListDto {
   return {
     head: refs.head,
+    defaultBranch: refs.defaultBranch,
     branches: [...refs.branches],
     tags: [...refs.tags],
     truncated: refs.truncated,

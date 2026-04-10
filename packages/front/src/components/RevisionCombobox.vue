@@ -89,6 +89,11 @@ const options = computed<readonly string[]>(() => {
   }
   const current = refs.value
   if (current !== null) {
+    // ADR 0025: defaultBranch → HEAD → head → branches → tags の優先順
+    if (current.defaultBranch !== null) {
+      push(current.defaultBranch)
+    }
+    push('HEAD')
     if (current.head !== null) {
       push(current.head)
     }

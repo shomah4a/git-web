@@ -45,6 +45,8 @@ function isRefListDto(value: unknown): value is RefListDto {
   if (typeof value !== 'object' || value === null) return false
   if (!('head' in value)) return false
   if (value.head !== null && typeof value.head !== 'string') return false
+  if (!('defaultBranch' in value)) return false
+  if (value.defaultBranch !== null && typeof value.defaultBranch !== 'string') return false
   if (!('branches' in value) || !isStringArray(value.branches)) return false
   if (!('tags' in value) || !isStringArray(value.tags)) return false
   if (!('truncated' in value) || typeof value.truncated !== 'boolean') return false
