@@ -154,7 +154,7 @@ export async function start(options: StartOptions = {}): Promise<StartedServer> 
     routes,
     mapError: mapDomainErrorToHttpResponse,
     ...(options.staticDir !== undefined
-      ? { fallback: createStaticHandler({ rootDir: options.staticDir }) }
+      ? { fallback: createStaticHandler({ rootDir: options.staticDir, spaFallback: true }) }
       : {}),
   })
   const addr = await listen(server, options.host ?? '127.0.0.1', options.port ?? 0)

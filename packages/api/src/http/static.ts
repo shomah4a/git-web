@@ -3,6 +3,12 @@
  *
  * packages/front/dist を想定した、ディレクトリ配信ユーティリティ。
  *
+ * SPA fallback (ADR 0022):
+ * - spaFallback オプションが true の場合、ファイルが見つからず
+ *   かつパスに拡張子が無いリクエストに対して index.html を返す
+ * - 拡張子付きパス (.js, .css 等) が 404 の場合はそのまま 404 を返す
+ *   (アセット欠損を SPA fallback で隠さない)
+ *
  * ADR 0009 の禁則:
  * - クライアント入力のパスは必ず rootDir 配下に正規化後スコープ確認する
  * - path.resolve 後に rootDir の prefix 配下にあることを確認する
@@ -21,10 +27,16 @@ export type CreateStaticHandlerOptions = {
    * 配信元ディレクトリの絶対パス。
    */
   readonly rootDir: string
+  /**
+   * true の場合、拡張子のないパスでファイルが見つからないとき
+   * index.html を返す (Vue Router history mode 対応)。
+   */
+  readonly spaFallback?: boolean
 }
 
 export function createStaticHandler(options: CreateStaticHandlerOptions): Handler {
   const rootDirRaw = resolve(options.rootDir)
+  const spaFallback = options.spaFallback === true
   let rootDirResolved: string | null = null
 
   /**
@@ -68,13 +80,29 @@ export function createStaticHandler(options: CreateStaticHandlerOptions): Handle
         return await serveResolvedFile(indexPath, rootDir)
       }
       if (!stats.isFile()) {
-        return notFound()
+        return spaFallbackOrNotFound(spaFallback, pathname, rootDir)
       }
       return await serveResolvedFile(requested, rootDir)
     } catch {
-      return notFound()
+      return spaFallbackOrNotFound(spaFallback, pathname, rootDir)
     }
   }
+}
+
+/**
+ * SPA fallback: 拡張子のないパスでファイルが見つからない場合に
+ * index.html を返す。拡張子付きパスは 404 をそのまま返す。
+ */
+function spaFallbackOrNotFound(
+  enabled: boolean,
+  pathname: string,
+  rootDir: string,
+): HttpResponse | Promise<HttpResponse> {
+  if (!enabled || extname(pathname) !== '') {
+    return notFound()
+  }
+  const indexPath = resolve(rootDir, 'index.html')
+  return serveResolvedFile(indexPath, rootDir)
 }
 
 /**

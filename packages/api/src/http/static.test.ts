@@ -136,6 +136,52 @@ describe('createStaticHandler', () => {
   })
 })
 
+describe('createStaticHandler (spaFallback: true)', () => {
+  it('拡張子なしの未知パスでindex.htmlを返す', async () => {
+    const handler = createStaticHandler({ rootDir, spaFallback: true })
+
+    const response = await handler({ method: 'GET', url: '/diff' })
+
+    expect(response.status).toBe(200)
+    expect(response.headers?.['content-type']).toBe('text/html; charset=utf-8')
+    expect(bodyAsString(response.body)).toContain('index')
+  })
+
+  it('拡張子付きの未知パスは404を返す', async () => {
+    const handler = createStaticHandler({ rootDir, spaFallback: true })
+
+    const response = await handler({ method: 'GET', url: '/missing.js' })
+
+    expect(response.status).toBe(404)
+  })
+
+  it('存在するファイルはそのまま返す', async () => {
+    const handler = createStaticHandler({ rootDir, spaFallback: true })
+
+    const response = await handler({ method: 'GET', url: '/style.css' })
+
+    expect(response.status).toBe(200)
+    expect(bodyAsString(response.body)).toBe('body { margin: 0 }')
+  })
+
+  it('ネストしたパスでもindex.htmlにフォールバックする', async () => {
+    const handler = createStaticHandler({ rootDir, spaFallback: true })
+
+    const response = await handler({ method: 'GET', url: '/tree/src/components' })
+
+    expect(response.status).toBe(200)
+    expect(bodyAsString(response.body)).toContain('index')
+  })
+
+  it('spaFallback無効時は拡張子なしの未知パスでも404を返す', async () => {
+    const handler = createStaticHandler({ rootDir })
+
+    const response = await handler({ method: 'GET', url: '/diff' })
+
+    expect(response.status).toBe(404)
+  })
+})
+
 function bodyAsString(body: string | Uint8Array): string {
   if (typeof body === 'string') {
     return body
