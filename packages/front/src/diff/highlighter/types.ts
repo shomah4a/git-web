@@ -11,15 +11,21 @@ import type { InjectionKey } from 'vue'
  * ハイライトされたトークン 1 つ。
  *
  * - `content`: トークンの文字列 (空白含む、エスケープ前の生テキスト)
- * - `color`: 6 または 8 桁 hex 文字列。プレーンは null
+ * - `color`: ライトテーマでの前景色。6 または 8 桁 hex 文字列。プレーンは null
+ * - `colorDark`: ダークテーマでの前景色。省略時 / null はプレーン扱い
  *
  * Shiki 側の ThemedToken には bgColor / fontStyle / htmlStyle 等があるが、
  * 本プロジェクトでは前景色のみ使う。背景色は diff の add / delete ハイライト
  * (.cell-add / .cell-delete) と衝突するため無視する (ADR 0017)。
+ *
+ * ADR 0021 でマルチテーマ化した際、既存テスト fixture を壊さないため
+ * `color` をライト側の従来フィールドとして温存し、`colorDark` を optional
+ * で追加する後方互換拡張を採った。
  */
 export type HighlightedToken = {
   readonly content: string
   readonly color: string | null
+  readonly colorDark?: string | null
 }
 
 /**
