@@ -732,8 +732,8 @@ function enrichHunk(path: string, hunk: DiffFileDto['hunks'][number]): ReadonlyA
   gap: 0.75rem;
   align-items: center;
   padding: 0.4rem 0.5rem;
-  border-bottom: 1px solid #ddd;
-  background: #fafafa;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface-1);
   font-family: ui-monospace, monospace;
   font-size: 0.9em;
 }
@@ -741,12 +741,12 @@ function enrichHunk(path: string, hunk: DiffFileDto['hunks'][number]): ReadonlyA
   display: inline-flex;
   gap: 0.35rem;
   align-items: center;
-  color: #555;
+  color: var(--color-fg-muted);
 }
 .apply {
   padding: 0.25rem 0.75rem;
-  border: 1px solid #888;
-  background: #fff;
+  border: 1px solid var(--color-fg-disabled);
+  background: var(--color-input-bg);
   border-radius: 3px;
   cursor: pointer;
   font-family: inherit;
@@ -765,7 +765,7 @@ function enrichHunk(path: string, hunk: DiffFileDto['hunks'][number]): ReadonlyA
 }
 .file-list {
   width: 280px;
-  border-right: 1px solid #ddd;
+  border-right: 1px solid var(--color-border);
   padding-right: 1rem;
   position: sticky;
   top: 0;
@@ -788,7 +788,7 @@ function enrichHunk(path: string, hunk: DiffFileDto['hunks'][number]): ReadonlyA
   text-overflow: ellipsis;
 }
 .file-list li:hover {
-  background: #f0f0f0;
+  background: var(--color-surface-hover);
 }
 .status {
   display: inline-block;
@@ -797,13 +797,13 @@ function enrichHunk(path: string, hunk: DiffFileDto['hunks'][number]): ReadonlyA
   font-weight: bold;
 }
 .status[data-status='added'] {
-  color: #2a6;
+  color: var(--color-status-added);
 }
 .status[data-status='deleted'] {
-  color: #c33;
+  color: var(--color-error-strong);
 }
 .status[data-status='modified'] {
-  color: #a60;
+  color: var(--color-status-modified);
 }
 .path {
   flex: 1;
@@ -812,11 +812,11 @@ function enrichHunk(path: string, hunk: DiffFileDto['hunks'][number]): ReadonlyA
 }
 .stats {
   font-size: 0.85em;
-  color: #666;
+  color: var(--color-fg-subtle);
 }
 .binary {
   font-size: 0.75em;
-  color: #888;
+  color: var(--color-fg-disabled);
 }
 .file-detail {
   flex: 1;
@@ -824,22 +824,22 @@ function enrichHunk(path: string, hunk: DiffFileDto['hunks'][number]): ReadonlyA
 }
 .file-card {
   margin-bottom: 1.5rem;
-  border: 1px solid #ddd;
+  border: 1px solid var(--color-border);
   border-radius: 4px;
   overflow: hidden;
 }
 .file-header {
-  background: #f6f6f6;
+  background: var(--color-surface-2);
   padding: 0.4rem 0.6rem;
   display: flex;
   gap: 0.5rem;
   align-items: center;
   cursor: pointer;
   user-select: none;
-  border-bottom: 1px solid #ddd;
+  border-bottom: 1px solid var(--color-border);
 }
 .file-header:hover {
-  background: #eee;
+  background: var(--color-surface-hover2);
 }
 .toggle {
   background: none;
@@ -849,21 +849,21 @@ function enrichHunk(path: string, hunk: DiffFileDto['hunks'][number]): ReadonlyA
   font-size: 1em;
   line-height: 1;
   width: 1.2em;
-  color: #666;
+  color: var(--color-fg-subtle);
 }
 .file-body {
   font-size: 0.9em;
 }
 .hunk {
-  border-top: 1px solid #eee;
+  border-top: 1px solid var(--color-border-subtle);
 }
 .hunk:first-child {
   border-top: none;
 }
 .hunk-header {
-  background: #f0f0f6;
+  background: var(--color-surface-hunk);
   padding: 0.2rem 0.5rem;
-  color: #666;
+  color: var(--color-fg-subtle);
 }
 .hunk-content {
   display: flex;
@@ -879,7 +879,7 @@ function enrichHunk(path: string, hunk: DiffFileDto['hunks'][number]): ReadonlyA
   overflow-x: scroll;
 }
 .side-left {
-  border-right: 1px solid #ddd;
+  border-right: 1px solid var(--color-border);
 }
 /*
  * 横スクロール時に背景色 (cell-*) が viewport 幅で途切れる問題への対策。
@@ -924,7 +924,7 @@ function enrichHunk(path: string, hunk: DiffFileDto['hunks'][number]): ReadonlyA
   width: 3em;
   padding: 0 0.5em;
   text-align: right;
-  color: #999;
+  color: var(--color-fg-faint);
   user-select: none;
   vertical-align: top;
 }
@@ -936,19 +936,19 @@ function enrichHunk(path: string, hunk: DiffFileDto['hunks'][number]): ReadonlyA
   vertical-align: top;
 }
 .cell-delete {
-  background: #ffe6e6;
+  background: var(--color-diff-del-bg);
 }
 .cell-add {
-  background: #e6ffe6;
+  background: var(--color-diff-add-bg);
 }
 .cell-empty {
-  background: #f5f5f5;
+  background: var(--color-diff-empty-bg);
 }
 .cell-context {
   background: transparent;
 }
 .error {
-  color: #c00;
+  color: var(--color-error);
   padding: 0.5rem;
 }
 </style>
