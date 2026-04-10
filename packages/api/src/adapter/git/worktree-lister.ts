@@ -89,16 +89,25 @@ export class WorktreeLister implements GitWorktreeClient {
   }
 
   async listWorktreeEntries(path: string): Promise<ReadonlyArray<WorktreeEntry>> {
+    // path 引数で git 側のフィルタを行い、大規模リポジトリでの出力量を削減する。
+    // `-- <path>/` を渡すと path 配下のファイルのみ出力される。
+    // ルート (path='') の場合は引数なしでリポジトリ全体を取得する。
+    const pathFilter = path === '' ? [] : ['--', `${path}/`]
+
     const [lsResult, stageResult, statusResult] = await Promise.all([
-      execFileAsync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], {
+      execFileAsync(
+        'git',
+        ['ls-files', '-z', '--cached', '--others', '--exclude-standard', ...pathFilter],
+        {
+          cwd: this.#cwd,
+          maxBuffer: MAX_BUFFER,
+        },
+      ),
+      execFileAsync('git', ['ls-files', '--stage', '-z', ...pathFilter], {
         cwd: this.#cwd,
         maxBuffer: MAX_BUFFER,
       }),
-      execFileAsync('git', ['ls-files', '--stage', '-z'], {
-        cwd: this.#cwd,
-        maxBuffer: MAX_BUFFER,
-      }),
-      execFileAsync('git', ['status', '--porcelain=v1', '-z'], {
+      execFileAsync('git', ['status', '--porcelain=v1', '-z', ...pathFilter], {
         cwd: this.#cwd,
         maxBuffer: MAX_BUFFER,
       }),

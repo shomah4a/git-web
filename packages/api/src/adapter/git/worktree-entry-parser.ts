@@ -62,10 +62,30 @@ export function extractWorktreeOneLevel(
       if (!seenDirs.has(dirName)) {
         seenDirs.add(dirName)
         const path = basePath === '' ? dirName : `${basePath}/${dirName}`
-        entries.push({ status: null, name: dirName, path, type: 'tree', mode: null, size: null })
+        const status = aggregateDirStatus(path, statusMap)
+        entries.push({ status, name: dirName, path, type: 'tree', mode: null, size: null })
       }
     }
   }
 
   return entries
+}
+
+/**
+ * ディレクトリ配下に変更ファイルがあるかを statusMap から判定する。
+ *
+ * statusMap のキーを走査して `<dirPath>/` プレフィックスにマッチする
+ * エントリがあれば 'modified' を返す。なければ null。
+ */
+function aggregateDirStatus(
+  dirPath: string,
+  statusMap: ReadonlyMap<string, WorktreeEntryStatus>,
+): WorktreeEntryStatus {
+  const dirPrefix = `${dirPath}/`
+  for (const key of statusMap.keys()) {
+    if (key.startsWith(dirPrefix)) {
+      return 'modified'
+    }
+  }
+  return null
 }
