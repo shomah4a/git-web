@@ -17,6 +17,7 @@ import { CliGitClient } from './adapter/git/cli-client.js'
 import { WorktreeLister } from './adapter/git/worktree-lister.js'
 import { jsdiffParser } from './adapter/jsdiff/parser.js'
 import { createBlobHandler } from './controller/blob-controller.js'
+import { createBlobRawHandler } from './controller/blob-raw-controller.js'
 import { createDiffFileHandler, createDiffFilesHandler } from './controller/diff-controller.js'
 import { mapDomainErrorToHttpResponse } from './controller/error-mapper.js'
 import { createRefsHandler } from './controller/refs-controller.js'
@@ -24,6 +25,8 @@ import { createRepoHandler } from './controller/repo-controller.js'
 import { createTreeHandler } from './controller/tree-controller.js'
 import { createWorktreeHandler } from './controller/worktree-controller.js'
 import { NotAGitRepositoryError } from './domain/errors.js'
+import type { Revision } from './domain/revision.js'
+import { createRawBlobReader } from './adapter/raw-blob-reader-composite.js'
 import type { Route } from './http/router.js'
 import { close, createApiServer, listen } from './http/server.js'
 import { createStaticHandler } from './http/static.js'
@@ -137,6 +140,30 @@ export async function start(options: StartOptions = {}): Promise<StartedServer> 
   const blobReader = createCompositeBlobReader(worktreeReader, catFileReader)
   const blobService = createBlobService(blobReader)
 
+  const GIT_ENV = { LC_ALL: 'C', LANG: 'C' } as const
+  const CAT_FILE_MAX_BUFFER = 50 * 1024 * 1024
+  const rawBlobReader = createRawBlobReader(
+    repoRoot,
+    (p) => realpath(p),
+    (p) => readFile(p),
+    async (rev: Revision, path: string): Promise<Buffer | null> => {
+      const spec = `${rev.raw}:${path}`
+      try {
+        const result = await nodeExecFile('git', ['-C', repoRoot, 'cat-file', 'blob', spec], {
+          env: { ...process.env, ...GIT_ENV },
+          maxBuffer: CAT_FILE_MAX_BUFFER,
+          encoding: 'buffer',
+        })
+        return result.stdout
+      } catch (err) {
+        if (err !== null && typeof err === 'object' && 'code' in err && err.code === 128) {
+          return null
+        }
+        throw err
+      }
+    },
+  )
+
   const treeService = createTreeService(git, git)
 
   const worktreeLister = new WorktreeLister(repoRoot, (p) => stat(p))
@@ -148,6 +175,7 @@ export async function start(options: StartOptions = {}): Promise<StartedServer> 
     { method: 'GET', path: '/api/diff/file', handler: createDiffFileHandler(diffService) },
     { method: 'GET', path: '/api/refs', handler: createRefsHandler(refsService) },
     { method: 'GET', path: '/api/blob', handler: createBlobHandler(blobService) },
+    { method: 'GET', path: '/api/blob/raw', handler: createBlobRawHandler(rawBlobReader) },
     { method: 'GET', path: '/api/tree', handler: createTreeHandler(treeService) },
     { method: 'GET', path: '/api/worktree', handler: createWorktreeHandler(worktreeService) },
   ]
