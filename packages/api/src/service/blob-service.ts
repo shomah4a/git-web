@@ -31,7 +31,10 @@ export function createBlobService(reader: BlobReader): BlobService {
         rev: blob.rev,
         content: blob.content,
         binary: blob.binary,
-        language: inferLanguage(blob.path),
+        language: inferLanguage(
+          blob.path,
+          blob.binary ? undefined : blob.content.split('\n', 1)[0],
+        ),
       }
     },
   }

@@ -48,6 +48,36 @@ describe('createBlobService', () => {
     expect(result).toBeNull()
   })
 
+  it('拡張子なしファイルで shebang から language を判定する', async () => {
+    const reader = makeReader({
+      path: 'script',
+      rev: null,
+      content: '#!/usr/bin/env python3\nimport sys\n',
+      binary: false,
+      language: null,
+    })
+    const service = createBlobService(reader)
+
+    const result = await service.getBlob('script', null)
+
+    expect(result?.language).toBe('python')
+  })
+
+  it('拡張子なしファイルで shebang がなければ language は null', async () => {
+    const reader = makeReader({
+      path: 'script',
+      rev: null,
+      content: '# just a script\necho hello\n',
+      binary: false,
+      language: null,
+    })
+    const service = createBlobService(reader)
+
+    const result = await service.getBlob('script', null)
+
+    expect(result?.language).toBeNull()
+  })
+
   it('binary は維持したまま language のみ埋める', async () => {
     const reader = makeReader({
       path: 'image.png',

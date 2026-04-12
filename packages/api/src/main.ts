@@ -129,7 +129,6 @@ export async function start(options: StartOptions = {}): Promise<StartedServer> 
     throw new NotAGitRepositoryError(cwd, { cause: err })
   }
 
-  const diffService = createDiffService(git, jsdiffParser)
   const refsService = createRefsService(git)
 
   const worktreeReader = createWorktreeBlobReader(repoRoot, {
@@ -138,6 +137,7 @@ export async function start(options: StartOptions = {}): Promise<StartedServer> 
   })
   const catFileReader = createCatFileBlobReader(nodeExecFile, repoRoot)
   const blobReader = createCompositeBlobReader(worktreeReader, catFileReader)
+  const diffService = createDiffService(git, jsdiffParser, blobReader)
   const blobService = createBlobService(blobReader)
 
   const GIT_ENV = { LC_ALL: 'C', LANG: 'C' } as const

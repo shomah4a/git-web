@@ -1,17 +1,20 @@
 /**
  * diff 表示のユースケース層。
  *
- * 設計方針 (ADR 0011 / ADR 0012):
+ * 設計方針 (ADR 0011 / ADR 0012 / ADR 0030):
  * - 引数は domain 型 (DiffRange など)、戻り値もドメインモデル
- * - 外部依存は GitDiffClient port と DiffParser port の 2 つを注入する
+ * - 外部依存は GitDiffClient port / DiffParser port / BlobReader port を注入する
+ * - BlobReader は shebang ベース言語判定のためにファイル先頭行を取得する用途
  * - HTTP / フレームワーク / DTO には依存しない
  */
 
 import type { DiffFile, DiffFileStatus, DiffFileSummary } from '../domain/diff.js'
 import type { DiffRange } from '../domain/diff-range.js'
 import { inferLanguage } from '../domain/language.js'
+import type { BlobReader } from '../domain/ports/blob-reader.js'
 import type { GitDiffClient } from '../domain/ports/git-diff-client.js'
 import type { DiffParser, ParsedDiffFile } from '../domain/ports/diff-parser.js'
+import type { Revision } from '../domain/revision.js'
 
 export type DiffService = {
   /**
@@ -29,7 +32,11 @@ export type DiffService = {
   getDiffFile(range: DiffRange, path: string): Promise<DiffFile | null>
 }
 
-export function createDiffService(git: GitDiffClient, parser: DiffParser): DiffService {
+export function createDiffService(
+  git: GitDiffClient,
+  parser: DiffParser,
+  blobReader: BlobReader,
+): DiffService {
   return {
     getDiffFileList: (range) => git.diffSummary(range),
 
@@ -44,9 +51,32 @@ export function createDiffService(git: GitDiffClient, parser: DiffParser): DiffS
         // binary / rename only 等、jsdiff が解釈できなかったケース
         return null
       }
-      return toDiffFile(first, path)
+      const filePath = first.newPath ?? first.oldPath ?? path
+      const firstLine = await readFirstLine(blobReader, filePath, range)
+      return toDiffFile(first, path, firstLine)
     },
   }
+}
+
+/**
+ * DiffRange の "new 側" リビジョンでファイル先頭行を読み取る。
+ *
+ * - working-vs-head / working-vs-rev → working tree (rev=null)
+ * - rev-vs-rev → to リビジョン
+ *
+ * blob が取得できない場合（削除ファイル等）は null を返す。
+ */
+async function readFirstLine(
+  reader: BlobReader,
+  path: string,
+  range: DiffRange,
+): Promise<string | null> {
+  const rev: Revision | null = range.kind === 'rev-vs-rev' ? range.to : null
+  const blob = await reader.read(path, rev)
+  if (blob === null || blob.binary) {
+    return null
+  }
+  return blob.content.split('\n', 1)[0] ?? null
 }
 
 /**
@@ -57,11 +87,15 @@ export function createDiffService(git: GitDiffClient, parser: DiffParser): DiffS
  * - status は oldPath / newPath の /dev/null 相当 (= null) から判定する
  * - path は newPath を優先し、無ければ oldPath、それも無ければ
  *   呼び出し側から渡された fallbackPath
- * - language は最終的な path から推定
+ * - language は最終的な path + 先頭行から推定
  * - 初版では rename を扱わないため oldPath は常に null
  * - 本関数にたどり着く時点で binary ではない (binary は parser が空にするため)
  */
-function toDiffFile(parsed: ParsedDiffFile, fallbackPath: string): DiffFile {
+function toDiffFile(
+  parsed: ParsedDiffFile,
+  fallbackPath: string,
+  firstLine: string | null,
+): DiffFile {
   const { additions, deletions } = countLineChanges(parsed)
   const status = inferStatus(parsed)
   const filePath = parsed.newPath ?? parsed.oldPath ?? fallbackPath
@@ -72,7 +106,7 @@ function toDiffFile(parsed: ParsedDiffFile, fallbackPath: string): DiffFile {
     additions,
     deletions,
     binary: false,
-    language: inferLanguage(filePath),
+    language: inferLanguage(filePath, firstLine ?? undefined),
     hunks: parsed.hunks,
   }
 }

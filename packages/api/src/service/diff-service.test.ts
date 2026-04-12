@@ -1,6 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import type { Blob } from '../domain/blob.js'
 import type { DiffFileSummary, DiffHunk } from '../domain/diff.js'
 import type { DiffRange } from '../domain/diff-range.js'
+import type { BlobReader } from '../domain/ports/blob-reader.js'
 import type { DiffParser, ParsedDiffFile } from '../domain/ports/diff-parser.js'
 import type { GitDiffClient } from '../domain/ports/git-diff-client.js'
 import { createDiffService } from './diff-service.js'
@@ -19,6 +21,17 @@ function createFakeGit(
 
 function createFakeParser(parsed: ReadonlyArray<ParsedDiffFile>): DiffParser {
   return () => parsed
+}
+
+function createFakeBlobReader(blobs: Readonly<Record<string, Blob | null>>): BlobReader {
+  return {
+    read: vi.fn((path: string) => Promise.resolve(blobs[path] ?? null)),
+  }
+}
+
+/** shebang 判定が不要なテスト用の空 BlobReader */
+function createNullBlobReader(): BlobReader {
+  return { read: vi.fn(() => Promise.resolve(null)) }
 }
 
 const RANGE: DiffRange = { kind: 'working-vs-head' }
@@ -50,7 +63,7 @@ describe('DiffService.getDiffFileList', () => {
       },
     ]
     const git = createFakeGit(summary, {})
-    const service = createDiffService(git, createFakeParser([]))
+    const service = createDiffService(git, createFakeParser([]), createNullBlobReader())
 
     const result = await service.getDiffFileList(RANGE)
 
@@ -61,7 +74,7 @@ describe('DiffService.getDiffFileList', () => {
 describe('DiffService.getDiffFile', () => {
   it('patchが空文字列ならnullを返す', async () => {
     const git = createFakeGit([], { 'foo.ts': '' })
-    const service = createDiffService(git, createFakeParser([]))
+    const service = createDiffService(git, createFakeParser([]), createNullBlobReader())
 
     const result = await service.getDiffFile(RANGE, 'foo.ts')
 
@@ -70,7 +83,7 @@ describe('DiffService.getDiffFile', () => {
 
   it('parser が空配列を返したら null を返す (rename only / binary 扱い)', async () => {
     const git = createFakeGit([], { 'foo.ts': 'non-empty-patch' })
-    const service = createDiffService(git, createFakeParser([]))
+    const service = createDiffService(git, createFakeParser([]), createNullBlobReader())
 
     const result = await service.getDiffFile(RANGE, 'foo.ts')
 
@@ -84,7 +97,7 @@ describe('DiffService.getDiffFile', () => {
       newPath: 'foo.ts',
       hunks: [SAMPLE_HUNK],
     }
-    const service = createDiffService(git, createFakeParser([parsed]))
+    const service = createDiffService(git, createFakeParser([parsed]), createNullBlobReader())
 
     const result = await service.getDiffFile(RANGE, 'foo.ts')
 
@@ -116,7 +129,7 @@ describe('DiffService.getDiffFile', () => {
         },
       ],
     }
-    const service = createDiffService(git, createFakeParser([parsed]))
+    const service = createDiffService(git, createFakeParser([parsed]), createNullBlobReader())
 
     const result = await service.getDiffFile(RANGE, 'new.py')
 
@@ -142,7 +155,7 @@ describe('DiffService.getDiffFile', () => {
         },
       ],
     }
-    const service = createDiffService(git, createFakeParser([parsed]))
+    const service = createDiffService(git, createFakeParser([parsed]), createNullBlobReader())
 
     const result = await service.getDiffFile(RANGE, 'gone.ts')
 
@@ -158,10 +171,105 @@ describe('DiffService.getDiffFile', () => {
       newPath: null,
       hunks: [SAMPLE_HUNK],
     }
-    const service = createDiffService(git, createFakeParser([parsed]))
+    const service = createDiffService(git, createFakeParser([parsed]), createNullBlobReader())
 
     const result = await service.getDiffFile(RANGE, 'fallback.ts')
 
     expect(result?.path).toBe('fallback.ts')
+  })
+
+  it('拡張子なしファイルで BlobReader から shebang を取得して language を判定する', async () => {
+    const git = createFakeGit([], { script: 'patch' })
+    const parsed: ParsedDiffFile = {
+      oldPath: null,
+      newPath: 'script',
+      hunks: [
+        {
+          oldStart: 1,
+          oldLines: 0,
+          newStart: 1,
+          newLines: 1,
+          header: '',
+          lines: [
+            { kind: 'add', content: '#!/usr/bin/env python3', oldLineNo: null, newLineNo: 1 },
+          ],
+        },
+      ],
+    }
+    const blobReader = createFakeBlobReader({
+      script: {
+        path: 'script',
+        rev: null,
+        content: '#!/usr/bin/env python3\nimport sys\n',
+        binary: false,
+        language: null,
+      },
+    })
+    const service = createDiffService(git, createFakeParser([parsed]), blobReader)
+
+    const result = await service.getDiffFile(RANGE, 'script')
+
+    expect(result?.language).toBe('python')
+  })
+
+  it('rev-vs-rev の場合 BlobReader に to リビジョンを渡す', async () => {
+    const range: DiffRange = {
+      kind: 'rev-vs-rev',
+      from: { raw: 'abc123' },
+      to: { raw: 'def456' },
+    }
+    const git = createFakeGit([], { script: 'patch' })
+    const parsed: ParsedDiffFile = {
+      oldPath: null,
+      newPath: 'script',
+      hunks: [
+        {
+          oldStart: 1,
+          oldLines: 0,
+          newStart: 1,
+          newLines: 1,
+          header: '',
+          lines: [{ kind: 'add', content: '#!/bin/bash', oldLineNo: null, newLineNo: 1 }],
+        },
+      ],
+    }
+    const blobReader = createFakeBlobReader({
+      script: {
+        path: 'script',
+        rev: { raw: 'def456' },
+        content: '#!/bin/bash\necho hello\n',
+        binary: false,
+        language: null,
+      },
+    })
+    const service = createDiffService(git, createFakeParser([parsed]), blobReader)
+
+    const result = await service.getDiffFile(range, 'script')
+
+    expect(result?.language).toBe('bash')
+    expect(blobReader.read).toHaveBeenCalledWith('script', { raw: 'def456' })
+  })
+
+  it('BlobReader が null を返した場合は拡張子なしファイルの language は null', async () => {
+    const git = createFakeGit([], { script: 'patch' })
+    const parsed: ParsedDiffFile = {
+      oldPath: null,
+      newPath: 'script',
+      hunks: [
+        {
+          oldStart: 1,
+          oldLines: 0,
+          newStart: 1,
+          newLines: 1,
+          header: '',
+          lines: [{ kind: 'add', content: 'some content', oldLineNo: null, newLineNo: 1 }],
+        },
+      ],
+    }
+    const service = createDiffService(git, createFakeParser([parsed]), createNullBlobReader())
+
+    const result = await service.getDiffFile(RANGE, 'script')
+
+    expect(result?.language).toBeNull()
   })
 })
