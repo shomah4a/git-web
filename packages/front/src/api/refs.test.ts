@@ -10,11 +10,9 @@ afterEach(() => {
 })
 
 const VALID_REFS = {
-  head: 'main',
   defaultBranch: 'main',
   branches: ['main', 'feature/foo'],
   tags: ['v1.0.0'],
-  truncated: false,
 }
 
 function urlOf(input: RequestInfo | URL): string {
@@ -49,104 +47,84 @@ function jsonResponse(status: number, body: unknown): Response {
 }
 
 describe('fetchRefs', () => {
-  it('クエリq_とlimitを_URL_に載せる', async () => {
+  it('クエリ_q_を_URL_に載せる', async () => {
     const calls = mockFetch([jsonResponse(200, VALID_REFS)])
-    await fetchRefs('feat', 50)
+    await fetchRefs('feat')
     expect(calls).toHaveLength(1)
-    expect(calls[0]).toBe('/api/refs?q=feat&limit=50')
+    expect(calls[0]).toBe('/api/refs?q=feat')
   })
 
-  it('空文字のqも載せる', async () => {
+  it('空文字の_q_も載せる', async () => {
     const calls = mockFetch([jsonResponse(200, VALID_REFS)])
-    await fetchRefs('', 100)
-    expect(calls[0]).toBe('/api/refs?q=&limit=100')
+    await fetchRefs('')
+    expect(calls[0]).toBe('/api/refs?q=')
   })
 
-  it('特殊文字を含むq_はエンコードされる', async () => {
+  it('特殊文字を含む_q_はエンコードされる', async () => {
     const calls = mockFetch([jsonResponse(200, VALID_REFS)])
-    await fetchRefs('a b/c', 10)
-    expect(calls[0]).toBe('/api/refs?q=a+b%2Fc&limit=10')
+    await fetchRefs('a b/c')
+    expect(calls[0]).toBe('/api/refs?q=a+b%2Fc')
   })
 
   it('正常レスポンスを_RefListDto_として返す', async () => {
     mockFetch([jsonResponse(200, VALID_REFS)])
-    const result = await fetchRefs('', 100)
-    expect(result.head).toBe('main')
+    const result = await fetchRefs('')
+    expect(result.defaultBranch).toBe('main')
     expect(result.branches).toEqual(['main', 'feature/foo'])
     expect(result.tags).toEqual(['v1.0.0'])
-    expect(result.truncated).toBe(false)
   })
 
-  it('head_が_null_でも受理する', async () => {
+  it('defaultBranch_が_null_でも受理する', async () => {
     mockFetch([
       jsonResponse(200, {
-        head: null,
         defaultBranch: null,
         branches: [],
         tags: [],
-        truncated: false,
       }),
     ])
-    const result = await fetchRefs('', 100)
-    expect(result.head).toBe(null)
+    const result = await fetchRefs('')
+    expect(result.defaultBranch).toBe(null)
   })
 
   it('4xx_は_throw_する', async () => {
     mockFetch([jsonResponse(400, { error: 'invalid_refs_query' })])
-    await expect(fetchRefs('', 100)).rejects.toThrow('/api/refs returned HTTP 400')
+    await expect(fetchRefs('')).rejects.toThrow('/api/refs returned HTTP 400')
   })
 
   it('5xx_は_throw_する', async () => {
     mockFetch([jsonResponse(500, { error: 'internal' })])
-    await expect(fetchRefs('', 100)).rejects.toThrow('/api/refs returned HTTP 500')
-  })
-
-  it('型不正なレスポンスは_throw_する', async () => {
-    mockFetch([
-      jsonResponse(200, {
-        head: 123,
-        defaultBranch: null,
-        branches: [],
-        tags: [],
-        truncated: false,
-      }),
-    ])
-    await expect(fetchRefs('', 100)).rejects.toThrow('unexpected body shape')
+    await expect(fetchRefs('')).rejects.toThrow('/api/refs returned HTTP 500')
   })
 
   it('defaultBranch_フィールド欠損は_throw_する', async () => {
-    mockFetch([jsonResponse(200, { head: null, branches: [], tags: [], truncated: false })])
-    await expect(fetchRefs('', 100)).rejects.toThrow('unexpected body shape')
+    mockFetch([jsonResponse(200, { branches: [], tags: [] })])
+    await expect(fetchRefs('')).rejects.toThrow('unexpected body shape')
   })
 
   it('defaultBranch_が文字列でも_null_でもない場合は_throw_する', async () => {
     mockFetch([
       jsonResponse(200, {
-        head: null,
         defaultBranch: 123,
         branches: [],
         tags: [],
-        truncated: false,
       }),
     ])
-    await expect(fetchRefs('', 100)).rejects.toThrow('unexpected body shape')
+    await expect(fetchRefs('')).rejects.toThrow('unexpected body shape')
   })
 
   it('branches_フィールド欠損は_throw_する', async () => {
-    mockFetch([jsonResponse(200, { head: null, defaultBranch: null, tags: [], truncated: false })])
-    await expect(fetchRefs('', 100)).rejects.toThrow('unexpected body shape')
+    mockFetch([jsonResponse(200, { defaultBranch: null, tags: [] })])
+    await expect(fetchRefs('')).rejects.toThrow('unexpected body shape')
   })
 
   it('branches_に数値混入は_throw_する', async () => {
     mockFetch([
       jsonResponse(200, {
-        head: null,
         defaultBranch: null,
         branches: ['a', 1],
         tags: [],
-        truncated: false,
       }),
     ])
-    await expect(fetchRefs('', 100)).rejects.toThrow('unexpected body shape')
+    await expect(fetchRefs('')).rejects.toThrow('unexpected body shape')
   })
 })

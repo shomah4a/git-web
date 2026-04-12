@@ -1,10 +1,10 @@
 /**
- * ref 一覧のユースケース層 (ADR 0018)。
+ * ref 一覧のユースケース層 (ADR 0018, ADR 0032)。
  *
  * 設計方針 (ADR 0011):
  * - 依存は GitRefsClient port のみ
- * - フィルタ (q) と切り詰め (limit) は本層で実装する。adapter 層は全件取得のみ
- *   行う
+ * - フィルタ (q) は本層で実装する。adapter 層は全件取得のみ行う
+ * - ADR 0032: 件数制限 (limit) は撤廃。ブランチ・タグは全件返す
  * - HTTP / DTO / URL には依存しない
  */
 
@@ -29,37 +29,22 @@ function findDefaultBranch(branches: ReadonlyArray<string>): string | null {
 export function createRefsService(git: GitRefsClient): RefsService {
   return {
     async list(query) {
-      const [head, branchesAll, tagsAll] = await Promise.all([
-        git.headRef(),
-        git.listBranches(),
-        git.listTags(),
-      ])
+      const [branchesAll, tagsAll] = await Promise.all([git.listBranches(), git.listTags()])
 
       const needle = query.q.toLowerCase()
       const matches = (name: string): boolean =>
         needle.length === 0 || name.toLowerCase().includes(needle)
 
-      const filteredBranches = branchesAll.filter(matches)
-      const filteredTags = tagsAll.filter(matches)
+      const branches = branchesAll.filter(matches)
+      const tags = tagsAll.filter(matches)
 
-      // ADR 0018: ブランチを先に詰め、残り枠でタグを詰める
-      const limit = query.limit
-      const branches = filteredBranches.slice(0, limit)
-      const remaining = Math.max(0, limit - branches.length)
-      const tags = filteredTags.slice(0, remaining)
-
-      const truncated =
-        branches.length < filteredBranches.length || tags.length < filteredTags.length
-
-      // ADR 0025: limit 前の全件から main → master の順で探す
+      // ADR 0025: 全件から main → master の順で探す
       const defaultBranch = findDefaultBranch(branchesAll)
 
       return {
-        head,
         defaultBranch,
         branches,
         tags,
-        truncated,
       }
     },
   }

@@ -129,7 +129,7 @@ const toRev = ref<string>(initialRange.to)
 
 /**
  * RevisionCombobox に渡す初期候補 (ADR 0019)。
- * onMounted で runDiffLoad と並列に `fetchRefs('', 50)` を発火し、結果を
+ * onMounted で runDiffLoad と並列に `fetchRefs('')` を発火し、結果を
  * ここへ入れる。取得失敗時は null のままで、combobox は自由入力のみ可となる。
  */
 const initialRefs = ref<RefListDto | null>(null)
@@ -421,7 +421,7 @@ onMounted(() => {
   })
   // 並列で refs 一覧を先読みしておく (ADR 0019)。失敗しても runDiffLoad には
   // 影響させず、combobox が自由入力のみになる形にフォールバックする。
-  fetchRefs('', 50)
+  fetchRefs('')
     .then((result) => {
       if (isUnmounted) return
       initialRefs.value = result

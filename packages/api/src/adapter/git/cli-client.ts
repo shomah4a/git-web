@@ -91,20 +91,6 @@ export class CliGitClient implements GitClient, GitDiffClient, GitRefsClient, Gi
     return result
   }
 
-  async headRef(): Promise<string | null> {
-    // symbolic-ref は detached HEAD / unborn HEAD のとき非 0 終了で stderr にメッセージを出す。
-    // その場合は null を返すだけにし、他のドメイン例外と区別する。
-    try {
-      const { stdout } = await execFileAsync('git', ['symbolic-ref', '--short', 'HEAD'], {
-        cwd: this.#cwd,
-      })
-      const trimmed = stdout.trim()
-      return trimmed.length > 0 ? trimmed : null
-    } catch {
-      return null
-    }
-  }
-
   async listBranches(): Promise<ReadonlyArray<string>> {
     return this.#listRefsBySpec('refs/heads')
   }

@@ -218,7 +218,7 @@ watch(
 
 onMounted(() => {
   void loadTree(currentRev.value, currentPath.value)
-  fetchRefs('', 50)
+  fetchRefs('')
     .then((result) => {
       if (isUnmounted) return
       initialRefs.value = result

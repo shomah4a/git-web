@@ -76,7 +76,7 @@ watch(
 
 const options = computed<readonly string[]>(() => {
   // 重複排除は Set で O(1) 判定する (ADR 0019 LOW-3)。
-  // 将来 limit を 500 まで上げた場合に O(n²) にならないようにする。
+  // ブランチ数が多い場合に O(n²) にならないようにする。
   const seen = new Set<string>()
   const result: string[] = []
   const push = (value: string): void => {
@@ -89,14 +89,11 @@ const options = computed<readonly string[]>(() => {
   }
   const current = refs.value
   if (current !== null) {
-    // ADR 0025: defaultBranch → HEAD → head → branches → tags の優先順
+    // ADR 0032: defaultBranch → HEAD → branches → tags の優先順
     if (current.defaultBranch !== null) {
       push(current.defaultBranch)
     }
     push('HEAD')
-    if (current.head !== null) {
-      push(current.head)
-    }
     for (const b of current.branches) {
       push(b)
     }
@@ -169,7 +166,7 @@ function scheduleFetch(q: string): void {
 async function runFetch(q: string): Promise<void> {
   const myGen = ++lastIssuedGen
   try {
-    const result = await fetchRefs(q, 50)
+    const result = await fetchRefs(q)
     if (isUnmounted) return
     if (myGen !== lastIssuedGen) return
     refs.value = result

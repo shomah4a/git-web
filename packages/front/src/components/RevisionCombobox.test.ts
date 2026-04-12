@@ -9,11 +9,9 @@ vi.mock('../api/refs.js', () => ({
 const mockedFetchRefs = vi.mocked(fetchRefs)
 
 const SAMPLE_REFS = {
-  head: 'main',
   defaultBranch: 'main',
   branches: ['main', 'feature/foo', 'feature/bar'],
   tags: ['v1.0.0'],
-  truncated: false,
 }
 
 beforeEach(() => {
@@ -84,7 +82,7 @@ describe('RevisionCombobox', () => {
     expect(texts).toContain('main')
   })
 
-  it('defaultBranch_HEAD_head_branches_tags_の順で並ぶ_重複排除あり', async () => {
+  it('defaultBranch_HEAD_branches_tags_の順で並ぶ_重複排除あり', async () => {
     const wrapper = mount(RevisionCombobox, {
       attachTo: document.body,
       props: {
@@ -95,7 +93,7 @@ describe('RevisionCombobox', () => {
     })
     await wrapper.find('input').trigger('focus')
     const texts = wrapper.findAll('[role="option"]').map((o) => o.text())
-    // defaultBranch=main, HEAD, head=main(重複排除), branches(main重複排除), tags
+    // ADR 0032: defaultBranch=main, HEAD, branches(main重複排除), tags
     expect(texts).toEqual(['main', 'HEAD', 'feature/foo', 'feature/bar', 'v1.0.0'])
     wrapper.unmount()
   })
@@ -113,7 +111,7 @@ describe('RevisionCombobox', () => {
     await input.setValue('feat')
     expect(mockedFetchRefs).not.toHaveBeenCalled()
     await vi.advanceTimersByTimeAsync(200)
-    expect(mockedFetchRefs).toHaveBeenCalledWith('feat', 50)
+    expect(mockedFetchRefs).toHaveBeenCalledWith('feat')
     wrapper.unmount()
   })
 
@@ -133,7 +131,7 @@ describe('RevisionCombobox', () => {
     // 1 度目はまだ debounce 中なのでキャンセルされる
     await vi.advanceTimersByTimeAsync(200)
     expect(mockedFetchRefs).toHaveBeenCalledTimes(1)
-    expect(mockedFetchRefs).toHaveBeenCalledWith('fe', 50)
+    expect(mockedFetchRefs).toHaveBeenCalledWith('fe')
     wrapper.unmount()
   })
 

@@ -190,36 +190,13 @@ describe('CliGitClient.diffSummary', () => {
   })
 })
 
-describe('CliGitClient.headRef / listBranches / listTags', () => {
-  it('通常のリポジトリでは headRef が現在のブランチ名を返す', async () => {
-    const git = new CliGitClient(tempRepo)
-
-    const head = await git.headRef()
-
-    expect(head).toBe('main')
-  })
-
-  it('detached HEAD では headRef が null を返す', async () => {
-    await execFileAsync('git', ['checkout', '--detach', 'HEAD'], { cwd: tempRepo })
-    const git = new CliGitClient(tempRepo)
-
-    const head = await git.headRef()
-
-    expect(head).toBeNull()
-  })
-
-  it('空リポジトリ (unborn HEAD) では headRef は branch 名を返すが listBranches は空', async () => {
-    // 新規の空リポジトリを作る。init したてで 1 コミットもない状態
+describe('CliGitClient.listBranches / listTags', () => {
+  it('空リポジトリでは_listBranches_が空配列を返す', async () => {
     const emptyDir = await mkdtemp(join(tmpdir(), 'git-web-cli-empty-'))
     try {
       await execFileAsync('git', ['init', '--quiet', '--initial-branch=main'], { cwd: emptyDir })
       const git = new CliGitClient(emptyDir)
 
-      // unborn HEAD でも symbolic-ref --short HEAD は "main" を返す (git の仕様)
-      const head = await git.headRef()
-      expect(head).toBe('main')
-
-      // 参照は存在しないのでブランチ一覧は空
       const branches = await git.listBranches()
       expect(branches).toEqual([])
 
@@ -230,7 +207,7 @@ describe('CliGitClient.headRef / listBranches / listTags', () => {
     }
   })
 
-  it('listBranches が複数ブランチを refname 昇順で返す', async () => {
+  it('listBranches_が複数ブランチを_refname_昇順で返す', async () => {
     // main 以外のブランチを作る
     await execFileAsync('git', ['branch', 'feature/foo'], { cwd: tempRepo })
     await execFileAsync('git', ['branch', 'release-1.0'], { cwd: tempRepo })

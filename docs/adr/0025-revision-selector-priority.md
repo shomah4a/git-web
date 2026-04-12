@@ -6,6 +6,8 @@
 
 ## コンテキスト
 
+> **注記**: 本 ADR の決定事項は [ADR 0032](./0032-revision-selector-simplify.md) で一部変更されている（head 優先枠の削除、件数制限の撤廃）。
+
 RevisionCombobox (ADR 0019) の候補リストは、バックエンドから取得した refs を head → branches → tags の順に並べている。
 しかし、よく使われるリビジョン（デフォルトブランチ、HEAD）が候補の中に埋もれてしまい、素早く選択できない。
 

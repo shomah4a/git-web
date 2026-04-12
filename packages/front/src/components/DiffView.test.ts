@@ -18,7 +18,7 @@ vi.mock('../api/blob.js', () => ({
 }))
 const mockedFetchBlob = vi.mocked(fetchBlob)
 
-// ADR 0019: DiffView マウント時に fetchRefs('', 50) が並列発火されるため、
+// ADR 0019: DiffView マウント時に fetchRefs('') が並列発火されるため、
 // refs API もテスト全体で stub する。既定では空の RefList を返す。
 vi.mock('../api/refs.js', () => ({
   fetchRefs: vi.fn(),
@@ -101,11 +101,9 @@ beforeEach(() => {
   mockedFetchBlob.mockResolvedValue(null)
   mockedFetchRefs.mockClear()
   mockedFetchRefs.mockResolvedValue({
-    head: 'main',
     defaultBranch: 'main',
     branches: ['main'],
     tags: [],
-    truncated: false,
   })
   // jsdom は scrollIntoView を実装していないので差し替える。
   // vitest 4.x の vi.fn ジェネリクスが Element.scrollIntoView の型と噛み合わないため、
@@ -704,7 +702,7 @@ describe('DiffView', () => {
     mountWithHighlighter(DiffView)
     await flushPromises()
     expect(mockedFetchRefs).toHaveBeenCalledTimes(1)
-    expect(mockedFetchRefs).toHaveBeenCalledWith('', 50)
+    expect(mockedFetchRefs).toHaveBeenCalledWith('')
   })
 
   it('マウント時の fetchDiffFiles は from=HEAD クエリ付きで呼ばれる (ADR 0019)', async () => {
@@ -822,11 +820,9 @@ describe('DiffView', () => {
 
   it('候補クリック相当の操作で runDiffLoad が自動適用される (ADR 0019)', async () => {
     mockedFetchRefs.mockResolvedValue({
-      head: 'main',
       defaultBranch: 'main',
       branches: ['main', 'feature/foo'],
       tags: [],
-      truncated: false,
     })
     const tracker = mockFetchByUrlTracked({
       '/api/diff/files': () => jsonResponse(200, { files: [] }),
@@ -949,11 +945,9 @@ describe('DiffView', () => {
     await router.push('/')
     await router.isReady()
     mockedFetchRefs.mockResolvedValue({
-      head: 'main',
       defaultBranch: 'main',
       branches: ['main', 'feature/foo'],
       tags: [],
-      truncated: false,
     })
     mockFetchByUrl({
       '/api/diff/files': () => jsonResponse(200, { files: [] }),

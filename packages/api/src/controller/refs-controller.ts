@@ -21,7 +21,7 @@ import type { RefsService } from '../service/refs-service.js'
 export function createRefsHandler(service: RefsService): Handler {
   return async (req) => {
     const url = new URL(req.url, 'http://localhost')
-    const query = parseRefsQuery(url.searchParams.get('q'), url.searchParams.get('limit'))
+    const query = parseRefsQuery(url.searchParams.get('q'))
     const refs = await service.list(query)
     return jsonResponse(200, toRefListDto(refs))
   }
@@ -29,10 +29,8 @@ export function createRefsHandler(service: RefsService): Handler {
 
 function toRefListDto(refs: RefList): RefListDto {
   return {
-    head: refs.head,
     defaultBranch: refs.defaultBranch,
     branches: [...refs.branches],
     tags: [...refs.tags],
-    truncated: refs.truncated,
   }
 }
