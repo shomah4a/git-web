@@ -26,7 +26,10 @@ describe('inferLanguage', () => {
     ['FOO.TS', 'typescript'], // 大文字拡張子
     ['nested/dir/foo.py', 'python'],
     ['foo.bar.ts', 'typescript'], // 複合拡張子の最終のみ
-    ['Makefile', null], // 拡張子なし
+    ['Makefile', 'makefile'], // ファイル名ベース判定
+    ['GNUmakefile', 'makefile'], // ファイル名ベース判定
+    ['path/to/Makefile', 'makefile'], // ディレクトリ付きファイル名ベース判定
+    ['build.mk', 'makefile'], // .mk 拡張子
     ['.gitignore', null], // 隠しファイル (拡張子なし扱い)
     ['foo.unknown', null], // マッピングに無い拡張子
     ['', null], // 空文字列

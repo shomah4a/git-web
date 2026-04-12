@@ -29,6 +29,13 @@ const EXTENSION_TO_LANGUAGE: Readonly<Record<string, string>> = {
   html: 'html',
   css: 'css',
   toml: 'toml',
+  mk: 'makefile',
+}
+
+/** ファイル名(拡張子なし)から言語を判定するマッピング */
+const FILENAME_TO_LANGUAGE: Readonly<Record<string, string>> = {
+  makefile: 'makefile',
+  gnumakefile: 'makefile',
 }
 
 /**
@@ -44,7 +51,8 @@ export function inferLanguage(path: string): string | null {
   const lastDot = basename.lastIndexOf('.')
   if (lastDot <= 0) {
     // 拡張子なし、または隠しファイル (.foo のようにドットが先頭)
-    return null
+    // ファイル名そのもので判定を試みる
+    return FILENAME_TO_LANGUAGE[basename.toLowerCase()] ?? null
   }
   const ext = basename.slice(lastDot + 1).toLowerCase()
   return EXTENSION_TO_LANGUAGE[ext] ?? null
