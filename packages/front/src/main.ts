@@ -3,6 +3,7 @@ import App from './App.vue'
 import { createShikiHighlighter } from './diff/highlighter/shiki.js'
 import { highlighterKey } from './diff/highlighter/types.js'
 import router from './router.js'
+import './styles/markdown.css'
 import './styles/theme.css'
 
 // Shiki の Highlighter インスタンスは同期 factory で作り、wasm の

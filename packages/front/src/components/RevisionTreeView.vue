@@ -13,7 +13,9 @@
 import type { RefListDto, TreeEntryDto, TreeEntryStatusDto } from '@git-web/common'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { fetchBlob } from '../api/blob.js'
 import { fetchRefs } from '../api/refs.js'
+import { renderMarkdown } from '../markdown/render.js'
 import { fetchTree } from '../api/tree.js'
 import { formatMode, formatSize } from '../format/entry.js'
 import RevisionCombobox from './RevisionCombobox.vue'
@@ -37,6 +39,18 @@ const entries = ref<ReadonlyArray<TreeEntryDto>>([])
 const loading = ref(false)
 const errorMessage = ref<string | null>(null)
 const initialRefs = ref<RefListDto | null>(null)
+
+/**
+ * README 検出の優先順位 (case-insensitive)。
+ */
+const README_PATTERNS = ['readme.md', 'readme', 'readme.txt']
+
+type ReadmeState =
+  | { readonly kind: 'none' }
+  | { readonly kind: 'loading' }
+  | { readonly kind: 'success'; readonly name: string; readonly html: string }
+
+const readmeState = ref<ReadmeState>({ kind: 'none' })
 
 let isUnmounted = false
 let generation = 0
@@ -74,10 +88,13 @@ async function loadTree(rev: string, path: string): Promise<void> {
   const gen = ++generation
   loading.value = true
   errorMessage.value = null
+  readmeState.value = { kind: 'none' }
   try {
     const result = await fetchTree(rev, path)
     if (isUnmounted || gen !== generation) return
     entries.value = result
+    // README 検出・取得 (世代チェック付き)
+    void loadReadme(gen, rev, result)
   } catch (err) {
     if (isUnmounted || gen !== generation) return
     errorMessage.value = err instanceof Error ? err.message : 'unknown error'
@@ -87,6 +104,61 @@ async function loadTree(rev: string, path: string): Promise<void> {
       loading.value = false
     }
   }
+}
+
+/**
+ * ツリー内の README を検出し、取得してレンダ��ングする。
+ */
+async function loadReadme(
+  gen: number,
+  rev: string,
+  treeEntries: ReadonlyArray<TreeEntryDto>,
+): Promise<void> {
+  const readmeEntry = findReadme(treeEntries)
+  if (readmeEntry === null) {
+    readmeState.value = { kind: 'none' }
+    return
+  }
+
+  readmeState.value = { kind: 'loading' }
+  try {
+    const blob = await fetchBlob(readmeEntry.path, rev)
+    if (isUnmounted || gen !== generation) return
+    if (blob === null || blob.binary) {
+      readmeState.value = { kind: 'none' }
+      return
+    }
+    const name = readmeEntry.name
+    const isMarkdown =
+      name.toLowerCase().endsWith('.md') || name.toLowerCase().endsWith('.markdown')
+    let html: string
+    if (isMarkdown) {
+      html = await renderMarkdown(blob.content, 'readme-mermaid')
+    } else {
+      // プレーンテキストは pre で表示
+      const escaped = blob.content
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+      html = `<pre>${escaped}</pre>`
+    }
+    if (isUnmounted || gen !== generation) return
+    readmeState.value = { kind: 'success', name, html }
+  } catch {
+    if (isUnmounted || gen !== generation) return
+    readmeState.value = { kind: 'none' }
+  }
+}
+
+/**
+ * ツリーエントリから README を優先順位に従って検出する。
+ */
+function findReadme(treeEntries: ReadonlyArray<TreeEntryDto>): TreeEntryDto | null {
+  for (const pattern of README_PATTERNS) {
+    const found = treeEntries.find((e) => e.type === 'blob' && e.name.toLowerCase() === pattern)
+    if (found !== undefined) return found
+  }
+  return null
 }
 
 function syncUrl(): void {
@@ -104,6 +176,16 @@ function navigateToDir(path: string): void {
   currentPath.value = path
   syncUrl()
   void loadTree(currentRev.value, path)
+}
+
+function navigateToBlob(path: string): void {
+  void router.push({
+    path: '/blob',
+    query: {
+      rev: currentRev.value,
+      path,
+    },
+  })
 }
 
 function navigateToRoot(): void {
@@ -199,7 +281,7 @@ onBeforeUnmount(() => {
           v-for="entry in sortedEntries"
           :key="entry.path"
           class="tree-row"
-          @click="entry.type === 'tree' ? navigateToDir(entry.path) : undefined"
+          @click="entry.type === 'tree' ? navigateToDir(entry.path) : navigateToBlob(entry.path)"
         >
           <td class="col-name">
             <span class="entry-icon">{{
@@ -212,7 +294,9 @@ onBeforeUnmount(() => {
             >
               {{ entry.name }}
             </button>
-            <span v-else class="entry-name">{{ entry.name }}</span>
+            <button v-else class="entry-link" @click.stop="navigateToBlob(entry.path)">
+              {{ entry.name }}
+            </button>
             <span v-if="entry.status !== null" class="entry-status" :data-status="entry.status">
               {{ statusLabel(entry.status) }}
             </span>
@@ -223,6 +307,21 @@ onBeforeUnmount(() => {
       </tbody>
     </table>
     <p v-else class="empty">No entries</p>
+
+    <section v-if="readmeState.kind === 'loading'" class="readme-section">
+      <p class="loading">loading README...</p>
+    </section>
+    <section v-else-if="readmeState.kind === 'success'" class="readme-section">
+      <h3 class="readme-header">{{ readmeState.name }}</h3>
+      <!--
+        例外的に v-html を使用する。値は DOMPurify.sanitize() 通過済みであり、
+        未サニタイズの文字列が渡されることはない (ADR 0028)。
+        v-html の使用は本プロジェクトにおいて例外中の例外であり、
+        DOMPurify 等による確実なサニタイズなしに使用してはならない。
+      -->
+      <!-- eslint-disable-next-line vue/no-v-html -->
+      <div class="markdown-body" v-html="readmeState.html"></div>
+    </section>
   </div>
 </template>
 
@@ -332,9 +431,6 @@ onBeforeUnmount(() => {
 .entry-link:hover {
   text-decoration: underline;
 }
-.entry-name {
-  color: var(--color-fg);
-}
 .entry-status {
   margin-left: auto;
   font-weight: bold;
@@ -360,5 +456,19 @@ onBeforeUnmount(() => {
 }
 .empty {
   color: var(--color-fg-muted);
+}
+.readme-section {
+  margin-top: 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.readme-header {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.9rem;
+  font-weight: normal;
+  background: var(--color-surface-1);
+  border-bottom: 1px solid var(--color-border);
 }
 </style>

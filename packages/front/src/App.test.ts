@@ -50,7 +50,14 @@ describe('App.vue', () => {
       '/api/diff/files': () => jsonResponse({ files: [] }),
     })
 
-    const wrapper = mount(App)
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/', component: { template: '<div />' } }],
+    })
+    await router.push('/')
+    await router.isReady()
+
+    const wrapper = mount(App, { global: { plugins: [router] } })
     await flushPromises()
 
     const text = wrapper.text()
@@ -65,7 +72,14 @@ describe('App.vue', () => {
       '/api/diff/files': () => jsonResponse({ files: [] }),
     })
 
-    const wrapper = mount(App)
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/', component: { template: '<div />' } }],
+    })
+    await router.push('/')
+    await router.isReady()
+
+    const wrapper = mount(App, { global: { plugins: [router] } })
     await flushPromises()
 
     expect(wrapper.text()).toContain('error:')

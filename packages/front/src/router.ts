@@ -1,5 +1,5 @@
 /**
- * Vue Router 設定 (ADR 0022, ADR 0023)。
+ * Vue Router 設定 (ADR 0022, ADR 0023, ADR 0028)。
  *
  * - history mode を使用 (createWebHistory)
  * - 各画面は lazy import で code split する
@@ -19,6 +19,11 @@ const router = createRouter({
       path: '/tree',
       name: 'revision-tree',
       component: () => import('./components/RevisionTreeView.vue'),
+    },
+    {
+      path: '/blob',
+      name: 'blob',
+      component: () => import('./components/BlobView.vue'),
     },
     {
       path: '/diff',

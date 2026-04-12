@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { RepoInfoDto } from '@git-web/common'
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { fetchRepoInfo } from './api.js'
 import ThemeSwitcher from './components/ThemeSwitcher.vue'
 import {
@@ -9,8 +10,18 @@ import {
   useTheme,
 } from './theme/theme-store.js'
 
+const route = useRoute()
 const repo = ref<RepoInfoDto | null>(null)
 const errorMessage = ref<string | null>(null)
+
+/**
+ * /blob ルートはリビジョンツリーからの遷移なので、
+ * Revision タブをアクティブにする (ADR 0028)。
+ */
+const isRevisionActive = computed(() => {
+  const name = route.name
+  return name === 'revision-tree' || name === 'blob'
+})
 
 /*
  * テーマストアを初期化 (ADR 0021)。
@@ -68,7 +79,11 @@ onMounted(async () => {
         Worktree
       </router-link>
       <router-link class="view-tab" to="/diff" active-class="view-tab--active"> Diff </router-link>
-      <router-link class="view-tab" to="/tree?rev=HEAD" active-class="view-tab--active">
+      <router-link
+        class="view-tab"
+        :class="{ 'view-tab--active': isRevisionActive }"
+        to="/tree?rev=HEAD"
+      >
         Revision
       </router-link>
     </nav>
