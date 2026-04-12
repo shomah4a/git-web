@@ -441,7 +441,7 @@ defineExpose({ runDiffLoad })
 /**
  * 現在の from/to を URL へ反映する (ADR 0020 / ADR 0022)。
  *
- * Vue Router の replace を使い、from/to がデフォルト値のときはキーを省略する。
+ * Vue Router の push を使い、from/to がデフォルト値のときはキーを省略する。
  */
 function syncUrlFromState(): void {
   const range: DiffRangeUrlState = { from: fromRev.value, to: toRev.value }
@@ -452,7 +452,7 @@ function syncUrlFromState(): void {
   if (range.to !== DEFAULT_TO) {
     query.to = range.to
   }
-  void router.replace({ query })
+  void router.push({ query })
 }
 
 /**

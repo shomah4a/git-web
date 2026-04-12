@@ -78,7 +78,7 @@ function syncUrl(): void {
   if (currentPath.value !== '') {
     query.path = currentPath.value
   }
-  void router.replace({ query })
+  void router.push({ query })
 }
 
 function navigateToDir(path: string): void {
