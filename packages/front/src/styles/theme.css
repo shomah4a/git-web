@@ -17,6 +17,7 @@
 
 :root,
 :root[data-theme='light'] {
+  --font-mono: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
   --color-bg: #ffffff;
   --color-fg: #1a1a1a;
   --color-fg-muted: #555;

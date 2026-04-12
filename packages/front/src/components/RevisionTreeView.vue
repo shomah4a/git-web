@@ -253,7 +253,7 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 0;
   margin-bottom: 0.5rem;
-  font-family: ui-monospace, monospace;
+  font-family: var(--font-mono);
   font-size: 0.9rem;
 }
 .breadcrumb-item {
@@ -278,7 +278,7 @@ onBeforeUnmount(() => {
   width: 100%;
   border-collapse: collapse;
   border: 1px solid var(--color-border);
-  font-family: ui-monospace, monospace;
+  font-family: var(--font-mono);
   font-size: 0.9rem;
 }
 .tree-table thead {

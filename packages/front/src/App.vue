@@ -129,6 +129,6 @@ dt {
 }
 dd {
   margin: 0 0 0.5rem 0;
-  font-family: ui-monospace, monospace;
+  font-family: var(--font-mono);
 }
 </style>

@@ -309,7 +309,7 @@ const listboxId = `rev-combobox-listbox-${useId()}`
   border-radius: 3px;
   background-color: var(--color-input-bg);
   color: var(--color-fg);
-  font-family: ui-monospace, monospace;
+  font-family: var(--font-mono);
   font-size: 0.9em;
   /*
    * ルーペ (magnifying glass) SVG。feather-icons の search と同型の
@@ -343,7 +343,7 @@ const listboxId = `rev-combobox-listbox-${useId()}`
   padding: 0.2rem 0.5rem;
   cursor: pointer;
   color: var(--color-fg);
-  font-family: ui-monospace, monospace;
+  font-family: var(--font-mono);
   font-size: 0.9em;
   white-space: nowrap;
 }

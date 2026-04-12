@@ -879,7 +879,7 @@ function enrichHunk(path: string, hunk: DiffFileDto['hunks'][number]): ReadonlyA
   padding: 0.4rem 0.5rem;
   border-bottom: 1px solid var(--color-border);
   background: var(--color-surface-1);
-  font-family: ui-monospace, monospace;
+  font-family: var(--font-mono);
   font-size: 0.9em;
 }
 .rev-label {
@@ -905,7 +905,7 @@ function enrichHunk(path: string, hunk: DiffFileDto['hunks'][number]): ReadonlyA
 .diff-view {
   display: flex;
   gap: 1rem;
-  font-family: ui-monospace, monospace;
+  font-family: var(--font-mono);
   margin-top: 1rem;
   align-items: flex-start;
 }
@@ -998,7 +998,7 @@ function enrichHunk(path: string, hunk: DiffFileDto['hunks'][number]): ReadonlyA
   color: var(--color-fg-subtle);
 }
 .file-body {
-  font-size: 0.9em;
+  font-size: 0.75rem;
 }
 .tab-bar {
   display: flex;
@@ -1012,7 +1012,7 @@ function enrichHunk(path: string, hunk: DiffFileDto['hunks'][number]): ReadonlyA
   background: none;
   color: var(--color-fg-muted);
   cursor: pointer;
-  font-family: ui-monospace, monospace;
+  font-family: var(--font-mono);
   font-size: 0.85em;
   border-bottom: 2px solid transparent;
 }
@@ -1030,17 +1030,17 @@ function enrichHunk(path: string, hunk: DiffFileDto['hunks'][number]): ReadonlyA
   overflow-x: auto;
 }
 .code-lines {
-  font-family: ui-monospace, monospace;
+  font-family: var(--font-mono);
 }
 .code-row {
   display: flex;
-  line-height: 1.4;
+  line-height: 1.667;
 }
 .code-row:hover {
   background: var(--color-surface-hover);
 }
 .code-row .row-lineno {
-  flex: 0 0 4rem;
+  flex: 0 0 4em;
   text-align: right;
   padding-right: 0.75rem;
   color: var(--color-fg-faint);
@@ -1101,12 +1101,12 @@ function enrichHunk(path: string, hunk: DiffFileDto['hunks'][number]): ReadonlyA
  */
 .row {
   display: block;
-  line-height: 1.4;
+  line-height: 1.667;
   /*
    * 空セルでも 1 行分の高さを確保する。これがないと cell-empty の行が
    * 子要素のテキスト高 0 で collapse し、左右で高さが揃わなくなる。
    */
-  min-height: 1.4em;
+  min-height: 1.667em;
   /*
    * width: max-content で .row 自身を content 幅まで伸ばし、
    * min-width: 100% で短い行を .side-inner の最長行幅までストレッチする。
@@ -1118,8 +1118,8 @@ function enrichHunk(path: string, hunk: DiffFileDto['hunks'][number]): ReadonlyA
 }
 .row-lineno {
   display: inline-block;
-  width: 3em;
-  padding: 0 0.5em;
+  width: 4em;
+  padding: 0 10px;
   text-align: right;
   color: var(--color-fg-faint);
   user-select: none;
