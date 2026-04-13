@@ -240,7 +240,7 @@ function statusLabel(status: WorktreeEntryStatusDto): string {
   padding: 0.35rem 0.75rem;
 }
 .col-mode {
-  width: 5rem;
+  width: 7rem;
   padding: 0.35rem 0.75rem;
   color: var(--color-fg-muted);
 }
