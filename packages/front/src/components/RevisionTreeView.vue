@@ -244,27 +244,31 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="tree-view">
-    <div class="tree-controls">
-      <RevisionCombobox
-        :model-value="currentRev"
-        :initial-refs="initialRefs"
-        :allow-worktree="false"
-        placeholder="rev"
-        @update:model-value="currentRev = $event"
-        @submit="onRevSubmit"
-      />
-      <button class="apply-btn" :disabled="loading" @click="onApply">適用</button>
-    </div>
+    <Teleport to="#page-header-slot">
+      <div class="page-header-content">
+        <div class="tree-controls">
+          <RevisionCombobox
+            :model-value="currentRev"
+            :initial-refs="initialRefs"
+            :allow-worktree="false"
+            placeholder="rev"
+            @update:model-value="currentRev = $event"
+            @submit="onRevSubmit"
+          />
+          <button class="apply-btn" :disabled="loading" @click="onApply">適用</button>
+        </div>
 
-    <nav class="breadcrumb" aria-label="directory path">
-      <button class="breadcrumb-item" @click="navigateToRoot">/</button>
-      <template v-for="crumb in breadcrumbs" :key="crumb.path">
-        <span class="breadcrumb-sep">/</span>
-        <button class="breadcrumb-item" @click="navigateToDir(crumb.path)">
-          {{ crumb.name }}
-        </button>
-      </template>
-    </nav>
+        <nav class="breadcrumb" aria-label="directory path">
+          <button class="breadcrumb-item" @click="navigateToRoot">/</button>
+          <template v-for="crumb in breadcrumbs" :key="crumb.path">
+            <span class="breadcrumb-sep">/</span>
+            <button class="breadcrumb-item" @click="navigateToDir(crumb.path)">
+              {{ crumb.name }}
+            </button>
+          </template>
+        </nav>
+      </div>
+    </Teleport>
 
     <p v-if="errorMessage !== null" class="error">error: {{ errorMessage }}</p>
     <p v-else-if="loading" class="loading">loading...</p>

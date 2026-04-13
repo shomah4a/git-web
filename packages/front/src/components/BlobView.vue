@@ -191,17 +191,19 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="blob-view">
-    <nav class="breadcrumb" aria-label="file path">
-      <button class="breadcrumb-item" @click="navigateToTree('')">/</button>
-      <template v-for="crumb in breadcrumbs" :key="crumb.path">
-        <span class="breadcrumb-sep">/</span>
-        <button v-if="!crumb.isFile" class="breadcrumb-item" @click="navigateToTree(crumb.path)">
-          {{ crumb.name }}
-        </button>
-        <span v-else class="breadcrumb-current">{{ crumb.name }}</span>
-      </template>
-      <span class="breadcrumb-rev">@ {{ currentRev }}</span>
-    </nav>
+    <Teleport to="#page-header-slot">
+      <nav class="breadcrumb" aria-label="file path">
+        <button class="breadcrumb-item" @click="navigateToTree('')">/</button>
+        <template v-for="crumb in breadcrumbs" :key="crumb.path">
+          <span class="breadcrumb-sep">/</span>
+          <button v-if="!crumb.isFile" class="breadcrumb-item" @click="navigateToTree(crumb.path)">
+            {{ crumb.name }}
+          </button>
+          <span v-else class="breadcrumb-current">{{ crumb.name }}</span>
+        </template>
+        <span class="breadcrumb-rev">@ {{ currentRev }}</span>
+      </nav>
+    </Teleport>
 
     <p v-if="state.kind === 'loading'" class="status">loading...</p>
     <p v-else-if="state.kind === 'not-found'" class="status error">
@@ -278,7 +280,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 0;
-  margin-bottom: 0.75rem;
+  padding: 0.4rem 0;
   font-family: var(--font-mono);
   font-size: 0.9rem;
 }
