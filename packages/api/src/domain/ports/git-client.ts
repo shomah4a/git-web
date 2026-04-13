@@ -8,7 +8,7 @@
  */
 export interface GitClient {
   /**
-   * HEAD が指すコミットの SHA-1 ハッシュを返す。
+   * HEAD が指すコミットのショートハッシュを返す。
    */
   head(): Promise<string>
 

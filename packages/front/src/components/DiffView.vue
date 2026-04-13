@@ -916,8 +916,8 @@ function enrichHunk(path: string, hunk: DiffFileDto['hunks'][number]): ReadonlyA
   border-right: 1px solid var(--color-border);
   padding-right: 1rem;
   position: sticky;
-  top: 0;
-  max-height: 100vh;
+  top: var(--header-height, 0px);
+  max-height: calc(100vh - var(--header-height, 0px));
   overflow-y: auto;
 }
 .file-list ul {

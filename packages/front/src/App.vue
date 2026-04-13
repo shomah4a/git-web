@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { RepoInfoDto } from '@git-web/common'
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { fetchRepoInfo } from './api.js'
 import ThemeSwitcher from './components/ThemeSwitcher.vue'
@@ -45,18 +45,38 @@ function reflectTheme(resolved: 'light' | 'dark'): void {
 reflectTheme(themeStore.resolved.value)
 watch(themeStore.resolved, reflectTheme)
 
+const headerRef = ref<HTMLElement | null>(null)
+let resizeObserver: ResizeObserver | null = null
+
 onMounted(async () => {
+  if (headerRef.value !== null && typeof ResizeObserver !== 'undefined') {
+    resizeObserver = new ResizeObserver((entries) => {
+      const entry = entries[0]
+      if (entry !== undefined) {
+        document.documentElement.style.setProperty(
+          '--header-height',
+          `${entry.contentRect.height}px`,
+        )
+      }
+    })
+    resizeObserver.observe(headerRef.value)
+  }
+
   try {
     repo.value = await fetchRepoInfo()
   } catch (err) {
     errorMessage.value = err instanceof Error ? err.message : 'unknown error'
   }
 })
+
+onBeforeUnmount(() => {
+  resizeObserver?.disconnect()
+})
 </script>
 
 <template>
   <main>
-    <header class="app-header">
+    <header ref="headerRef" class="app-header">
       <div class="app-header-top">
         <h1>
           <router-link to="/">git-web</router-link>

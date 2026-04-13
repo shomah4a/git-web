@@ -18,5 +18,5 @@ import type { Blob } from '../blob.js'
 import type { Revision } from '../revision.js'
 
 export interface BlobReader {
-  read(path: string, rev: Revision | null): Promise<Blob | null>
+  read(this: void, path: string, rev: Revision | null): Promise<Blob | null>
 }
