@@ -670,29 +670,31 @@ function enrichHunk(path: string, hunk: DiffFileDto['hunks'][number]): ReadonlyA
 </script>
 
 <template>
-  <header class="rev-selector">
-    <label class="rev-label">
-      <span>from:</span>
-      <RevisionCombobox
-        v-model="fromRev"
-        :initial-refs="initialRefs"
-        :allow-worktree="false"
-        :has-error="listError !== null"
-        @submit="onRevSubmit"
-      />
-    </label>
-    <label class="rev-label">
-      <span>to:</span>
-      <RevisionCombobox
-        v-model="toRev"
-        :initial-refs="initialRefs"
-        :allow-worktree="true"
-        :has-error="listError !== null"
-        @submit="onRevSubmit"
-      />
-    </label>
-    <button type="button" class="apply" :disabled="loadingList" @click="onApply">適用</button>
-  </header>
+  <Teleport to="#page-header-slot">
+    <div class="rev-selector">
+      <label class="rev-label">
+        <span>from:</span>
+        <RevisionCombobox
+          v-model="fromRev"
+          :initial-refs="initialRefs"
+          :allow-worktree="false"
+          :has-error="listError !== null"
+          @submit="onRevSubmit"
+        />
+      </label>
+      <label class="rev-label">
+        <span>to:</span>
+        <RevisionCombobox
+          v-model="toRev"
+          :initial-refs="initialRefs"
+          :allow-worktree="true"
+          :has-error="listError !== null"
+          @submit="onRevSubmit"
+        />
+      </label>
+      <button type="button" class="apply" :disabled="loadingList" @click="onApply">適用</button>
+    </div>
+  </Teleport>
   <div ref="diffRoot" class="diff-view">
     <aside class="file-list">
       <h2>Files</h2>

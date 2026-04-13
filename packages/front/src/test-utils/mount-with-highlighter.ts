@@ -54,6 +54,7 @@ export function mountWithHighlighter<TComponent extends Component>(
   highlighter: Highlighter = createNoOpHighlighter(),
   options: ComponentMountingOptions<TComponent> = {},
 ) {
+  ensureTeleportTarget()
   // provide の型は `Record<string | symbol, unknown>` 相当だが、Vue Test Utils
   // の d.ts は string キーだけを想定しているケースがある。Symbol キーを含む
   // オブジェクトを安全に渡すため、provide マージだけを build 関数に閉じ込める。
@@ -68,8 +69,25 @@ export function mountWithHighlighter<TComponent extends Component>(
       ...options.global,
       plugins,
       provide,
+      stubs: {
+        teleport: true,
+        ...options.global?.stubs,
+      },
     },
   })
+}
+
+/**
+ * Teleport ターゲット (#page-header-slot) がテスト DOM に存在しない場合に
+ * 作成する。ADR 0033 で各ビューコンポーネントが Teleport を使うようになった
+ * ため、テスト環境でもターゲット要素が必要。
+ */
+function ensureTeleportTarget(): void {
+  if (document.getElementById('page-header-slot') === null) {
+    const el = document.createElement('div')
+    el.id = 'page-header-slot'
+    document.body.appendChild(el)
+  }
 }
 
 /**

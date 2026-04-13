@@ -120,15 +120,17 @@ function statusLabel(status: WorktreeEntryStatusDto): string {
 
 <template>
   <div class="worktree-view">
-    <nav class="breadcrumb" aria-label="directory path">
-      <button class="breadcrumb-item" @click="navigateToRoot">/</button>
-      <template v-for="crumb in breadcrumbs" :key="crumb.path">
-        <span class="breadcrumb-sep">/</span>
-        <button class="breadcrumb-item" @click="navigateToDir(crumb.path)">
-          {{ crumb.name }}
-        </button>
-      </template>
-    </nav>
+    <Teleport to="#page-header-slot">
+      <nav class="breadcrumb" aria-label="directory path">
+        <button class="breadcrumb-item" @click="navigateToRoot">/</button>
+        <template v-for="crumb in breadcrumbs" :key="crumb.path">
+          <span class="breadcrumb-sep">/</span>
+          <button class="breadcrumb-item" @click="navigateToDir(crumb.path)">
+            {{ crumb.name }}
+          </button>
+        </template>
+      </nav>
+    </Teleport>
 
     <p v-if="errorMessage !== null" class="error">error: {{ errorMessage }}</p>
     <p v-else-if="loading" class="loading">loading...</p>
@@ -183,7 +185,7 @@ function statusLabel(status: WorktreeEntryStatusDto): string {
   display: flex;
   align-items: center;
   gap: 0;
-  margin-bottom: 0.5rem;
+  padding: 0.4rem 0;
   font-family: var(--font-mono);
   font-size: 0.9rem;
 }
