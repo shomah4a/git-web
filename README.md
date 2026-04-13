@@ -1,10 +1,13 @@
 # git-web
 
-ローカルで動く git リポジトリビューア。`git web` として呼び出して、ブラウザで diff や commit graph を閲覧することを目的とする（現在は骨格のみで、HEAD 表示が動く程度）。
+ローカルで動く git リポジトリビューア。`git web` として呼び出して、ブラウザで diff やディレクトリツリーを閲覧できる。
 
-## ステータス
+## 主な機能
 
-初期構築完了 / 最初の縦串機能（diff 表示など）はこれから。
+- **Worktree**: 作業ディレクトリの状態をテーブル表示
+- **Tree**: 任意リビジョンのディレクトリツリー表示（ブランチ/タグ選択、README 自動表示）
+- **Blob**: ファイル内容表示（Shiki によるシンタックスハイライト、Markdown/Mermaid レンダリング）
+- **Diff**: 任意の 2 リビジョン間の差分を Split View で表示（シンタックスハイライト付き）
 
 ## 構成
 
@@ -54,10 +57,10 @@ monorepo (pnpm workspace) 3 パッケージ + ローカル pnpm ラッパー:
 ./bin/git-web
 ```
 
-起動後、空きポートに bind して URL を標準出力に表示し、ブラウザを自動で開きます。
+起動後、デフォルトではポート 47906 で起動し、URL を標準出力に表示してブラウザを自動で開きます。`PORT` 環境変数で上書き可能です（ADR 0013 参照）。
 
 ```
-git-web listening on http://127.0.0.1:45825
+git-web listening on http://127.0.0.1:47906
 target repository: /home/user/some-repo
 ```
 
@@ -91,26 +94,24 @@ make fmt       # フォーマット適用
 make fmt-check # フォーマット検査
 make typecheck # 型チェック
 make check     # lint + fmt-check + build + typecheck + test
-make serve     # front の Vite dev サーバーを起動
+make serve     # ビルド後 ./bin/git-web を起動
 make clean     # ビルド成果物とローカルキャッシュを削除
 ```
 
 ### 開発時 (dev サーバー + API)
 
-front は Vite の dev サーバーから起動し、`/api` リクエストは 127.0.0.1:3000 の api サーバーにプロキシされます。dev 時は以下の 2 プロセスを並走させます。
+front は Vite の dev サーバーから起動し、`/api` リクエストは 127.0.0.1:47906 の api サーバーにプロキシされます（`vite.config.ts` の proxy 設定）。dev 時は以下の 2 プロセスを並走させます。
 
 ```
 # 事前にビルド (common + api が必要)
 ./bin/pnpm build
 
-# ターミナル 1: api を固定ポート 3000 で起動
-PORT=3000 node packages/api/dist/main.js
+# ターミナル 1: api をポート 47906 で起動
+PORT=47906 ./bin/git-web
 
-# ターミナル 2: front dev サーバー
-make serve
+# ターミナル 2: front dev サーバー (api の 47906 番にプロキシ)
+./bin/pnpm --filter @git-web/front dev
 ```
-
-api の `PORT` 環境変数が未指定または 0 の場合は空きポートが自動割当されます。`main.js` の直接起動時のみ有効で、`./bin/git-web` 経由の起動では常にランダムポートです。
 
 ### パッケージ追加時の注意
 
