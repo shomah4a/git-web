@@ -42,11 +42,11 @@ describe('extractWorktreeOneLevel', () => {
     ])
   })
 
-  it('ディレクトリはmode/sizeがnullになる', () => {
+  it('ディレクトリのmodeは040000でsizeはnullになる', () => {
     const input = 'src/main.ts\0'
     const result = extractWorktreeOneLevel(input, '', emptyStatus, emptyMode, emptySize)
     expect(result).toEqual([
-      { status: null, name: 'src', path: 'src', type: 'tree', mode: null, size: null },
+      { status: null, name: 'src', path: 'src', type: 'tree', mode: '040000', size: null },
     ])
   })
 
@@ -91,7 +91,7 @@ describe('extractWorktreeOneLevel', () => {
         name: 'components',
         path: 'src/components',
         type: 'tree',
-        mode: null,
+        mode: '040000',
         size: null,
       },
     ])
@@ -112,7 +112,7 @@ describe('extractWorktreeOneLevel', () => {
     const statusMap = new Map<string, WorktreeEntryStatus>([['src/main.ts', 'modified']])
     const result = extractWorktreeOneLevel(input, '', statusMap, emptyMode, emptySize)
     expect(result).toEqual([
-      { status: 'modified', name: 'src', path: 'src', type: 'tree', mode: null, size: null },
+      { status: 'modified', name: 'src', path: 'src', type: 'tree', mode: '040000', size: null },
       { status: null, name: 'README.md', path: 'README.md', type: 'blob', mode: null, size: null },
     ])
   })
@@ -122,7 +122,7 @@ describe('extractWorktreeOneLevel', () => {
     const statusMap = new Map<string, WorktreeEntryStatus>([['lib/new-file.ts', 'untracked']])
     const result = extractWorktreeOneLevel(input, '', statusMap, emptyMode, emptySize)
     expect(result).toEqual([
-      { status: 'untracked', name: 'lib', path: 'lib', type: 'tree', mode: null, size: null },
+      { status: 'untracked', name: 'lib', path: 'lib', type: 'tree', mode: '040000', size: null },
     ])
   })
 
@@ -134,7 +134,7 @@ describe('extractWorktreeOneLevel', () => {
     ])
     const result = extractWorktreeOneLevel(input, '', statusMap, emptyMode, emptySize)
     expect(result).toEqual([
-      { status: 'modified', name: 'lib', path: 'lib', type: 'tree', mode: null, size: null },
+      { status: 'modified', name: 'lib', path: 'lib', type: 'tree', mode: '040000', size: null },
     ])
   })
 
@@ -146,7 +146,7 @@ describe('extractWorktreeOneLevel', () => {
     ])
     const result = extractWorktreeOneLevel(input, '', statusMap, emptyMode, emptySize)
     expect(result).toEqual([
-      { status: 'added', name: 'lib', path: 'lib', type: 'tree', mode: null, size: null },
+      { status: 'added', name: 'lib', path: 'lib', type: 'tree', mode: '040000', size: null },
     ])
   })
 
@@ -168,10 +168,10 @@ describe('extractWorktreeOneLevel', () => {
         name: 'components',
         path: 'src/components',
         type: 'tree',
-        mode: null,
+        mode: '040000',
         size: null,
       },
-      { status: null, name: 'utils', path: 'src/utils', type: 'tree', mode: null, size: null },
+      { status: null, name: 'utils', path: 'src/utils', type: 'tree', mode: '040000', size: null },
     ])
   })
 })

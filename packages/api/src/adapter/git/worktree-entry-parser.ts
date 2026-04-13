@@ -63,7 +63,7 @@ export function extractWorktreeOneLevel(
         seenDirs.add(dirName)
         const path = basePath === '' ? dirName : `${basePath}/${dirName}`
         const status = aggregateDirStatus(path, statusMap)
-        entries.push({ status, name: dirName, path, type: 'tree', mode: null, size: null })
+        entries.push({ status, name: dirName, path, type: 'tree', mode: '040000', size: null })
       }
     }
   }
