@@ -46,7 +46,9 @@ export class CliGitClient implements GitClient, GitDiffClient, GitRefsClient, Gi
   }
 
   async head(): Promise<string> {
-    const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: this.#cwd })
+    const { stdout } = await execFileAsync('git', ['rev-parse', '--short', 'HEAD'], {
+      cwd: this.#cwd,
+    })
     return stdout.trim()
   }
 

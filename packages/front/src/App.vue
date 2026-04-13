@@ -57,36 +57,42 @@ onMounted(async () => {
 <template>
   <main>
     <header class="app-header">
-      <h1>
-        <router-link to="/">git-web</router-link>
-      </h1>
-      <ThemeSwitcher
-        :model-value="themeStore.theme.value"
-        @update:model-value="themeStore.setTheme"
-      />
-    </header>
-    <p v-if="errorMessage !== null" class="error">error: {{ errorMessage }}</p>
-    <dl v-else-if="repo !== null">
-      <dt>repository</dt>
-      <dd>{{ repo.cwd }}</dd>
-      <dt>HEAD</dt>
-      <dd>{{ repo.head }}</dd>
-    </dl>
-    <p v-else>loading...</p>
+      <div class="app-header-top">
+        <h1>
+          <router-link to="/">git-web</router-link>
+        </h1>
+        <p v-if="errorMessage !== null" class="error">error: {{ errorMessage }}</p>
+        <dl v-else-if="repo !== null" class="repo-info">
+          <dt>repository</dt>
+          <dd>{{ repo.cwd }}</dd>
+          <dt>HEAD</dt>
+          <dd>{{ repo.head }}</dd>
+        </dl>
+        <p v-else class="repo-info-loading">loading...</p>
+        <ThemeSwitcher
+          :model-value="themeStore.theme.value"
+          @update:model-value="themeStore.setTheme"
+        />
+      </div>
 
-    <nav class="view-tabs">
-      <router-link class="view-tab" to="/" active-class="" exact-active-class="view-tab--active">
-        Worktree
-      </router-link>
-      <router-link class="view-tab" to="/diff" active-class="view-tab--active"> Diff </router-link>
-      <router-link
-        class="view-tab"
-        :class="{ 'view-tab--active': isRevisionActive }"
-        to="/tree?rev=HEAD"
-      >
-        Revision
-      </router-link>
-    </nav>
+      <nav class="view-tabs">
+        <router-link class="view-tab" to="/" active-class="" exact-active-class="view-tab--active">
+          Worktree
+        </router-link>
+        <router-link class="view-tab" to="/diff" active-class="view-tab--active">
+          Diff
+        </router-link>
+        <router-link
+          class="view-tab"
+          :class="{ 'view-tab--active': isRevisionActive }"
+          to="/tree?rev=HEAD"
+        >
+          Revision
+        </router-link>
+      </nav>
+
+      <div id="page-header-slot"></div>
+    </header>
 
     <router-view />
   </main>
@@ -95,28 +101,67 @@ onMounted(async () => {
 <style scoped>
 main {
   font-family: system-ui, sans-serif;
-  margin: 2rem auto;
   padding: 0 1rem;
 }
 .app-header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: var(--color-bg);
+  padding-top: 1rem;
+  margin: 0 -1rem;
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+.app-header-top {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 1rem;
-  margin-bottom: 1rem;
+  margin-bottom: 0.5rem;
 }
-.app-header h1 {
+.app-header-top h1 {
   margin: 0;
+  white-space: nowrap;
 }
-.app-header h1 a {
+.app-header-top h1 a {
   color: inherit;
   text-decoration: none;
+}
+.repo-info {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  font-size: 0.85rem;
+  color: var(--color-fg-muted);
+}
+.repo-info dt {
+  font-weight: bold;
+  margin: 0;
+  white-space: nowrap;
+}
+.repo-info dd {
+  margin: 0;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.repo-info dd + dt {
+  margin-left: 0.75rem;
+}
+.repo-info-loading {
+  flex: 1;
+  margin: 0;
+  color: var(--color-fg-muted);
+  font-size: 0.85rem;
 }
 .view-tabs {
   display: flex;
   gap: 0;
   border-bottom: 1px solid var(--color-border);
-  margin-bottom: 1rem;
 }
 .view-tab {
   padding: 0.5rem 1rem;
@@ -137,13 +182,7 @@ main {
 }
 .error {
   color: var(--color-error);
-}
-dt {
-  font-weight: bold;
-  margin-top: 0.5rem;
-}
-dd {
-  margin: 0 0 0.5rem 0;
-  font-family: var(--font-mono);
+  margin: 0;
+  font-size: 0.85rem;
 }
 </style>
