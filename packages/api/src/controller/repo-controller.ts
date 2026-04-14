@@ -31,6 +31,9 @@ export function createRepoHandler(git: GitClient): Handler {
 function toRepoInfoDto(info: RepoInfo): RepoInfoDto {
   return {
     cwd: info.cwd,
-    head: info.head,
+    head: {
+      commitHash: info.head.commitHash,
+      branch: info.head.branch,
+    },
   }
 }

@@ -17,6 +17,7 @@ import { promisify } from 'node:util'
 import type { DiffFileSummary } from '../../domain/diff.js'
 import type { DiffRange } from '../../domain/diff-range.js'
 import type { GitClient } from '../../domain/ports/git-client.js'
+import type { HeadInfo } from '../../domain/repo.js'
 import type { GitDiffClient } from '../../domain/ports/git-diff-client.js'
 import type { GitRefsClient } from '../../domain/ports/git-refs-client.js'
 import type { GitTreeClient } from '../../domain/ports/git-tree-client.js'
@@ -45,11 +46,23 @@ export class CliGitClient implements GitClient, GitDiffClient, GitRefsClient, Gi
     this.#cwd = cwd
   }
 
-  async head(): Promise<string> {
-    const { stdout } = await execFileAsync('git', ['rev-parse', '--short', 'HEAD'], {
+  async head(): Promise<HeadInfo> {
+    const { stdout: hashOut } = await execFileAsync('git', ['rev-parse', '--short', 'HEAD'], {
       cwd: this.#cwd,
     })
-    return stdout.trim()
+    const commitHash = hashOut.trim()
+
+    let branch: string | null = null
+    try {
+      const { stdout: refOut } = await execFileAsync('git', ['symbolic-ref', '--short', 'HEAD'], {
+        cwd: this.#cwd,
+      })
+      branch = refOut.trim()
+    } catch {
+      // detached HEAD の場合 symbolic-ref は非ゼロで終了する
+    }
+
+    return { commitHash, branch }
   }
 
   async repoRoot(): Promise<string> {

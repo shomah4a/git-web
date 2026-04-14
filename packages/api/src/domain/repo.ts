@@ -7,7 +7,12 @@
  *
  * 振る舞い (メソッド) が必要になった時点で class 化する。
  */
+export type HeadInfo = {
+  readonly commitHash: string
+  readonly branch: string | null
+}
+
 export type RepoInfo = {
   readonly cwd: string
-  readonly head: string
+  readonly head: HeadInfo
 }

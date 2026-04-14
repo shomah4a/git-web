@@ -8,9 +8,14 @@
  * wire format (DTO) のみを置く。api 内部のドメインモデルは
  * packages/api/src/domain/ 配下に別定義する。
  */
+export type HeadInfoDto = {
+  readonly commitHash: string
+  readonly branch: string | null
+}
+
 export type RepoInfoDto = {
   readonly cwd: string
-  readonly head: string
+  readonly head: HeadInfoDto
 }
 
 export type {

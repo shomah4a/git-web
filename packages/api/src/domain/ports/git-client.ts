@@ -6,11 +6,14 @@
  *   引数形式を知らない
  * - テストでは本 interface をオブジェクトリテラルでフェイクしてよい
  */
+import type { HeadInfo } from '../repo.js'
+
 export interface GitClient {
   /**
-   * HEAD が指すコミットのショートハッシュを返す。
+   * HEAD のコミットハッシュとブランチ名を返す。
+   * detached HEAD の場合は branch が null になる。
    */
-  head(): Promise<string>
+  head(): Promise<HeadInfo>
 
   /**
    * リポジトリのトップレベル絶対パスを返す。

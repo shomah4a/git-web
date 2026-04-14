@@ -46,12 +46,23 @@ afterEach(async () => {
 })
 
 describe('CliGitClient.head', () => {
-  it('ショートハッシュを返す', async () => {
+  it('ブランチ上ではcommitHashとbranch名を返す', async () => {
     const git = new CliGitClient(tempRepo)
 
     const head = await git.head()
 
-    expect(head).toMatch(/^[0-9a-f]{7,12}$/)
+    expect(head.commitHash).toMatch(/^[0-9a-f]{7,12}$/)
+    expect(head.branch).toBe('main')
+  })
+
+  it('detached HEADではbranchがnullになる', async () => {
+    const git = new CliGitClient(tempRepo)
+    await execFileAsync('git', ['checkout', '--detach'], { cwd: tempRepo })
+
+    const head = await git.head()
+
+    expect(head.commitHash).toMatch(/^[0-9a-f]{7,12}$/)
+    expect(head.branch).toBeNull()
   })
 
   it('cwdがリポジトリ外の場合は例外を投げる', async () => {

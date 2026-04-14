@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import type { GitClient } from '../domain/ports/git-client.js'
+import type { HeadInfo } from '../domain/repo.js'
 import { getRepoInfo } from './repo-service.js'
 
 /**
  * GitClient のフェイク実装。
  * 副作用無しで固定値を返す。
  */
-function createFakeGit(values: { head: string; repoRoot: string }): GitClient {
+function createFakeGit(values: { head: HeadInfo; repoRoot: string }): GitClient {
   return {
     head: () => Promise.resolve(values.head),
     repoRoot: () => Promise.resolve(values.repoRoot),
@@ -16,7 +17,7 @@ function createFakeGit(values: { head: string; repoRoot: string }): GitClient {
 describe('getRepoInfo', () => {
   it('GitClientのrepoRootとheadをRepoInfoドメインモデルに詰めて返す', async () => {
     const git = createFakeGit({
-      head: '0123456789abcdef0123456789abcdef01234567',
+      head: { commitHash: '0123456', branch: 'main' },
       repoRoot: '/home/user/myrepo',
     })
 
@@ -24,7 +25,7 @@ describe('getRepoInfo', () => {
 
     expect(info).toEqual({
       cwd: '/home/user/myrepo',
-      head: '0123456789abcdef0123456789abcdef01234567',
+      head: { commitHash: '0123456', branch: 'main' },
     })
   })
 
