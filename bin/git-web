@@ -18,7 +18,7 @@
 const DEFAULT_PORT = 47906
 
 import { spawn } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
@@ -77,8 +77,26 @@ try {
 }
 
 /**
+ * WSL (Windows Subsystem for Linux) 環境かどうかを判定する。
+ * /proc/version に "microsoft" または "WSL" が含まれていれば WSL と見なす。
+ * 読み取りに失敗した場合は非 WSL として扱う。
+ *
+ * @returns {boolean}
+ */
+function isWSL() {
+  try {
+    const version = readFileSync('/proc/version', 'utf8')
+    return /microsoft|wsl/i.test(version)
+  } catch {
+    return false
+  }
+}
+
+/**
  * OS に応じたブラウザ起動コマンドを実行する。
  * 失敗しても黙って握りつぶす（ユーザーが手動で URL を開けば良い）。
+ *
+ * WSL 環境では cmd.exe 経由で Windows 側のブラウザを開く（ADR 0036 参照）。
  *
  * @param {string} url
  */
@@ -91,6 +109,9 @@ function openBrowser(url) {
     args = [url]
   } else if (platform === 'win32') {
     cmd = 'cmd'
+    args = ['/c', 'start', '', url]
+  } else if (isWSL()) {
+    cmd = 'cmd.exe'
     args = ['/c', 'start', '', url]
   } else {
     cmd = 'xdg-open'
