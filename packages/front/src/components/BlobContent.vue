@@ -7,24 +7,8 @@
  */
 
 import { computed, ref } from 'vue'
-import type { HighlightedLines, HighlightedToken } from '../diff/highlighter/types.js'
-
-export type BlobContentState =
-  | { readonly kind: 'loading' }
-  | {
-      readonly kind: 'success'
-      readonly path: string
-      readonly content: string
-      readonly binary: boolean
-      readonly language: string | null
-      readonly lines: ReadonlyArray<string>
-      readonly tokens: HighlightedLines | null
-      readonly renderedMarkdown: string | null
-    }
-  | { readonly kind: 'image'; readonly rawUrl: string }
-  | { readonly kind: 'binary'; readonly path: string }
-  | { readonly kind: 'not-found' }
-  | { readonly kind: 'error'; readonly message: string }
+import type { HighlightedToken } from '../diff/highlighter/types.js'
+import type { BlobContentState } from './blob-content-state.js'
 
 type ViewMode = 'rendered' | 'source'
 
