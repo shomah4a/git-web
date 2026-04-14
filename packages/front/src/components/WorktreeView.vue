@@ -87,6 +87,13 @@ function navigateToDir(path: string): void {
   void loadWorktree(path)
 }
 
+function navigateToBlob(path: string): void {
+  void router.push({
+    path: '/wt/blob',
+    query: { path },
+  })
+}
+
 function navigateToRoot(): void {
   navigateToDir('')
 }
@@ -148,7 +155,7 @@ function statusLabel(status: WorktreeEntryStatusDto): string {
           v-for="entry in sortedEntries"
           :key="entry.path"
           class="worktree-row"
-          @click="entry.type === 'tree' ? navigateToDir(entry.path) : undefined"
+          @click="entry.type === 'tree' ? navigateToDir(entry.path) : navigateToBlob(entry.path)"
         >
           <td class="col-status">
             <span v-if="entry.status !== null" class="entry-status" :data-status="entry.status">{{
@@ -166,7 +173,9 @@ function statusLabel(status: WorktreeEntryStatusDto): string {
             >
               {{ entry.name }}
             </button>
-            <span v-else class="entry-name">{{ entry.name }}</span>
+            <button v-else class="entry-link" @click.stop="navigateToBlob(entry.path)">
+              {{ entry.name }}
+            </button>
           </td>
           <td class="col-mode">{{ formatMode(entry) }}</td>
           <td class="col-size">{{ formatSize(entry) }}</td>
@@ -265,9 +274,6 @@ function statusLabel(status: WorktreeEntryStatusDto): string {
 }
 .entry-link:hover {
   text-decoration: underline;
-}
-.entry-name {
-  color: var(--color-fg);
 }
 .entry-status {
   font-weight: bold;

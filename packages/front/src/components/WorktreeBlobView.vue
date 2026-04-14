@@ -1,11 +1,12 @@
 <script setup lang="ts">
 /**
- * revision 用ファイル内容表示コンポーネント (ADR 0028, ADR 0038)。
+ * worktree 用ファイル内容表示コンポーネント (ADR 0038)。
  *
  * 設計方針:
- * - /blob?rev=<rev>&path=<path> で表示対象を指定
- * - fetchBlob で内容取得、BlobContent で表示を委譲
- * - パンくずリストで /tree (revision ツリー) へのナビゲーション
+ * - /wt/blob?path=<path> で表示対象を指定 (rev なし = worktree)
+ * - fetchBlob(path, null) で worktree の blob を取得
+ * - BlobContent で表示を委譲
+ * - パンくずリストで / (worktree ツリー) へのナビゲーション
  */
 
 import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from 'vue'
@@ -25,17 +26,11 @@ const state = ref<BlobContentState>({ kind: 'loading' })
 let isUnmounted = false
 let generation = 0
 
-function readRevFromRoute(): string {
-  const raw = route.query.rev
-  return typeof raw === 'string' && raw !== '' ? raw : 'HEAD'
-}
-
 function readPathFromRoute(): string {
   const raw = route.query.path
   return typeof raw === 'string' ? raw : ''
 }
 
-const currentRev = computed(() => readRevFromRoute())
 const currentPath = computed(() => readPathFromRoute())
 
 const fileName = computed(() => {
@@ -62,12 +57,12 @@ const breadcrumbs = computed(() => {
   return result
 })
 
-async function loadBlob(rev: string, path: string): Promise<void> {
+async function loadBlob(path: string): Promise<void> {
   const gen = ++generation
   state.value = { kind: 'loading' }
 
   try {
-    const blob = await fetchBlob(path, rev)
+    const blob = await fetchBlob(path, null)
     if (isUnmounted || gen !== generation) return
 
     if (blob === null) {
@@ -78,7 +73,7 @@ async function loadBlob(rev: string, path: string): Promise<void> {
     const resolved = await resolveBlobContent(
       blob,
       path,
-      rev,
+      null,
       highlighter,
       () => isUnmounted || gen !== generation,
     )
@@ -94,26 +89,23 @@ async function loadBlob(rev: string, path: string): Promise<void> {
   }
 }
 
-function navigateToTree(path: string): void {
+function navigateToWorktree(path: string): void {
   void router.push({
-    path: '/tree',
-    query: {
-      rev: currentRev.value,
-      ...(path !== '' ? { path } : {}),
-    },
+    path: '/',
+    query: path !== '' ? { path } : {},
   })
 }
 
 watch(
   () => route.query,
   () => {
-    if (route.name !== 'blob') return
-    void loadBlob(readRevFromRoute(), readPathFromRoute())
+    if (route.name !== 'worktree-blob') return
+    void loadBlob(readPathFromRoute())
   },
 )
 
 onMounted(() => {
-  void loadBlob(currentRev.value, currentPath.value)
+  void loadBlob(currentPath.value)
 })
 
 onBeforeUnmount(() => {
@@ -125,19 +117,27 @@ onBeforeUnmount(() => {
   <div class="blob-view">
     <Teleport to="#page-header-slot">
       <nav class="breadcrumb" aria-label="file path">
-        <button class="breadcrumb-item" @click="navigateToTree('')">/</button>
+        <button class="breadcrumb-item" @click="navigateToWorktree('')">/</button>
         <template v-for="crumb in breadcrumbs" :key="crumb.path">
           <span class="breadcrumb-sep">/</span>
-          <button v-if="!crumb.isFile" class="breadcrumb-item" @click="navigateToTree(crumb.path)">
+          <button
+            v-if="!crumb.isFile"
+            class="breadcrumb-item"
+            @click="navigateToWorktree(crumb.path)"
+          >
             {{ crumb.name }}
           </button>
           <span v-else class="breadcrumb-current">{{ crumb.name }}</span>
         </template>
-        <span class="breadcrumb-rev">@ {{ currentRev }}</span>
+        <span class="breadcrumb-rev">@ worktree</span>
       </nav>
     </Teleport>
 
-    <BlobContent :state="state" :file-name="fileName" @navigate-back="navigateToTree('')" />
+    <BlobContent
+      :state="state"
+      :file-name="fileName"
+      @navigate-back="navigateToWorktree('')"
+    />
   </div>
 </template>
 
