@@ -86,7 +86,14 @@ onBeforeUnmount(() => {
           <dt>repository</dt>
           <dd>{{ repo.cwd }}</dd>
           <dt>HEAD</dt>
-          <dd>{{ repo.head }}</dd>
+          <dd>
+            <template v-if="repo.head.branch !== null">
+              {{ repo.head.branch }} ({{ repo.head.commitHash }})
+            </template>
+            <template v-else>
+              {{ repo.head.commitHash }}
+            </template>
+          </dd>
         </dl>
         <p v-else class="repo-info-loading">loading...</p>
         <ThemeSwitcher

@@ -15,17 +15,26 @@ describe('fetchRepoInfo', () => {
       'fetch',
       vi.fn(() =>
         Promise.resolve(
-          new Response(JSON.stringify({ cwd: '/tmp/repo', head: 'abc1234' }), {
-            status: 200,
-            headers: { 'content-type': 'application/json' },
-          }),
+          new Response(
+            JSON.stringify({
+              cwd: '/tmp/repo',
+              head: { commitHash: 'abc1234', branch: 'main' },
+            }),
+            {
+              status: 200,
+              headers: { 'content-type': 'application/json' },
+            },
+          ),
         ),
       ),
     )
 
     const result = await fetchRepoInfo()
 
-    expect(result).toEqual({ cwd: '/tmp/repo', head: 'abc1234' })
+    expect(result).toEqual({
+      cwd: '/tmp/repo',
+      head: { commitHash: 'abc1234', branch: 'main' },
+    })
   })
 
   it('ステータスが200以外の場合は例外を投げる', async () => {
@@ -42,7 +51,7 @@ describe('fetchRepoInfo', () => {
       'fetch',
       vi.fn(() =>
         Promise.resolve(
-          new Response(JSON.stringify({ head: 'abc' }), {
+          new Response(JSON.stringify({ head: { commitHash: 'abc', branch: null } }), {
             status: 200,
             headers: { 'content-type': 'application/json' },
           }),
@@ -53,12 +62,28 @@ describe('fetchRepoInfo', () => {
     await expect(fetchRepoInfo()).rejects.toThrow('unexpected body shape')
   })
 
-  it('レスポンスのheadが文字列でない場合は例外を投げる', async () => {
+  it('レスポンスのheadがオブジェクトでない場合は例外を投げる', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(() =>
         Promise.resolve(
           new Response(JSON.stringify({ cwd: '/tmp', head: 42 }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          }),
+        ),
+      ),
+    )
+
+    await expect(fetchRepoInfo()).rejects.toThrow('unexpected body shape')
+  })
+
+  it('レスポンスのhead.commitHashが欠けている場合は例外を投げる', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ cwd: '/tmp', head: { branch: 'main' } }), {
             status: 200,
             headers: { 'content-type': 'application/json' },
           }),

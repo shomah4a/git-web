@@ -28,7 +28,17 @@ function isRepoInfoDto(value: unknown): value is RepoInfoDto {
   if (!('cwd' in value) || typeof value.cwd !== 'string') {
     return false
   }
-  if (!('head' in value) || typeof value.head !== 'string') {
+  if (!('head' in value) || typeof value.head !== 'object' || value.head === null) {
+    return false
+  }
+  const head: unknown = value.head
+  if (typeof head !== 'object' || head === null) {
+    return false
+  }
+  if (!('commitHash' in head) || typeof head.commitHash !== 'string') {
+    return false
+  }
+  if (!('branch' in head) || (typeof head.branch !== 'string' && head.branch !== null)) {
     return false
   }
   return true

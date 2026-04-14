@@ -46,7 +46,8 @@ function jsonResponse(body: unknown, status = 200): Response {
 describe('App.vue', () => {
   it('fetch成功時にrepositoryとHEADを表示する', async () => {
     mockFetchByUrl({
-      '/api/repo': () => jsonResponse({ cwd: '/home/u/repo', head: 'deadbeef' }),
+      '/api/repo': () =>
+        jsonResponse({ cwd: '/home/u/repo', head: { commitHash: 'deadbeef', branch: 'main' } }),
       '/api/diff/files': () => jsonResponse({ files: [] }),
     })
 
@@ -62,8 +63,31 @@ describe('App.vue', () => {
 
     const text = wrapper.text()
     expect(text).toContain('/home/u/repo')
+    expect(text).toContain('main')
     expect(text).toContain('deadbeef')
     expect(text).not.toContain('loading...')
+  })
+
+  it('detached HEADではコミットハッシュのみ表示しブランチ名は表示しない', async () => {
+    mockFetchByUrl({
+      '/api/repo': () =>
+        jsonResponse({ cwd: '/home/u/repo', head: { commitHash: 'cafebabe', branch: null } }),
+      '/api/diff/files': () => jsonResponse({ files: [] }),
+    })
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/', component: { template: '<div />' } }],
+    })
+    await router.push('/')
+    await router.isReady()
+
+    const wrapper = mount(App, { global: { plugins: [router] } })
+    await flushPromises()
+
+    const text = wrapper.text()
+    expect(text).toContain('cafebabe')
+    expect(text).not.toContain('(cafebabe)')
   })
 
   it('fetch失敗時にerrorを表示する', async () => {
@@ -88,7 +112,7 @@ describe('App.vue', () => {
 
   it('デフォルトルートで WorktreeView がマウントされる', async () => {
     mockFetchByUrl({
-      '/api/repo': () => jsonResponse({ cwd: '/r', head: 'abc' }),
+      '/api/repo': () => jsonResponse({ cwd: '/r', head: { commitHash: 'abc', branch: 'main' } }),
       '/api/worktree': () =>
         jsonResponse({
           entries: [
