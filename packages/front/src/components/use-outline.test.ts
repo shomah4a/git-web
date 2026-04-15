@@ -109,4 +109,21 @@ describe('collectHeadings', () => {
     expect(h2s[1]?.id).toBe('api-1')
     expect(h2s[2]?.id).toBe('api-2')
   })
+
+  it('空テキストの見出しを除外する', () => {
+    const container = document.createElement('div')
+    container.innerHTML = '<h1>Title</h1><h2></h2><h2>  </h2><h3>Content</h3>'
+
+    const result = collectHeadings(container)
+
+    expect(result).toEqual([
+      { level: 1, text: 'Title', id: 'title' },
+      { level: 3, text: 'Content', id: 'content' },
+    ])
+
+    // 空見出しに id が付与されていないことを確認
+    const h2s = container.querySelectorAll('h2')
+    expect(h2s[0]?.id).toBe('')
+    expect(h2s[1]?.id).toBe('')
+  })
 })

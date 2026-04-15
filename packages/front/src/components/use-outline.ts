@@ -57,23 +57,25 @@ export function collectHeadings(container: HTMLElement): ReadonlyArray<OutlineHe
   const elements = container.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, h6')
   const raw: { level: number; text: string }[] = []
 
+  const nonEmptyElements: HTMLElement[] = []
   for (const el of elements) {
+    const text = (el.textContent ?? '').trim()
+    if (text === '') continue
     const tag = el.tagName.toLowerCase()
     const level = parseInt(tag.charAt(1), 10)
-    const text = el.textContent ?? ''
     raw.push({ level, text })
+    nonEmptyElements.push(el)
   }
 
   const headings = assignUniqueIds(raw)
 
   // DOM に id を付与
-  let i = 0
-  for (const el of elements) {
+  for (let i = 0; i < nonEmptyElements.length; i++) {
     const heading = headings[i]
-    if (heading !== undefined) {
+    const el = nonEmptyElements[i]
+    if (heading !== undefined && el !== undefined) {
       el.id = heading.id
     }
-    i++
   }
 
   return headings
