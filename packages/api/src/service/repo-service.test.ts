@@ -24,7 +24,23 @@ describe('getRepoInfo', () => {
     const info = await getRepoInfo(git)
 
     expect(info).toEqual({
+      name: 'myrepo',
       cwd: '/home/user/myrepo',
+      head: { commitHash: '0123456', branch: 'main' },
+    })
+  })
+
+  it('repoRootがルートディレクトリの場合はcwdをnameとして使用する', async () => {
+    const git = createFakeGit({
+      head: { commitHash: '0123456', branch: 'main' },
+      repoRoot: '/',
+    })
+
+    const info = await getRepoInfo(git)
+
+    expect(info).toEqual({
+      name: '/',
+      cwd: '/',
       head: { commitHash: '0123456', branch: 'main' },
     })
   })

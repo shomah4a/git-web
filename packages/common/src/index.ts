@@ -14,6 +14,7 @@ export type HeadInfoDto = {
 }
 
 export type RepoInfoDto = {
+  readonly name: string
   readonly cwd: string
   readonly head: HeadInfoDto
 }

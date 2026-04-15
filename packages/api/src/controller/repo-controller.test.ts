@@ -32,6 +32,7 @@ describe('createRepoHandler', () => {
     }
     const parsed: unknown = JSON.parse(response.body)
     expect(parsed).toEqual({
+      name: 'myrepo',
       cwd: '/home/user/myrepo',
       head: { commitHash: '0123456', branch: 'main' },
     })
