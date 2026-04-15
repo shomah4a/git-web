@@ -11,6 +11,9 @@
 - 重複する見出しテキストには連番サフィックスを付与
 - 空テキストの見出しはアウトラインから除外
 - chromeless モードおよび `@media print` ではアウトライン非表示
+- sticky の top を `--header-height` でオフセットし、ヘッダー下に正しく固定
+- 見出しクリック時に URL ハッシュを付与し、ブラウザバックに対応
+  - `router.push` に path/query を明示的に渡し、query パラメータの消失を防止
 - ADR 0040 を作成
 - ブランチ: `feature/markdown-outline`
 
