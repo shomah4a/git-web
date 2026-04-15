@@ -7,6 +7,7 @@
  */
 
 import { computed, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import type { HighlightedToken } from '../diff/highlighter/types.js'
 import type { BlobContentState } from './blob-content-state.js'
 import { useOutline } from './use-outline.js'
@@ -23,6 +24,7 @@ const emit = defineEmits<{
   (e: 'navigate-back'): void
 }>()
 
+const router = useRouter()
 const viewMode = ref<ViewMode>('rendered')
 const markdownBodyRef = ref<HTMLElement | null>(null)
 
@@ -38,6 +40,7 @@ const showOutline = computed(() => {
 })
 
 function scrollToHeading(id: string): void {
+  void router.push({ hash: `#${id}` })
   const el = document.getElementById(id)
   if (el !== null) {
     el.scrollIntoView({ behavior: 'smooth' })
@@ -238,9 +241,9 @@ function shikiTokenStyle(tok: HighlightedToken): Record<string, string> {
 .outline-sidebar {
   flex: 0 0 200px;
   position: sticky;
-  top: 1rem;
+  top: calc(var(--header-height, 0px) + 1rem);
   align-self: flex-start;
-  max-height: calc(100vh - 2rem);
+  max-height: calc(100vh - var(--header-height, 0px) - 2rem);
   overflow-y: auto;
   font-size: 0.8rem;
   border-left: 1px solid var(--color-border);
