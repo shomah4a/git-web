@@ -1,18 +1,26 @@
 <script setup lang="ts">
 import type { RepoInfoDto } from '@git-web/common'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { fetchRepoInfo } from './api.js'
 import ThemeSwitcher from './components/ThemeSwitcher.vue'
+import { useDocumentTitle } from './composables/use-document-title.js'
 import {
   createLocalStorageThemeStorage,
   createMatchMediaSystemWatcher,
   useTheme,
 } from './theme/theme-store.js'
 
+const router = useRouter()
 const route = useRoute()
 const repo = ref<RepoInfoDto | null>(null)
+const repoName = computed(() => repo.value?.name ?? null)
 const errorMessage = ref<string | null>(null)
+
+/**
+ * ページタイトルをルート遷移に応じて動的に更新する (ADR 0041)。
+ */
+useDocumentTitle(router, repoName)
 
 /**
  * /blob ルートはリビジョンツリーからの遷移なので、
