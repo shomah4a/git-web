@@ -23,6 +23,15 @@ const isRevisionActive = computed(() => {
   return name === 'revision-tree' || name === 'blob'
 })
 
+/**
+ * chromeless モード (ADR 0039)。
+ * blob / worktree-blob ルートで chromeless=1 が指定されたときのみヘッダーを非表示にする。
+ */
+const isChromeless = computed(() => {
+  const name = route.name
+  return (name === 'blob' || name === 'worktree-blob') && route.query.chromeless === '1'
+})
+
 /*
  * テーマストアを初期化 (ADR 0021)。
  * - 本番実装 (localStorage / matchMedia) を factory 経由で組み立てる
@@ -76,7 +85,7 @@ onBeforeUnmount(() => {
 
 <template>
   <main>
-    <header ref="headerRef" class="app-header">
+    <header v-show="!isChromeless" ref="headerRef" class="app-header">
       <div class="app-header-top">
         <h1>
           <router-link to="/">git-web</router-link>

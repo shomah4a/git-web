@@ -15,6 +15,7 @@ type ViewMode = 'rendered' | 'source'
 const props = defineProps<{
   state: BlobContentState
   fileName: string
+  chromeless?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -51,7 +52,10 @@ function shikiTokenStyle(tok: HighlightedToken): Record<string, string> {
     </p>
     <p v-else-if="state.kind === 'error'" class="status error">error: {{ state.message }}</p>
     <template v-else-if="state.kind === 'success'">
-      <div v-if="isMarkdown && state.renderedMarkdown !== null" class="blob-tabs">
+      <div
+        v-if="isMarkdown && state.renderedMarkdown !== null && !props.chromeless"
+        class="blob-tabs"
+      >
         <button
           class="blob-tab"
           :class="{ active: viewMode === 'rendered' }"
@@ -76,7 +80,11 @@ function shikiTokenStyle(tok: HighlightedToken): Record<string, string> {
       -->
       <!-- eslint-disable vue/no-v-html -->
       <div
-        v-if="isMarkdown && state.renderedMarkdown !== null && viewMode === 'rendered'"
+        v-if="
+          isMarkdown &&
+          state.renderedMarkdown !== null &&
+          (props.chromeless || viewMode === 'rendered')
+        "
         class="markdown-body"
         v-html="state.renderedMarkdown"
       ></div>

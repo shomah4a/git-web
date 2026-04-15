@@ -19,16 +19,7 @@ export type BlobContentState =
   | { readonly kind: 'not-found' }
   | { readonly kind: 'error'; readonly message: string }
 
-const IMAGE_EXTENSIONS = new Set([
-  '.png',
-  '.jpg',
-  '.jpeg',
-  '.gif',
-  '.svg',
-  '.webp',
-  '.ico',
-  '.bmp',
-])
+const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.ico', '.bmp'])
 
 function isImagePath(path: string): boolean {
   const dot = path.lastIndexOf('.')

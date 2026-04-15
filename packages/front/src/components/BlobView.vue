@@ -16,10 +16,12 @@ import { createNoOpHighlighter } from '../diff/highlighter/no-op.js'
 import BlobContent from './BlobContent.vue'
 import type { BlobContentState } from './blob-content-state.js'
 import { resolveBlobContent } from './blob-content-state.js'
+import { useChromeless } from './use-chromeless.js'
 
 const route = useRoute()
 const router = useRouter()
 const highlighter = inject(highlighterKey, () => createNoOpHighlighter(), true)
+const { isChromeless, toggleChromeless } = useChromeless()
 
 const state = ref<BlobContentState>({ kind: 'loading' })
 let isUnmounted = false
@@ -105,7 +107,7 @@ function navigateToTree(path: string): void {
 }
 
 watch(
-  () => route.query,
+  () => ({ rev: route.query.rev, path: route.query.path }),
   () => {
     if (route.name !== 'blob') return
     void loadBlob(readRevFromRoute(), readPathFromRoute())
@@ -122,7 +124,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="blob-view">
+  <div :class="['blob-view', { 'blob-view--chromeless': isChromeless }]">
     <Teleport to="#page-header-slot">
       <nav class="breadcrumb" aria-label="file path">
         <button class="breadcrumb-item" @click="navigateToTree('')">/</button>
@@ -137,13 +139,86 @@ onBeforeUnmount(() => {
       </nav>
     </Teleport>
 
-    <BlobContent :state="state" :file-name="fileName" @navigate-back="navigateToTree('')" />
+    <div class="blob-toolbar">
+      <button
+        class="chromeless-toggle"
+        :title="isChromeless ? 'ナビゲーションを表示' : '印刷用表示'"
+        @click="toggleChromeless"
+      >
+        <svg
+          v-if="!isChromeless"
+          xmlns="http://www.w3.org/2000/svg"
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <polyline points="6 9 6 2 18 2 18 9"></polyline>
+          <path
+            d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"
+          ></path>
+          <rect x="6" y="14" width="12" height="8"></rect>
+        </svg>
+        <svg
+          v-else
+          xmlns="http://www.w3.org/2000/svg"
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+    </div>
+
+    <BlobContent
+      :state="state"
+      :file-name="fileName"
+      :chromeless="isChromeless"
+      @navigate-back="navigateToTree('')"
+    />
   </div>
 </template>
 
 <style scoped>
 .blob-view {
   max-width: 900px;
+}
+.blob-view--chromeless {
+  max-width: none;
+}
+.blob-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.4rem 0;
+}
+.chromeless-toggle {
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-fg-muted);
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 0.2rem 0.6rem;
+}
+.chromeless-toggle:hover {
+  color: var(--color-fg);
+  border-color: var(--color-fg-muted);
+}
+@media print {
+  .blob-toolbar {
+    display: none;
+  }
 }
 .breadcrumb {
   display: flex;
