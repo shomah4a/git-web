@@ -47,7 +47,11 @@ describe('App.vue', () => {
   it('fetch成功時にrepositoryとHEADを表示する', async () => {
     mockFetchByUrl({
       '/api/repo': () =>
-        jsonResponse({ cwd: '/home/u/repo', head: { commitHash: 'deadbeef', branch: 'main' } }),
+        jsonResponse({
+          name: 'repo',
+          cwd: '/home/u/repo',
+          head: { commitHash: 'deadbeef', branch: 'main' },
+        }),
       '/api/diff/files': () => jsonResponse({ files: [] }),
     })
 
@@ -71,7 +75,11 @@ describe('App.vue', () => {
   it('detached HEADではコミットハッシュのみ表示しブランチ名は表示しない', async () => {
     mockFetchByUrl({
       '/api/repo': () =>
-        jsonResponse({ cwd: '/home/u/repo', head: { commitHash: 'cafebabe', branch: null } }),
+        jsonResponse({
+          name: 'repo',
+          cwd: '/home/u/repo',
+          head: { commitHash: 'cafebabe', branch: null },
+        }),
       '/api/diff/files': () => jsonResponse({ files: [] }),
     })
 
@@ -112,7 +120,8 @@ describe('App.vue', () => {
 
   it('デフォルトルートで WorktreeView がマウントされる', async () => {
     mockFetchByUrl({
-      '/api/repo': () => jsonResponse({ cwd: '/r', head: { commitHash: 'abc', branch: 'main' } }),
+      '/api/repo': () =>
+        jsonResponse({ name: 'r', cwd: '/r', head: { commitHash: 'abc', branch: 'main' } }),
       '/api/worktree': () =>
         jsonResponse({
           entries: [

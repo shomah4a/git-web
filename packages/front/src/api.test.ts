@@ -17,6 +17,7 @@ describe('fetchRepoInfo', () => {
         Promise.resolve(
           new Response(
             JSON.stringify({
+              name: 'repo',
               cwd: '/tmp/repo',
               head: { commitHash: 'abc1234', branch: 'main' },
             }),
@@ -32,6 +33,7 @@ describe('fetchRepoInfo', () => {
     const result = await fetchRepoInfo()
 
     expect(result).toEqual({
+      name: 'repo',
       cwd: '/tmp/repo',
       head: { commitHash: 'abc1234', branch: 'main' },
     })
@@ -44,6 +46,22 @@ describe('fetchRepoInfo', () => {
     )
 
     await expect(fetchRepoInfo()).rejects.toThrow('HTTP 500')
+  })
+
+  it('レスポンスにnameが欠けている場合は例外を投げる', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ cwd: '/tmp', head: { commitHash: 'abc', branch: null } }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          }),
+        ),
+      ),
+    )
+
+    await expect(fetchRepoInfo()).rejects.toThrow('unexpected body shape')
   })
 
   it('レスポンスにcwdが欠けている場合は例外を投げる', async () => {

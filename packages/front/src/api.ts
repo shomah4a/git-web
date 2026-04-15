@@ -25,6 +25,9 @@ function isRepoInfoDto(value: unknown): value is RepoInfoDto {
   if (typeof value !== 'object' || value === null) {
     return false
   }
+  if (!('name' in value) || typeof value.name !== 'string') {
+    return false
+  }
   if (!('cwd' in value) || typeof value.cwd !== 'string') {
     return false
   }
