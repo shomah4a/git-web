@@ -9,6 +9,7 @@
 import { computed, ref } from 'vue'
 import type { HighlightedToken } from '../diff/highlighter/types.js'
 import type { BlobContentState } from './blob-content-state.js'
+import { useOutline } from './use-outline.js'
 
 type ViewMode = 'rendered' | 'source'
 
@@ -23,6 +24,25 @@ const emit = defineEmits<{
 }>()
 
 const viewMode = ref<ViewMode>('rendered')
+const markdownBodyRef = ref<HTMLElement | null>(null)
+
+const renderedHtml = computed(() => {
+  if (props.state.kind !== 'success') return null
+  return props.state.renderedMarkdown
+})
+
+const { headings } = useOutline(markdownBodyRef, renderedHtml)
+
+const showOutline = computed(() => {
+  return !props.chromeless && headings.value.length > 0
+})
+
+function scrollToHeading(id: string): void {
+  const el = document.getElementById(id)
+  if (el !== null) {
+    el.scrollIntoView({ behavior: 'smooth' })
+  }
+}
 
 const isMarkdown = computed(() => {
   const name = props.fileName.toLowerCase()
@@ -72,23 +92,40 @@ function shikiTokenStyle(tok: HighlightedToken): Record<string, string> {
         </button>
       </div>
 
-      <!--
-        例外的に v-html を使用する。値は DOMPurify.sanitize() 通過済みであり、
-        未サニタイズの文字列が渡されることはない (ADR 0028)。
-        v-html の使用は本プロジェクトにおいて例外中の例外であり、
-        DOMPurify 等による確実なサニタイズなしに使用してはならない。
-      -->
-      <!-- eslint-disable vue/no-v-html -->
       <div
         v-if="
           isMarkdown &&
           state.renderedMarkdown !== null &&
           (props.chromeless || viewMode === 'rendered')
         "
-        class="markdown-body"
-        v-html="state.renderedMarkdown"
-      ></div>
-      <!-- eslint-enable vue/no-v-html -->
+        class="markdown-layout"
+      >
+        <!--
+          例外的に v-html を使用する。値は DOMPurify.sanitize() 通過済みであり、
+          未サニタイズの文字列が渡されることはない (ADR 0028)。
+          v-html の使用は本プロジェクトにおいて例外中の例外であり、
+          DOMPurify 等による確実なサニタイズなしに使用してはならない。
+        -->
+        <!-- eslint-disable vue/no-v-html -->
+        <div ref="markdownBodyRef" class="markdown-body" v-html="state.renderedMarkdown"></div>
+        <!-- eslint-enable vue/no-v-html -->
+
+        <nav v-if="showOutline" class="outline-sidebar" aria-label="document outline">
+          <div class="outline-title">Outline</div>
+          <ul class="outline-list">
+            <li
+              v-for="heading in headings"
+              :key="heading.id"
+              class="outline-item"
+              :data-level="heading.level"
+            >
+              <button class="outline-link" @click="scrollToHeading(heading.id)">
+                {{ heading.text }}
+              </button>
+            </li>
+          </ul>
+        </nav>
+      </div>
 
       <div v-else class="code-view">
         <div class="code-lines">
@@ -189,5 +226,81 @@ function shikiTokenStyle(tok: HighlightedToken): Record<string, string> {
 .image-view img {
   max-width: 100%;
   height: auto;
+}
+.markdown-layout {
+  display: flex;
+  gap: 1rem;
+}
+.markdown-layout > .markdown-body {
+  flex: 1;
+  min-width: 0;
+}
+.outline-sidebar {
+  flex: 0 0 200px;
+  position: sticky;
+  top: 1rem;
+  align-self: flex-start;
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+  font-size: 0.8rem;
+  border-left: 1px solid var(--color-border);
+  padding-left: 0.75rem;
+}
+.outline-title {
+  font-weight: 600;
+  color: var(--color-fg-muted);
+  margin-bottom: 0.5rem;
+}
+.outline-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.outline-item {
+  line-height: 1.4;
+}
+.outline-item[data-level='1'] {
+  padding-left: 0;
+}
+.outline-item[data-level='2'] {
+  padding-left: 0.75rem;
+}
+.outline-item[data-level='3'] {
+  padding-left: 1.5rem;
+}
+.outline-item[data-level='4'] {
+  padding-left: 2.25rem;
+}
+.outline-item[data-level='5'] {
+  padding-left: 3rem;
+}
+.outline-item[data-level='6'] {
+  padding-left: 3.75rem;
+}
+.outline-link {
+  background: none;
+  border: none;
+  color: var(--color-fg-muted);
+  cursor: pointer;
+  font-size: inherit;
+  font-family: inherit;
+  padding: 0.15rem 0;
+  text-align: left;
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.outline-link:hover {
+  color: var(--color-fg);
+}
+@media print {
+  .outline-sidebar {
+    display: none;
+  }
+  .markdown-layout {
+    display: block;
+  }
 }
 </style>
