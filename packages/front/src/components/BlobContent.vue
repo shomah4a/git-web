@@ -7,7 +7,7 @@
  */
 
 import { computed, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import type { HighlightedToken } from '../diff/highlighter/types.js'
 import type { BlobContentState } from './blob-content-state.js'
 import { useOutline } from './use-outline.js'
@@ -24,6 +24,7 @@ const emit = defineEmits<{
   (e: 'navigate-back'): void
 }>()
 
+const route = useRoute()
 const router = useRouter()
 const viewMode = ref<ViewMode>('rendered')
 const markdownBodyRef = ref<HTMLElement | null>(null)
@@ -40,7 +41,7 @@ const showOutline = computed(() => {
 })
 
 function scrollToHeading(id: string): void {
-  void router.push({ hash: `#${id}` })
+  void router.push({ path: route.path, query: route.query, hash: `#${id}` })
   const el = document.getElementById(id)
   if (el !== null) {
     el.scrollIntoView({ behavior: 'smooth' })
