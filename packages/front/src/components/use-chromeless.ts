@@ -25,7 +25,7 @@ export function useChromeless(): UseChromelessReturn {
     } else {
       query.chromeless = '1'
     }
-    void router.replace({ path: route.path, query })
+    void router.push({ path: route.path, query })
   }
 
   return { isChromeless, toggleChromeless }
