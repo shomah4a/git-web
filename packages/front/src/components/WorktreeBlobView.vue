@@ -116,7 +116,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div :class="['blob-view', { 'blob-view--chromeless': isChromeless }]">
+  <div class="blob-view">
     <Teleport to="#page-header-slot">
       <nav class="breadcrumb" aria-label="file path">
         <button class="breadcrumb-item" @click="navigateToWorktree('')">/</button>
@@ -187,12 +187,6 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.blob-view {
-  max-width: 900px;
-}
-.blob-view--chromeless {
-  max-width: none;
-}
 .blob-toolbar {
   display: flex;
   justify-content: flex-end;

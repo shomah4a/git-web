@@ -187,9 +187,6 @@ function statusLabel(status: WorktreeEntryStatusDto): string {
 </template>
 
 <style scoped>
-.worktree-view {
-  max-width: 900px;
-}
 .breadcrumb {
   display: flex;
   align-items: center;

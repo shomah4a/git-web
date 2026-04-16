@@ -330,9 +330,6 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.tree-view {
-  max-width: 900px;
-}
 .tree-controls {
   display: flex;
   align-items: center;

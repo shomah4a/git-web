@@ -31,6 +31,8 @@ const isRevisionActive = computed(() => {
   return name === 'revision-tree' || name === 'blob'
 })
 
+const isDiffRoute = computed(() => route.name === 'diff')
+
 /**
  * chromeless モード (ADR 0039)。
  * blob / worktree-blob ルートで chromeless=1 が指定されたときのみヘッダーを非表示にする。
@@ -135,19 +137,23 @@ onBeforeUnmount(() => {
         </router-link>
       </nav>
 
-      <div id="page-header-slot"></div>
+      <div id="page-header-slot" :class="{ 'content-area': !isDiffRoute }"></div>
     </header>
 
-    <router-view />
+    <div :class="{ 'content-area': !isDiffRoute }">
+      <router-view />
+    </div>
   </main>
 </template>
 
 <style scoped>
 main {
   font-family: system-ui, sans-serif;
+  padding: 0 1rem;
+}
+.content-area {
   max-width: 1280px;
   margin: 0 auto;
-  padding: 0 1rem;
 }
 .app-header {
   position: sticky;
