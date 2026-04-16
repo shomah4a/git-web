@@ -8,23 +8,26 @@
 
 import type { Ref } from 'vue'
 import { watch } from 'vue'
-import type { RouteLocationNormalized, Router } from 'vue-router'
+import type { LocationQueryValue, RouteLocationNormalized, Router } from 'vue-router'
 import { buildPageTitle, type TitleInput } from './build-page-title.js'
 
-function toQueryString(value: string | string[] | undefined): string | undefined {
+function toQueryString(
+  value: LocationQueryValue | LocationQueryValue[] | undefined,
+): string | undefined {
   if (value === undefined || value === null) {
     return undefined
   }
-  return Array.isArray(value) ? value[0] : value
+  const single = Array.isArray(value) ? value[0] : value
+  return single ?? undefined
 }
 
 function routeToTitleInput(route: RouteLocationNormalized): TitleInput {
   return {
     routeName: typeof route.name === 'string' ? route.name : undefined,
-    queryRev: toQueryString(route.query.rev as string | string[] | undefined),
-    queryPath: toQueryString(route.query.path as string | string[] | undefined),
-    queryFrom: toQueryString(route.query.from as string | string[] | undefined),
-    queryTo: toQueryString(route.query.to as string | string[] | undefined),
+    queryRev: toQueryString(route.query.rev),
+    queryPath: toQueryString(route.query.path),
+    queryFrom: toQueryString(route.query.from),
+    queryTo: toQueryString(route.query.to),
   }
 }
 
