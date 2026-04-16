@@ -145,6 +145,8 @@ onBeforeUnmount(() => {
 <style scoped>
 main {
   font-family: system-ui, sans-serif;
+  max-width: 1280px;
+  margin: 0 auto;
   padding: 0 1rem;
 }
 .app-header {
