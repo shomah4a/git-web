@@ -711,7 +711,10 @@ function enrichHunk(path: string, hunk: DiffFileDto['hunks'][number]): ReadonlyA
             statusInitial(entry.summary.status)
           }}</span>
           <span class="path">{{ entry.summary.path }}</span>
-          <span class="stats">+{{ entry.summary.additions }}/-{{ entry.summary.deletions }}</span>
+          <span class="stats"
+            ><span class="stats-addition">+{{ entry.summary.additions }}</span
+            >/<span class="stats-deletion">-{{ entry.summary.deletions }}</span></span
+          >
           <span v-if="entry.summary.binary" class="binary">binary</span>
         </li>
       </ul>
@@ -740,7 +743,10 @@ function enrichHunk(path: string, hunk: DiffFileDto['hunks'][number]): ReadonlyA
               statusInitial(entry.summary.status)
             }}</span>
             <span class="path">{{ entry.summary.path }}</span>
-            <span class="stats">+{{ entry.summary.additions }}/-{{ entry.summary.deletions }}</span>
+            <span class="stats"
+              ><span class="stats-addition">+{{ entry.summary.additions }}</span
+              >/<span class="stats-deletion">-{{ entry.summary.deletions }}</span></span
+            >
           </header>
           <div v-show="!entry.collapsed" class="file-body">
             <div class="tab-bar">
@@ -961,6 +967,12 @@ function enrichHunk(path: string, hunk: DiffFileDto['hunks'][number]): ReadonlyA
 .stats {
   font-size: 0.85em;
   color: var(--color-fg-subtle);
+}
+.stats-addition {
+  color: var(--color-stat-addition);
+}
+.stats-deletion {
+  color: var(--color-stat-deletion);
 }
 .binary {
   font-size: 0.75em;

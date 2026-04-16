@@ -37,6 +37,8 @@
   --color-error-strong: #c33;
   --color-status-added: #2a6;
   --color-status-modified: #a60;
+  --color-stat-addition: var(--color-status-added);
+  --color-stat-deletion: var(--color-error-strong);
   --color-diff-add-bg: #e6ffe6;
   --color-diff-del-bg: #ffe6e6;
   --color-diff-empty-bg: #f5f5f5;
@@ -64,6 +66,8 @@
   --color-error-strong: #f85149;
   --color-status-added: #3fb950;
   --color-status-modified: #d29922;
+  --color-stat-addition: var(--color-status-added);
+  --color-stat-deletion: var(--color-error-strong);
   --color-diff-add-bg: #033a16;
   --color-diff-del-bg: #490202;
   --color-diff-empty-bg: #161b22;
