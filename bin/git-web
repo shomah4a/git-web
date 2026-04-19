@@ -3,19 +3,21 @@
  * git-web エントリスクリプト。
  *
  * `git web` として実行されると、このファイルが起動し、
- * - api サーバーを 127.0.0.1 の固定ポート (デフォルト 47906) で起動
- * - packages/front/dist を静的配信元としてマウント
- * - ブラウザを自動で開く
+ * - 同一リポジトリで既に起動中のインスタンスがあればその URL を出力し、
+ *   ブラウザを開いて即終了する (ADR 0044)
+ * - それ以外は api サーバーを 127.0.0.1 の空きポートで起動し、
+ *   packages/front/dist を静的配信元としてマウント、
+ *   レジストリに自身を登録してからブラウザを自動で開く
  *
  * 前提: ./bin/pnpm build 済み（packages/api/dist と
  * packages/front/dist の両方が存在すること）
  *
  * 環境変数:
- * - PORT: 待ち受けポートを上書きする。未指定ならデフォルトの 47906 を使う。
- *   固定ポートの選定理由は ADR 0013 参照。
+ * - PORT: 待ち受けポートを明示指定する。未指定なら OS 自動割当 (port 0)。
+ *   複数リポジトリの並行起動に影響しないよう、通常は未指定で問題ない。
+ *   固定ポートが必要な用途（dev サーバーの vite proxy など）のための escape
+ *   hatch として残している。経緯は ADR 0044 参照。
  */
-
-const DEFAULT_PORT = 47906
 
 import { spawn } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
@@ -40,30 +42,45 @@ if (!existsSync(frontDistPath)) {
   process.exit(1)
 }
 
-/** @type {{ start: (options: { cwd?: string; staticDir?: string; port?: number }) => Promise<{ url: string; repoRoot: string; close: () => Promise<void> }> }} */
+/**
+ * @typedef {{ kind: 'existing', url: string, pid: number, repoRoot: string }} ExistingInstance
+ * @typedef {{ kind: 'started', url: string, port: number, pid: number, repoRoot: string,
+ *   close: () => Promise<void>, unregister: () => Promise<void>, unregisterSync: () => void }} StartedInstance
+ * @typedef {ExistingInstance | StartedInstance} LaunchResult
+ *
+ * @type {{ launch: (options: { cwd?: string; host?: string; port?: number; staticDir?: string }) => Promise<LaunchResult> }}
+ */
 const apiModule = await import(apiMainPath)
 
 const port = readPortFromEnv()
 
 try {
-  const started = await apiModule.start({
+  const result = await apiModule.launch({
     cwd: process.cwd(),
     staticDir: frontDistPath,
-    port,
+    ...(port !== undefined ? { port } : {}),
   })
 
-  console.log(`git-web listening on ${started.url}`)
-  console.log(`target repository: ${started.repoRoot}`)
+  if (result.kind === 'existing') {
+    console.log(`git-web already running for this repository: ${result.url}`)
+    console.log(`target repository: ${result.repoRoot}`)
+    console.log(`existing pid: ${result.pid}`)
+    openBrowser(result.url)
+    process.exit(0)
+  }
 
-  openBrowser(started.url)
+  console.log(`git-web listening on ${result.url}`)
+  console.log(`target repository: ${result.repoRoot}`)
+  openBrowser(result.url)
 
   // SIGINT / SIGTERM でクリーンシャットダウン
   const shutdown = async () => {
     try {
-      await started.close()
+      await result.unregister()
+      await result.close()
     } catch (err) {
-      // close が失敗しても終了自体は継続する。原因切り分けのために
-      // ログは出しておく
+      // close / unregister が失敗しても終了自体は継続する。
+      // 原因切り分けのためにログは出しておく
       const message = err instanceof Error ? err.message : String(err)
       console.error(`failed to close server cleanly: ${message}`)
     }
@@ -71,6 +88,11 @@ try {
   }
   process.on('SIGINT', () => void shutdown())
   process.on('SIGTERM', () => void shutdown())
+  // 予期せぬ exit の保険として同期 unregister も登録する。
+  // 成功ルートの unregister が走れば idempotent に no-op となる
+  process.on('exit', () => {
+    result.unregisterSync()
+  })
 } catch (err) {
   console.error(err instanceof Error ? err.message : 'failed to start')
   process.exit(1)
@@ -131,20 +153,20 @@ function openBrowser(url) {
 
 /**
  * 環境変数 PORT から起動ポートを読む。
- * 未指定または不正な値なら DEFAULT_PORT (47906) を返す。
- * 固定ポート採用の背景は ADR 0013 参照。
+ * 未指定ならデフォルト（launch 側で port 0 自動割当）を使うため undefined を返す。
+ * 不正な値なら警告して undefined を返す（ADR 0044）。
  *
- * @returns {number}
+ * @returns {number | undefined}
  */
 function readPortFromEnv() {
   const raw = process.env.PORT
   if (raw === undefined || raw === '') {
-    return DEFAULT_PORT
+    return undefined
   }
   const parsed = Number.parseInt(raw, 10)
   if (Number.isNaN(parsed) || parsed < 0 || parsed > 65535) {
-    console.warn(`invalid PORT env value: ${raw}, falling back to ${DEFAULT_PORT}`)
-    return DEFAULT_PORT
+    console.warn(`invalid PORT env value: ${raw}, falling back to auto-assign`)
+    return undefined
   }
   return parsed
 }
