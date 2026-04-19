@@ -30,6 +30,15 @@ import { createRawBlobReader } from './adapter/raw-blob-reader-composite.js'
 import type { Route } from './http/router.js'
 import { close, createApiServer, listen } from './http/server.js'
 import { createStaticHandler } from './http/static.js'
+import type { LaunchOptions, LaunchResult } from './lifecycle/launcher.js'
+import { launch as launchCore } from './lifecycle/launcher.js'
+import {
+  createNodeLivenessChecks,
+  createNodeRegistryIO,
+  readRegistrySync,
+  resolveRegistryPaths,
+  writeRegistrySync,
+} from './lifecycle/registry-io-node.js'
 import { createBlobService } from './service/blob-service.js'
 import { createDiffService } from './service/diff-service.js'
 import { createRefsService } from './service/refs-service.js'
@@ -195,6 +204,41 @@ export async function start(options: StartOptions = {}): Promise<StartedServer> 
     repoRoot,
     close: () => close(server),
   }
+}
+
+export type { LaunchOptions, LaunchResult } from './lifecycle/launcher.js'
+
+/**
+ * bin/git-web から呼ばれる高レベルエントリ (ADR 0044)。
+ *
+ * - 同一 repoRoot で live な既存インスタンスがあれば `{ kind: 'existing' }` を返す
+ * - それ以外は `start()` を呼び、レジストリに登録して `{ kind: 'started', ... }` を返す
+ */
+export function launch(options: LaunchOptions): Promise<LaunchResult> {
+  const paths = resolveRegistryPaths()
+  const logger = { warn: (message: string): void => console.warn(message) }
+  return launchCore(
+    {
+      start,
+      resolveRepoRoot: async (cwd: string): Promise<string> => {
+        const git = new CliGitClient(cwd)
+        try {
+          return await git.repoRoot()
+        } catch (err) {
+          throw new NotAGitRepositoryError(cwd, { cause: err })
+        }
+      },
+      realpath: (path: string) => realpath(path),
+      io: createNodeRegistryIO(logger),
+      liveness: createNodeLivenessChecks(),
+      logger,
+      now: () => new Date(),
+      pid: process.pid,
+      paths: { filePath: paths.filePath, lockPath: paths.lockPath },
+      syncRegistry: { read: readRegistrySync, write: writeRegistrySync },
+    },
+    options,
+  )
 }
 
 /**

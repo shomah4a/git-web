@@ -11,11 +11,21 @@
 import { request as httpRequest } from 'node:http'
 import { homedir } from 'node:os'
 import { chmod, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
-import { openSync, closeSync } from 'node:fs'
+import {
+  chmodSync,
+  closeSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { dirname, join } from 'node:path'
 import process from 'node:process'
 import { setTimeout as delay } from 'node:timers/promises'
-import type { LivenessChecks, Logger, RegistryIO } from './registry.js'
+import type { LivenessChecks, Logger, Registry, RegistryIO } from './registry.js'
+import { EMPTY_REGISTRY } from './registry.js'
 
 export const REGISTRY_FILE_NAME = 'instances.json'
 export const REGISTRY_LOCK_NAME = 'instances.json.lock'
@@ -159,6 +169,72 @@ export function createNodeLivenessChecks(): LivenessChecks {
     },
     httpTimeoutMs: HTTP_CHECK_TIMEOUT_MS,
   }
+}
+
+/**
+ * `process.on('exit')` から呼ぶ同期版の registry reader。
+ * ファイル欠損 / JSON 壊れは空レジストリとして扱い、例外は投げない。
+ */
+export function readRegistrySync(filePath: string): Registry {
+  try {
+    const content = readFileSync(filePath, 'utf8')
+    const parsed: unknown = JSON.parse(content)
+    if (isPlainObject(parsed) && parsed['version'] === 1 && isPlainObject(parsed['instances'])) {
+      const instances: Record<
+        string,
+        { port: number; pid: number; url: string; startedAt: string }
+      > = {}
+      for (const [key, value] of Object.entries(parsed['instances'])) {
+        if (
+          isPlainObject(value) &&
+          typeof value['port'] === 'number' &&
+          typeof value['pid'] === 'number' &&
+          typeof value['url'] === 'string' &&
+          typeof value['startedAt'] === 'string'
+        ) {
+          instances[key] = {
+            port: value['port'],
+            pid: value['pid'],
+            url: value['url'],
+            startedAt: value['startedAt'],
+          }
+        }
+      }
+      return { version: 1, instances }
+    }
+    return EMPTY_REGISTRY
+  } catch {
+    return EMPTY_REGISTRY
+  }
+}
+
+/**
+ * `process.on('exit')` から呼ぶ同期版の registry writer。
+ * 失敗しても例外は投げない（保険経路）。
+ */
+export function writeRegistrySync(filePath: string, content: string): void {
+  try {
+    const dir = dirname(filePath)
+    mkdirSync(dir, { recursive: true, mode: REGISTRY_DIR_MODE })
+    const tmpPath = `${filePath}.${process.pid.toString()}.${Date.now().toString()}.exit.tmp`
+    try {
+      writeFileSync(tmpPath, content, { mode: REGISTRY_FILE_MODE })
+      renameSync(tmpPath, filePath)
+      chmodSync(filePath, REGISTRY_FILE_MODE)
+    } catch {
+      try {
+        unlinkSync(tmpPath)
+      } catch {
+        // noop
+      }
+    }
+  } catch {
+    // noop
+  }
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
 /**
