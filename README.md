@@ -57,12 +57,28 @@ monorepo (pnpm workspace) 3 パッケージ + ローカル pnpm ラッパー:
 ./bin/git-web
 ```
 
-起動後、デフォルトではポート 47906 で起動し、URL を標準出力に表示してブラウザを自動で開きます。`PORT` 環境変数で上書き可能です（ADR 0013 参照）。
+起動後、OS が割り当てた空きポートで待ち受け、URL を標準出力に表示してブラウザを自動で開きます。同一リポジトリですでに `git-web` が起動中の場合は新しいプロセスを立てず、既存インスタンスの URL を表示してブラウザを開きます（ADR 0044 参照）。
 
 ```
-git-web listening on http://127.0.0.1:47906
+git-web listening on http://127.0.0.1:46733
 target repository: /home/user/some-repo
 ```
+
+同じリポジトリで `git web` を再実行した場合:
+
+```
+git-web already running for this repository: http://127.0.0.1:46733
+target repository: /home/user/some-repo
+existing pid: 12345
+```
+
+複数のリポジトリで並行に起動できます（ポートは衝突しません）。待ち受けポートを固定したい場合（dev サーバーのプロキシ先など）は `PORT` 環境変数を明示指定してください。
+
+```
+PORT=47906 ./bin/git-web
+```
+
+稼働中のインスタンス情報は `$XDG_STATE_HOME/git-web/instances.json`（デフォルト `~/.local/state/git-web/instances.json`）に記録されます。
 
 ### `git web` として呼び出す
 

@@ -9,8 +9,10 @@ import { defineConfig } from 'vite'
  * を起動する (ADR 0013)。vite はビルドのみを担当する。
  *
  * `pnpm --filter @git-web/front dev` を直接叩いた場合の dev サーバー設定は
- * 将来 HMR を必要としたときのために残している。その場合は api を別途
- * `PORT=47906 ./bin/git-web` などで起動し、下記 proxy target を合わせること。
+ * 将来 HMR を必要としたときのために残している。bin/git-web は通常 OS 自動
+ * 割当ポートで起動するため (ADR 0044)、dev でプロキシを利用する場合は
+ * `PORT=47906 ./bin/git-web` と明示して起動し、下記 proxy target の
+ * ポート番号を合わせること。
  */
 export default defineConfig({
   plugins: [vue()],
