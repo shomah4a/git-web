@@ -3,7 +3,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Logger } from './registry.js'
-import { REGISTRY_FILE_NAME, createNodeRegistryIO, resolveRegistryDir } from './registry-io-node.js'
+import {
+  REGISTRY_FILE_NAME,
+  createNodeRegistryIO,
+  nodeHttpCheck,
+  resolveRegistryDir,
+} from './registry-io-node.js'
 
 function makeLogger(): Logger {
   return { warn: (): void => {} }
@@ -95,5 +100,21 @@ describe('createNodeRegistryIO (統合)', () => {
 
     const release2 = await io.acquireLock(lockPath)
     await release2()
+  })
+})
+
+describe('nodeHttpCheck', () => {
+  it('不正な URL 文字列は false を返す', async () => {
+    expect(await nodeHttpCheck('not a url', 100)).toBe(false)
+  })
+
+  it('ループバック以外のホストはリクエストせず false を返す', async () => {
+    expect(await nodeHttpCheck('http://example.com:8080/', 100)).toBe(false)
+    expect(await nodeHttpCheck('http://192.168.0.1:8080/', 100)).toBe(false)
+  })
+
+  it('到達不能なループバックポートは false を返す（接続拒否）', async () => {
+    // ほぼ確実に使われていないポートを叩く。タイムアウト or ECONNREFUSED で false
+    expect(await nodeHttpCheck('http://127.0.0.1:1/', 200)).toBe(false)
   })
 })

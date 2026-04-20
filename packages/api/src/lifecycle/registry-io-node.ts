@@ -238,9 +238,19 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 }
 
 /**
+ * ヘルスチェックで許容するローカルホスト名。
+ *
+ * git-web は 127.0.0.1 bind のみで稼働する (ADR 0009)。レジストリ改竄などで
+ * 外部 URL が混入した場合に意図せず外向きリクエストを送らないよう、
+ * ホスト名をループバックに限定する。
+ */
+const LOOPBACK_HOSTS: ReadonlySet<string> = new Set(['127.0.0.1', 'localhost', '::1'])
+
+/**
  * GET url?/api/repo に timeoutMs でアクセスし、200 応答なら true を返す。
  *
  * - URL の origin 部分のみ使用する（パスに /api/repo を連結）
+ * - ホスト名がループバック以外の場合は false（意図せぬ外向きアクセス防止）
  * - タイムアウト、ソケットエラー、非 2xx 応答のいずれも false
  */
 export function nodeHttpCheck(baseUrl: string, timeoutMs: number): Promise<boolean> {
@@ -249,6 +259,14 @@ export function nodeHttpCheck(baseUrl: string, timeoutMs: number): Promise<boole
     try {
       parsed = new URL('/api/repo', baseUrl)
     } catch {
+      resolve(false)
+      return
+    }
+
+    const hostname = parsed.hostname.startsWith('[')
+      ? parsed.hostname.slice(1, -1)
+      : parsed.hostname
+    if (!LOOPBACK_HOSTS.has(hostname)) {
       resolve(false)
       return
     }
