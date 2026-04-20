@@ -79,11 +79,15 @@ try {
   // ADR 0045: ローカル専用 CLI では graceful shutdown の実益が無いため、
   // SIGINT / SIGTERM では同期 unregister と即時 exit のみ行う。
   // HTTP サーバの socket は OS が回収する。
-  // exit code は POSIX 慣習に従い SIGINT=130 / SIGTERM=143 を返す。
+  // exit code は POSIX 慣習に従い 128 + signal number を返す。
+  /** @type {Record<'SIGINT' | 'SIGTERM', number>} */
+  const SIGNAL_EXIT_CODES = { SIGINT: 130, SIGTERM: 143 }
+  /**
+   * @param {'SIGINT' | 'SIGTERM'} signal
+   */
   const shutdown = (signal) => {
     result.unregisterSync()
-    const code = signal === 'SIGTERM' ? 143 : 130
-    process.exit(code)
+    process.exit(SIGNAL_EXIT_CODES[signal])
   }
   process.on('SIGINT', () => shutdown('SIGINT'))
   process.on('SIGTERM', () => shutdown('SIGTERM'))

@@ -167,6 +167,9 @@ describe('bin/git-web shutdown', () => {
       const elapsedMs = Date.now() - start
 
       expect(result.code).toBe(130)
+      // ハンドラが発火せずデフォルト SIGINT で落ちた場合は code=null / signal='SIGINT'
+      // となるため、ハンドラ経由で exit したことを signal=null で明示的に確認する
+      expect(result.signal).toBeNull()
       expect(elapsedMs).toBeLessThan(3000)
     },
     15_000,
