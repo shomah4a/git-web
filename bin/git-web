@@ -76,28 +76,17 @@ try {
   console.log(`target repository: ${result.repoRoot}`)
   openBrowser(result.url)
 
-  // SIGINT / SIGTERM でクリーンシャットダウン
-  let shuttingDown = false
-  const shutdown = async () => {
-    if (shuttingDown) {
-      return
-    }
-    shuttingDown = true
-    try {
-      await result.unregister()
-      await result.close()
-    } catch (err) {
-      // close / unregister が失敗しても終了自体は継続する。
-      // 原因切り分けのためにログは出しておく
-      const message = err instanceof Error ? err.message : String(err)
-      console.error(`failed to close server cleanly: ${message}`)
-    }
+  // ADR 0045: ローカル専用 CLI では graceful shutdown の実益が無いため、
+  // SIGINT / SIGTERM では同期 unregister と即時 exit のみ行う。
+  // HTTP サーバの socket は OS が回収する。
+  const shutdown = () => {
+    result.unregisterSync()
     process.exit(0)
   }
-  process.on('SIGINT', () => void shutdown())
-  process.on('SIGTERM', () => void shutdown())
-  // 予期せぬ exit の保険として同期 unregister も登録する。
-  // 成功ルートの unregister が走れば idempotent に no-op となる
+  process.on('SIGINT', shutdown)
+  process.on('SIGTERM', shutdown)
+  // 異常終了 (uncaughtException 等) の保険として exit でも同期 unregister を
+  // 呼ぶ。unregisterSync は idempotent なので二重呼び出しは no-op となる
   process.on('exit', () => {
     result.unregisterSync()
   })
