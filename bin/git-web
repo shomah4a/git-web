@@ -79,14 +79,18 @@ try {
   // ADR 0045: ローカル専用 CLI では graceful shutdown の実益が無いため、
   // SIGINT / SIGTERM では同期 unregister と即時 exit のみ行う。
   // HTTP サーバの socket は OS が回収する。
-  const shutdown = () => {
+  // exit code は POSIX 慣習に従い SIGINT=130 / SIGTERM=143 を返す。
+  const shutdown = (signal) => {
     result.unregisterSync()
-    process.exit(0)
+    const code = signal === 'SIGTERM' ? 143 : 130
+    process.exit(code)
   }
-  process.on('SIGINT', shutdown)
-  process.on('SIGTERM', shutdown)
-  // 異常終了 (uncaughtException 等) の保険として exit でも同期 unregister を
-  // 呼ぶ。unregisterSync は idempotent なので二重呼び出しは no-op となる
+  process.on('SIGINT', () => shutdown('SIGINT'))
+  process.on('SIGTERM', () => shutdown('SIGTERM'))
+  // process.exit() 経由や uncaughtException 経由の終了で同期 unregister が
+  // 走るよう保険を登録する。unregisterSync は idempotent なので二重呼び出しは
+  // no-op となる。SIGKILL / segfault / 電源断では走らないが、そのケースは
+  // 次回起動時の pruneStale で回収される (ADR 0044)
   process.on('exit', () => {
     result.unregisterSync()
   })

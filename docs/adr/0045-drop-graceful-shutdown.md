@@ -31,19 +31,21 @@
 `bin/git-web` の SIGINT / SIGTERM ハンドラは graceful shutdown を放棄し、以下の最小処理のみ行う:
 
 ```javascript
-const shutdown = () => {
+const shutdown = (signal) => {
   result.unregisterSync()
-  process.exit(0)
+  const code = signal === 'SIGTERM' ? 143 : 130
+  process.exit(code)
 }
-process.on('SIGINT', shutdown)
-process.on('SIGTERM', shutdown)
+process.on('SIGINT', () => shutdown('SIGINT'))
+process.on('SIGTERM', () => shutdown('SIGTERM'))
 ```
 
 - `await result.close()` を呼ばない。HTTP サーバの socket は OS によって回収される
 - `await result.unregister()` も呼ばない。同期版 `unregisterSync` で十分
 - `process.on('exit')` での `unregisterSync` 登録は保険として維持する（`unregistered` フラグで idempotent）
+- 終了コードは POSIX 慣習に従う（SIGINT 起因=130, SIGTERM 起因=143）。これにより上流のシェルスクリプトや supervisor が「シグナル起因か正常終了か」を `$?` で判別できる
 
-`packages/api/src/http/server.ts` の `close()` 関数は変更しない。launcher のコンフリクト経路（`lifecycle/launcher.ts:149`）では listen 直後で idle / in-flight 接続が存在せず graceful close が健全に機能するため、そのまま使える。
+`packages/api/src/http/server.ts` の `close()` 関数は変更しない。launcher のコンフリクト経路（`registration.conflict !== null` 分岐での自サーバ畳み込み）では listen 直後で idle / in-flight 接続が存在せず graceful close が健全に機能するため、そのまま使える。
 
 ## 根拠
 
