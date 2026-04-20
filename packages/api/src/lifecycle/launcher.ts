@@ -125,6 +125,9 @@ export async function launch(deps: LauncherDeps, options: LaunchOptions): Promis
 
   const registration = await withRegistryLock(deps.io, deps.paths.lockPath, async () => {
     const loaded = await loadRegistry(deps.io, deps.paths.filePath, deps.logger)
+    // 2 回目の lock 取得中にも stale entry が復活している可能性があるので
+    // 再度 prune する。prune だけを独立に save せずとも、直後の upsertEntry
+    // による save で pruned 状態も反映される。
     const { registry: pruned } = await pruneStale(loaded, deps.liveness)
     const raceEntry = pruned.instances[repoRoot]
     if (raceEntry !== undefined) {
