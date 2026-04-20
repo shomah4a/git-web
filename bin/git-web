@@ -48,11 +48,14 @@ if (!existsSync(frontDistPath)) {
  *   close: () => Promise<void>, unregister: () => Promise<void>, unregisterSync: () => void }} StartedInstance
  * @typedef {ExistingInstance | StartedInstance} LaunchResult
  *
- * @type {{ launch: (options: { cwd?: string; host?: string; port?: number; staticDir?: string }) => Promise<LaunchResult> }}
+ * @type {{
+ *   launch: (options: { cwd?: string; host?: string; port?: number; staticDir?: string }) => Promise<LaunchResult>,
+ *   readPortFromEnv: (env: NodeJS.ProcessEnv) => number | undefined,
+ * }}
  */
 const apiModule = await import(apiMainPath)
 
-const port = readPortFromEnv()
+const port = apiModule.readPortFromEnv(process.env)
 
 try {
   const result = await apiModule.launch({
@@ -74,7 +77,12 @@ try {
   openBrowser(result.url)
 
   // SIGINT / SIGTERM でクリーンシャットダウン
+  let shuttingDown = false
   const shutdown = async () => {
+    if (shuttingDown) {
+      return
+    }
+    shuttingDown = true
     try {
       await result.unregister()
       await result.close()
@@ -149,24 +157,4 @@ function openBrowser(url) {
   } catch {
     // 握りつぶす
   }
-}
-
-/**
- * 環境変数 PORT から起動ポートを読む。
- * 未指定ならデフォルト（launch 側で port 0 自動割当）を使うため undefined を返す。
- * 不正な値なら警告して undefined を返す（ADR 0044）。
- *
- * @returns {number | undefined}
- */
-function readPortFromEnv() {
-  const raw = process.env.PORT
-  if (raw === undefined || raw === '') {
-    return undefined
-  }
-  const parsed = Number.parseInt(raw, 10)
-  if (Number.isNaN(parsed) || parsed < 0 || parsed > 65535) {
-    console.warn(`invalid PORT env value: ${raw}, falling back to auto-assign`)
-    return undefined
-  }
-  return parsed
 }

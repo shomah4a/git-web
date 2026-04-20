@@ -251,7 +251,8 @@ const invokedDirectly =
 
 if (invokedDirectly) {
   try {
-    const started = await start({ port: readPortFromEnv() })
+    const explicitPort = readPortFromEnv(process.env)
+    const started = await start(explicitPort !== undefined ? { port: explicitPort } : {})
     console.log(`git-web api listening on ${started.url}`)
     console.log(`target repository: ${started.repoRoot}`)
   } catch (err) {
@@ -262,18 +263,22 @@ if (invokedDirectly) {
 
 /**
  * 環境変数 PORT から起動ポートを読む。
- * 未指定または不正な値なら 0 (空きポート自動割当) を返す。
- * dev 時に front の Vite プロキシ先を固定するために使う想定。
+ *
+ * - 未指定・空文字列: undefined を返す（呼び出し側でデフォルト挙動を選ぶ）
+ * - 範囲外・数値化不能: 警告を出して undefined を返す
+ * - 有効値: そのまま number で返す
+ *
+ * bin/git-web と main.ts の両方から共通に利用する (ADR 0044)。
  */
-function readPortFromEnv(): number {
-  const raw = process.env['PORT']
+export function readPortFromEnv(env: NodeJS.ProcessEnv): number | undefined {
+  const raw = env['PORT']
   if (raw === undefined || raw === '') {
-    return 0
+    return undefined
   }
   const parsed = Number.parseInt(raw, 10)
   if (Number.isNaN(parsed) || parsed < 0 || parsed > 65535) {
     console.warn(`invalid PORT env value: ${raw}, falling back to auto-assign`)
-    return 0
+    return undefined
   }
   return parsed
 }
