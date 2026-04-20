@@ -2,7 +2,7 @@
 
 ## ステータス
 
-承認
+承認（ただし「終了時の unregister」セクションの SIGINT/SIGTERM 経路の async close 方針は ADR 0045 で撤回）
 
 ## コンテキスト
 
@@ -84,6 +84,9 @@ URL 再現性を維持したまま両方を解決するのは難しい。URL 再
 
 - SIGINT / SIGTERM および正常完了経路では async で `close()` → レジストリから自エントリ削除まで完走させる
 - `process.on('exit')` は保険として `writeFileSync` ベースの同期 unregister を試みる。失敗しても次回起動時の live 判定 + stale prune が最後の砦となる設計にする
+
+> 注: 本節の「SIGINT / SIGTERM 経路で async な `close()` → async な unregister を完走させる」方針は ADR 0045 により撤回された。
+> `bin/git-web` の SIGINT / SIGTERM ハンドラは同期 `unregisterSync` + `process.exit` のみを行う。async な `close()` / `unregister()` は launcher のコンフリクト経路など別プロセスが先にレジストリを押さえたときの自サーバ畳み込みでのみ使う。
 
 ### Dev サーバー運用との整合性
 
