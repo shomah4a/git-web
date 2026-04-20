@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -100,6 +100,80 @@ describe('createNodeRegistryIO (統合)', () => {
 
     const release2 = await io.acquireLock(lockPath)
     await release2()
+  })
+
+  it('acquireLock: lock ファイルに自 PID が書き込まれる', async () => {
+    const io = createNodeRegistryIO(makeLogger(), { pid: 54321, pidAlive: () => true })
+    const lockPath = join(tmpDir, 'test.lock')
+
+    const release = await io.acquireLock(lockPath)
+    try {
+      const content = await readFile(lockPath, 'utf8')
+      expect(content.trim()).toBe('54321')
+    } finally {
+      await release()
+    }
+  })
+
+  it('acquireLock: 死んだ holder の lock を強奪する', async () => {
+    const deadPid = 99999
+    const warnings: string[] = []
+    const logger = {
+      warn: (message: string): void => {
+        warnings.push(message)
+      },
+    }
+    const io = createNodeRegistryIO(logger, {
+      pid: 12345,
+      pidAlive: (pid: number) => pid !== deadPid,
+    })
+    const lockPath = join(tmpDir, 'test.lock')
+
+    // 死んだ PID の lock を偽装して作る
+    await writeFile(lockPath, `${deadPid}\n`, { mode: 0o600 })
+
+    const release = await io.acquireLock(lockPath)
+    try {
+      const content = await readFile(lockPath, 'utf8')
+      expect(content.trim()).toBe('12345')
+      expect(warnings.some((m) => m.includes('stale registry lock'))).toBe(true)
+    } finally {
+      await release()
+    }
+  })
+
+  it('acquireLock: PID がパースできない lock も強奪する', async () => {
+    const io = createNodeRegistryIO(makeLogger(), {
+      pid: 12345,
+      pidAlive: () => true,
+    })
+    const lockPath = join(tmpDir, 'test.lock')
+
+    await writeFile(lockPath, 'garbage content', { mode: 0o600 })
+
+    const release = await io.acquireLock(lockPath)
+    try {
+      const content = await readFile(lockPath, 'utf8')
+      expect(content.trim()).toBe('12345')
+    } finally {
+      await release()
+    }
+  })
+
+  it('acquireLock: 生きている holder の lock は強奪せずリトライで失敗する', async () => {
+    const livePid = 77777
+    const io = createNodeRegistryIO(makeLogger(), {
+      pid: 12345,
+      pidAlive: (pid: number) => pid === livePid,
+    })
+    const lockPath = join(tmpDir, 'test.lock')
+
+    await writeFile(lockPath, `${livePid}\n`, { mode: 0o600 })
+
+    await expect(io.acquireLock(lockPath)).rejects.toThrow('failed to acquire registry lock')
+    // lock ファイルは強奪されていない
+    const content = await readFile(lockPath, 'utf8')
+    expect(content.trim()).toBe(String(livePid))
   })
 })
 
