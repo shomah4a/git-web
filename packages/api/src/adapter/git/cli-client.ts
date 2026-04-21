@@ -19,12 +19,15 @@ import type { DiffRange } from '../../domain/diff-range.js'
 import type { GitClient } from '../../domain/ports/git-client.js'
 import type { HeadInfo } from '../../domain/repo.js'
 import type { GitDiffClient } from '../../domain/ports/git-diff-client.js'
+import type { GitLogClient } from '../../domain/ports/git-log-client.js'
+import type { LogQuery, LogResult } from '../../domain/ports/git-log-client.js'
 import type { GitRefsClient } from '../../domain/ports/git-refs-client.js'
 import type { GitTreeClient } from '../../domain/ports/git-tree-client.js'
 import type { Revision } from '../../domain/revision.js'
 import type { TreeEntry } from '../../domain/tree.js'
 import { parseNumstatZ, parseRawZ } from './diff-summary-parser.js'
 import { extractOneLevel } from './ls-files-parser.js'
+import { LOG_FORMAT, parseLogOutput } from './log-parser.js'
 import { parseLsTreeZ } from './ls-tree-parser.js'
 import { parseStatusZ } from './status-parser.js'
 
@@ -39,7 +42,9 @@ const DIFF_MAX_BUFFER = 50 * 1024 * 1024
 /**
  * 子プロセスとして git CLI を起動する GitClient / GitDiffClient 実装。
  */
-export class CliGitClient implements GitClient, GitDiffClient, GitRefsClient, GitTreeClient {
+export class CliGitClient
+  implements GitClient, GitDiffClient, GitLogClient, GitRefsClient, GitTreeClient
+{
   readonly #cwd: string
 
   constructor(cwd: string) {
@@ -153,6 +158,35 @@ export class CliGitClient implements GitClient, GitDiffClient, GitRefsClient, Gi
       },
     )
     return parseLsTreeZ(stdout, path)
+  }
+
+  async log(query: LogQuery): Promise<LogResult> {
+    const fetchCount = query.limit + 1
+    const args = ['log', `--format=${LOG_FORMAT}`, '--numstat', `-n`, fetchCount.toString()]
+
+    // after 指定時は after の親を起点にする。
+    // after は rev の歴史上にある SHA なので、after~ から辿るコミットは
+    // rev の歴史に包含される。rev を union で渡さないことで重複を防ぐ。
+    if (query.after !== null) {
+      args.push('--end-of-options', `${query.after}~1`)
+    } else {
+      args.push('--end-of-options', query.rev.raw)
+    }
+
+    if (query.path !== null) {
+      args.push('--', query.path)
+    }
+
+    const { stdout } = await execFileAsync('git', args, {
+      cwd: this.#cwd,
+      maxBuffer: DIFF_MAX_BUFFER,
+    })
+
+    const allCommits = parseLogOutput(stdout)
+    const hasMore = allCommits.length > query.limit
+    const commits = hasMore ? allCommits.slice(0, query.limit) : allCommits
+
+    return { commits, hasMore }
   }
 
   /**

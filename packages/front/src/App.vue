@@ -125,6 +125,9 @@ onBeforeUnmount(() => {
         <router-link class="view-tab" to="/" active-class="" exact-active-class="view-tab--active">
           Worktree
         </router-link>
+        <router-link class="view-tab" to="/commits" active-class="view-tab--active">
+          History
+        </router-link>
         <router-link class="view-tab" to="/diff" active-class="view-tab--active">
           Diff
         </router-link>
