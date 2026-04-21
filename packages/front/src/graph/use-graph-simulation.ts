@@ -7,14 +7,7 @@
 
 import type { Ref } from 'vue'
 import type { Simulation, SimulationLinkDatum, SimulationNodeDatum } from 'd3-force'
-import {
-  forceCollide,
-  forceLink,
-  forceManyBody,
-  forceSimulation,
-  forceX,
-  forceY,
-} from 'd3-force'
+import { forceCollide, forceLink, forceManyBody, forceSimulation, forceX, forceY } from 'd3-force'
 import { ref, onBeforeUnmount } from 'vue'
 import type { GraphEdge, GraphNode } from './build-graph.js'
 
@@ -87,7 +80,10 @@ export function useGraphSimulation(): GraphSimulation {
 
     const roots = nodes.filter((n) => !hasIncoming.has(n.id)).map((n) => n.id)
     if (roots.length === 0 && nodes.length > 0) {
-      roots.push(nodes[0]!.id)
+      const first = nodes[0]
+      if (first !== undefined) {
+        roots.push(first.id)
+      }
     }
 
     const queue: Array<{ id: string; rank: number }> = roots.map((id) => ({ id, rank: 0 }))
@@ -115,10 +111,7 @@ export function useGraphSimulation(): GraphSimulation {
     return ranks
   }
 
-  function update(
-    nodes: ReadonlyArray<GraphNode>,
-    edges: ReadonlyArray<GraphEdge>,
-  ): void {
+  function update(nodes: ReadonlyArray<GraphNode>, edges: ReadonlyArray<GraphEdge>): void {
     if (simulation !== null) {
       simulation.stop()
     }
@@ -142,19 +135,18 @@ export function useGraphSimulation(): GraphSimulation {
       return sn
     })
 
-    const simEdges: SimEdge[] = edges
-      .filter((e) => nodeMap.has(e.source) && nodeMap.has(e.target))
-      .map((e) => ({
-        source: nodeMap.get(e.source)!,
-        target: nodeMap.get(e.target)!,
-      }))
+    const simEdges: SimEdge[] = []
+    for (const e of edges) {
+      const src = nodeMap.get(e.source)
+      const tgt = nodeMap.get(e.target)
+      if (src !== undefined && tgt !== undefined) {
+        simEdges.push({ source: src, target: tgt })
+      }
+    }
 
     simulation = forceSimulation<SimNode>(simNodeArray)
       .alphaDecay(ALPHA_DECAY)
-      .force(
-        'y',
-        forceY<SimNode>((d) => d.rank * Y_SPACING).strength(0.8),
-      )
+      .force('y', forceY<SimNode>((d) => d.rank * Y_SPACING).strength(0.8))
       .force(
         'x',
         forceX<SimNode>(0).strength((d) =>

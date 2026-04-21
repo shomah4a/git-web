@@ -59,9 +59,7 @@ export function commitRadius(commit: CommitDto): number {
 /**
  * first-parent を辿ってメインストリームに属する hash の Set を返す。
  */
-export function findMainStream(
-  commits: ReadonlyArray<CommitDto>,
-): ReadonlySet<string> {
+export function findMainStream(commits: ReadonlyArray<CommitDto>): ReadonlySet<string> {
   if (commits.length === 0) return new Set()
 
   const byHash = new Map<string, CommitDto>()

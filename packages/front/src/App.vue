@@ -31,7 +31,7 @@ const isRevisionActive = computed(() => {
   return name === 'revision-tree' || name === 'blob'
 })
 
-const isDiffRoute = computed(() => route.name === 'diff')
+const isFullWidthRoute = computed(() => route.name === 'diff' || route.name === 'graph')
 
 /**
  * chromeless モード (ADR 0039)。
@@ -128,6 +128,9 @@ onBeforeUnmount(() => {
         <router-link class="view-tab" to="/commits" active-class="view-tab--active">
           History
         </router-link>
+        <router-link class="view-tab" to="/graph" active-class="view-tab--active">
+          Graph
+        </router-link>
         <router-link class="view-tab" to="/diff" active-class="view-tab--active">
           Diff
         </router-link>
@@ -140,10 +143,10 @@ onBeforeUnmount(() => {
         </router-link>
       </nav>
 
-      <div id="page-header-slot" :class="{ 'content-area': !isDiffRoute }"></div>
+      <div id="page-header-slot" :class="{ 'content-area': !isFullWidthRoute }"></div>
     </header>
 
-    <div :class="{ 'content-area': !isDiffRoute }">
+    <div :class="{ 'content-area': !isFullWidthRoute }">
       <router-view />
     </div>
   </main>

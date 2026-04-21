@@ -47,12 +47,13 @@ export function useGraphViewport(): GraphViewport {
         }
       })
 
-    select(svgElement).call(zoomBehavior)
+    const zb = zoomBehavior
+    select(svgElement).call(zb)
 
     // 初期 transform を適用 (中央寄せのため少しオフセット)
     const rect = svgElement.getBoundingClientRect()
     const initialTransform = zoomIdentity.translate(rect.width / 2, 60)
-    select(svgElement).call(zoomBehavior.transform, initialTransform)
+    select(svgElement).call(zb.transform.bind(zb), initialTransform)
   }
 
   function detach(): void {
