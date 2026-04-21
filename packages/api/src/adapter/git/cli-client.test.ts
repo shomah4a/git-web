@@ -321,3 +321,110 @@ describe('CliGitClient.diffFile', () => {
     expect(patch).toContain('Binary files')
   })
 })
+
+describe('CliGitClient.log', () => {
+  it('HEAD からのコミット履歴を取得できる', async () => {
+    await writeFile(join(tempRepo, 'a.ts'), 'const a = 1\n')
+    await commit(tempRepo, 'add a.ts')
+    const git = new CliGitClient(tempRepo)
+
+    const result = await git.log({
+      rev: parseRevision('HEAD'),
+      limit: 10,
+      after: null,
+      path: null,
+    })
+
+    // init + add a.ts = 2 コミット
+    expect(result.commits).toHaveLength(2)
+    expect(result.hasMore).toBe(false)
+    const first = result.commits[0]
+    if (first === undefined) throw new Error('expected first commit')
+    expect(first.subject).toBe('add a.ts')
+    expect(first.stats.filesChanged).toBe(1)
+    expect(first.stats.insertions).toBe(1)
+  })
+
+  it('limit 指定で取得件数を制限し hasMore が true になる', async () => {
+    await writeFile(join(tempRepo, 'a.ts'), 'a\n')
+    await commit(tempRepo, 'commit 1')
+    await writeFile(join(tempRepo, 'b.ts'), 'b\n')
+    await commit(tempRepo, 'commit 2')
+    await writeFile(join(tempRepo, 'c.ts'), 'c\n')
+    await commit(tempRepo, 'commit 3')
+    const git = new CliGitClient(tempRepo)
+
+    const result = await git.log({
+      rev: parseRevision('HEAD'),
+      limit: 2,
+      after: null,
+      path: null,
+    })
+
+    expect(result.commits).toHaveLength(2)
+    expect(result.hasMore).toBe(true)
+    const first = result.commits[0]
+    if (first === undefined) throw new Error('expected first commit')
+    expect(first.subject).toBe('commit 3')
+  })
+
+  it('after 指定で 2 ページ目のコミットが取得できる', async () => {
+    await writeFile(join(tempRepo, 'a.ts'), 'a\n')
+    await commit(tempRepo, 'commit 1')
+    await writeFile(join(tempRepo, 'b.ts'), 'b\n')
+    await commit(tempRepo, 'commit 2')
+    await writeFile(join(tempRepo, 'c.ts'), 'c\n')
+    await commit(tempRepo, 'commit 3')
+    const git = new CliGitClient(tempRepo)
+
+    // 1 ページ目: 2 件取得
+    const page1 = await git.log({
+      rev: parseRevision('HEAD'),
+      limit: 2,
+      after: null,
+      path: null,
+    })
+    expect(page1.commits).toHaveLength(2)
+    expect(page1.hasMore).toBe(true)
+
+    // 2 ページ目: 末尾の SHA をカーソルに
+    const lastCommit = page1.commits[1]
+    if (lastCommit === undefined) throw new Error('expected last commit')
+
+    const page2 = await git.log({
+      rev: parseRevision('HEAD'),
+      limit: 2,
+      after: lastCommit.hash,
+      path: null,
+    })
+
+    // init + commit 1 の 2 件のうち commit 1 と init
+    expect(page2.commits).toHaveLength(2)
+    expect(page2.hasMore).toBe(false)
+    // page2 のコミットが page1 と重複しないことを検証
+    const page1Hashes = new Set(page1.commits.map((c) => c.hash))
+    for (const c of page2.commits) {
+      expect(page1Hashes.has(c.hash)).toBe(false)
+    }
+  })
+
+  it('path 指定で特定ファイルの履歴のみ取得できる', async () => {
+    await writeFile(join(tempRepo, 'a.ts'), 'a\n')
+    await commit(tempRepo, 'add a.ts')
+    await writeFile(join(tempRepo, 'b.ts'), 'b\n')
+    await commit(tempRepo, 'add b.ts')
+    const git = new CliGitClient(tempRepo)
+
+    const result = await git.log({
+      rev: parseRevision('HEAD'),
+      limit: 10,
+      after: null,
+      path: 'a.ts',
+    })
+
+    expect(result.commits).toHaveLength(1)
+    const first = result.commits[0]
+    if (first === undefined) throw new Error('expected first commit')
+    expect(first.subject).toBe('add a.ts')
+  })
+})

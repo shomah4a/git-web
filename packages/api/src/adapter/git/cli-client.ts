@@ -164,11 +164,14 @@ export class CliGitClient
     const fetchCount = query.limit + 1
     const args = ['log', `--format=${LOG_FORMAT}`, '--numstat', `-n`, fetchCount.toString()]
 
+    // after 指定時は after の親を起点にする。
+    // after は rev の歴史上にある SHA なので、after~ から辿るコミットは
+    // rev の歴史に包含される。rev を union で渡さないことで重複を防ぐ。
     if (query.after !== null) {
-      args.push(`${query.after}^`)
+      args.push('--end-of-options', `${query.after}~1`)
+    } else {
+      args.push('--end-of-options', query.rev.raw)
     }
-
-    args.push('--end-of-options', query.rev.raw)
 
     if (query.path !== null) {
       args.push('--', query.path)
