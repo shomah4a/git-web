@@ -32,11 +32,20 @@ const ALPHA_DECAY = 0.05
 
 // ---------- composable ----------
 
+export type ViewportSize = {
+  readonly width: number
+  readonly height: number
+}
+
 export type GraphSimulation = {
   /** 現在のシミュレーションノード座標 (tick ごとに更新) */
   readonly simNodes: Ref<ReadonlyArray<SimNode>>
   /** シミュレーションを新しいグラフデータで再構築する */
-  readonly update: (nodes: ReadonlyArray<GraphNode>, edges: ReadonlyArray<GraphEdge>) => void
+  readonly update: (
+    nodes: ReadonlyArray<GraphNode>,
+    edges: ReadonlyArray<GraphEdge>,
+    viewportSize: ViewportSize,
+  ) => void
   /** 指定ノードの座標を固定する (ドラッグ用) */
   readonly fixNode: (id: string, x: number, y: number) => void
   /** 指定ノードの座標固定を解除する */
@@ -49,6 +58,13 @@ export function useGraphSimulation(): GraphSimulation {
   const simNodes = ref<ReadonlyArray<SimNode>>([])
   let simulation: Simulation<SimNode, SimEdge> | null = null
   let nodeMap = new Map<string, SimNode>()
+  let rankMap = new Map<string, number>()
+  let currentMaxRank = 0
+  let currentXRange = 0
+
+  function mainStreamX(rank: number): number {
+    return currentMaxRank > 0 ? -currentXRange / 2 + (rank / currentMaxRank) * currentXRange : 0
+  }
 
   function assignRanks(
     nodes: ReadonlyArray<GraphNode>,
@@ -110,27 +126,38 @@ export function useGraphSimulation(): GraphSimulation {
     return ranks
   }
 
-  function update(nodes: ReadonlyArray<GraphNode>, edges: ReadonlyArray<GraphEdge>): void {
+  function update(
+    nodes: ReadonlyArray<GraphNode>,
+    edges: ReadonlyArray<GraphEdge>,
+    viewportSize: ViewportSize,
+  ): void {
     if (simulation !== null) {
       simulation.stop()
     }
 
-    const ranks = assignRanks(nodes, edges)
+    rankMap = assignRanks(nodes, edges)
+    currentMaxRank = Math.max(1, ...Array.from(rankMap.values()))
     const prevNodeMap = nodeMap
     nodeMap = new Map()
 
+    // ビューポートのアスペクト比に合わせた傾斜 (左上→右下)
+    const aspect = viewportSize.width / Math.max(1, viewportSize.height)
+    currentXRange = currentMaxRank * Y_SPACING * aspect * 0.6
+
     const simNodeArray: SimNode[] = nodes.map((node) => {
-      const rank = ranks.get(node.id) ?? 0
+      const rank = rankMap.get(node.id) ?? 0
       const prev = prevNodeMap.get(node.id)
+      // メインストリーム: 左上→右下の斜め配置
+      const mainX = mainStreamX(rank)
       const sn: SimNode = {
         id: node.id,
         radius: node.radius,
         isMainStream: node.isMainStream,
         rank,
-        x: prev?.x ?? (node.isMainStream ? 0 : 160 + Math.random() * 80),
+        x: prev?.x ?? (node.isMainStream ? mainX : mainX + 160 + Math.random() * 80),
         y: prev?.y ?? rank * Y_SPACING,
-        // メインストリームノードは X=0 に固定して整列させる
-        fx: node.isMainStream ? 0 : undefined,
+        // メインストリームノードは斜めラインに固定して整列させる
+        fx: node.isMainStream ? mainX : undefined,
       }
       nodeMap.set(node.id, sn)
       return sn
@@ -187,8 +214,8 @@ export function useGraphSimulation(): GraphSimulation {
   function unfixNode(id: string): void {
     const node = nodeMap.get(id)
     if (node !== undefined) {
-      // メインストリームノードは X=0 固定を復元する
-      node.fx = node.isMainStream ? 0 : null
+      // メインストリームノードは斜めライン上の固定位置を復元する
+      node.fx = node.isMainStream ? mainStreamX(node.rank) : null
       node.fy = null
       simulation?.alpha(0.3).restart()
     }

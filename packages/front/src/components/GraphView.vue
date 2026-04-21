@@ -60,7 +60,12 @@ watch(graphData, (data) => {
     map.set(node.id, node)
   }
   graphNodeMap.value = map
-  simulation.update(data.nodes, data.edges)
+  const svgEl = svgRef.value
+  const size =
+    svgEl !== null
+      ? { width: svgEl.clientWidth, height: svgEl.clientHeight }
+      : { width: 1200, height: 800 }
+  simulation.update(data.nodes, data.edges, size)
 })
 
 /** エッジの source/target に対応する SimNode の座標 */
@@ -86,12 +91,19 @@ function shortHash(hash: string): string {
 function formatDate(epochSec: number): string {
   const d = new Date(epochSec * 1000)
   if (Number.isNaN(d.getTime())) return String(epochSec)
-  return d.toLocaleDateString('ja-JP', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  const yyyy = d.getFullYear().toString()
+  const mm = (d.getMonth() + 1).toString().padStart(2, '0')
+  const dd = d.getDate().toString().padStart(2, '0')
+  const hh = d.getHours().toString().padStart(2, '0')
+  const min = d.getMinutes().toString().padStart(2, '0')
+  const offset = -d.getTimezoneOffset()
+  const sign = offset >= 0 ? '+' : '-'
+  const absOffset = Math.abs(offset)
+  const ohh = Math.floor(absOffset / 60)
+    .toString()
+    .padStart(2, '0')
+  const omm = (absOffset % 60).toString().padStart(2, '0')
+  return `${yyyy}-${mm}-${dd} ${hh}:${min} ${sign}${ohh}:${omm}`
 }
 
 function statsText(commit: CommitDto): string {
@@ -368,18 +380,20 @@ onBeforeUnmount(() => {
                 <circle :r="simNode.radius" class="node-circle node-circle--merge" />
                 <circle :r="simNode.radius - 4" class="node-circle-inner" />
               </template>
-              <text class="node-subject" :y="-simNode.radius - 6" text-anchor="middle">
-                {{ truncateSubject(graphNodeMap.get(simNode.id)?.commit?.subject ?? '', 24) }}
-              </text>
-              <text class="node-hash" :y="4" text-anchor="middle">
-                {{ shortHash(graphNodeMap.get(simNode.id)?.commit?.hash ?? '') }}
-              </text>
-              <text class="node-meta" :y="simNode.radius + 14" text-anchor="middle">
-                {{ formatDate(graphNodeMap.get(simNode.id)?.commit?.date ?? 0) }}
-              </text>
-              <text class="node-stats" :y="simNode.radius + 26" text-anchor="middle">
-                {{ nodeStatsText(simNode.id) }}
-              </text>
+              <g :transform="`scale(${(1 / viewport.transform.value.k).toString()})`">
+                <text class="node-subject" :y="-simNode.radius - 6" text-anchor="middle">
+                  {{ truncateSubject(graphNodeMap.get(simNode.id)?.commit?.subject ?? '', 24) }}
+                </text>
+                <text class="node-hash" :y="4" text-anchor="middle">
+                  {{ shortHash(graphNodeMap.get(simNode.id)?.commit?.hash ?? '') }}
+                </text>
+                <text class="node-meta" :y="simNode.radius + 14" text-anchor="middle">
+                  {{ formatDate(graphNodeMap.get(simNode.id)?.commit?.date ?? 0) }}
+                </text>
+                <text class="node-stats" :y="simNode.radius + 26" text-anchor="middle">
+                  {{ nodeStatsText(simNode.id) }}
+                </text>
+              </g>
               <!-- マージコミットで未展開の枝がある場合のバッジ -->
               <g
                 v-if="
@@ -403,7 +417,12 @@ onBeforeUnmount(() => {
                 rx="6"
                 class="pseudo-node read-more-node"
               />
-              <text class="pseudo-node-text" text-anchor="middle" y="5">
+              <text
+                class="pseudo-node-text"
+                text-anchor="middle"
+                y="5"
+                :transform="`scale(${(1 / viewport.transform.value.k).toString()})`"
+              >
                 {{ loading ? '...' : 'more' }}
               </text>
             </template>
@@ -418,7 +437,14 @@ onBeforeUnmount(() => {
                 rx="6"
                 class="pseudo-node expand-node"
               />
-              <text class="pseudo-node-text" text-anchor="middle" y="5">expand</text>
+              <text
+                class="pseudo-node-text"
+                text-anchor="middle"
+                y="5"
+                :transform="`scale(${(1 / viewport.transform.value.k).toString()})`"
+              >
+                expand
+              </text>
             </template>
           </g>
         </g>
