@@ -27,7 +27,7 @@ type SimEdge = SimulationLinkDatum<SimNode> & {
 // ---------- 定数 ----------
 
 const Y_SPACING = 160
-const BRANCH_X_STRENGTH = 0.15
+const BRANCH_X_STRENGTH = 0.4
 const LINK_DISTANCE = 120
 const MANY_BODY_STRENGTH = -300
 const ALPHA_DECAY = 0.05
@@ -61,11 +61,9 @@ export function useGraphSimulation(): GraphSimulation {
   let simulation: Simulation<SimNode, SimEdge> | null = null
   let nodeMap = new Map<string, SimNode>()
   let rankMap = new Map<string, number>()
-  let currentMaxRank = 0
-  let currentXRange = 0
 
-  function mainStreamX(rank: number): number {
-    return currentMaxRank > 0 ? -currentXRange / 2 + (rank / currentMaxRank) * currentXRange : 0
+  function mainStreamX(): number {
+    return 0
   }
 
   function assignRanks(
@@ -138,25 +136,22 @@ export function useGraphSimulation(): GraphSimulation {
     }
 
     rankMap = assignRanks(nodes, edges)
-    currentMaxRank = Math.max(1, ...Array.from(rankMap.values()))
     const prevNodeMap = nodeMap
     nodeMap = new Map()
-
-    // ビューポートのアスペクト比に合わせた傾斜 (左上→右下)
-    const aspect = viewportSize.width / Math.max(1, viewportSize.height)
-    currentXRange = currentMaxRank * Y_SPACING * aspect * 0.6
+    // viewportSize は将来の拡張用に受け取るが、現在は縦配置のため未使用
+    void viewportSize
 
     const simNodeArray: SimNode[] = nodes.map((node) => {
       const rank = rankMap.get(node.id) ?? 0
       const prev = prevNodeMap.get(node.id)
       // メインストリーム: 左上→右下の斜め配置
-      const mainX = mainStreamX(rank)
+      const mainX = mainStreamX()
       const sn: SimNode = {
         id: node.id,
         radius: node.radius,
         isMainStream: node.isMainStream,
         rank,
-        x: prev?.x ?? (node.isMainStream ? mainX : mainX + 160 + Math.random() * 80),
+        x: prev?.x ?? (node.isMainStream ? mainX : mainX + 60 + Math.random() * 40),
         y: prev?.y ?? rank * Y_SPACING,
         // メインストリームノードは斜めラインに固定して整列させる
         fx: node.isMainStream ? mainX : undefined,
@@ -179,14 +174,16 @@ export function useGraphSimulation(): GraphSimulation {
       .force('y', forceY<SimNode>((d) => d.rank * Y_SPACING).strength(0.8))
       .force(
         'x',
-        forceX<SimNode>(0).strength((d) => (d.isMainStream ? 0 : BRANCH_X_STRENGTH)),
+        forceX<SimNode>(() => mainStreamX()).strength((d) =>
+          d.isMainStream ? 0 : BRANCH_X_STRENGTH,
+        ),
       )
       .force(
         'link',
         forceLink<SimNode, SimEdge>(simEdges)
           .id((d) => d.id)
-          .distance((d) => (d.isMainStream ? LINK_DISTANCE : LINK_DISTANCE * 0.4))
-          .strength((d) => (d.isMainStream ? 0.5 : 0.8)),
+          .distance((d) => (d.isMainStream ? LINK_DISTANCE : LINK_DISTANCE * 0.35))
+          .strength((d) => (d.isMainStream ? 0.5 : 1.0)),
       )
       .force(
         'collide',
@@ -217,7 +214,7 @@ export function useGraphSimulation(): GraphSimulation {
     const node = nodeMap.get(id)
     if (node !== undefined) {
       // メインストリームノードは斜めライン上の固定位置を復元する
-      node.fx = node.isMainStream ? mainStreamX(node.rank) : null
+      node.fx = node.isMainStream ? mainStreamX() : null
       node.fy = null
       simulation?.alpha(0.3).restart()
     }
