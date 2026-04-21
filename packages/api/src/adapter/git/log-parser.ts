@@ -86,11 +86,13 @@ function parseRecord(record: string): CommitEntry | null {
     return null
   }
 
-  const parentCount = parentHashesRaw === '' ? 0 : parentHashesRaw.split(' ').length
+  const parentHashes = parentHashesRaw === '' ? [] : parentHashesRaw.split(' ')
+  const parentCount = parentHashes.length
   const stats = parseNumstatBlock(numstatRaw)
 
   return {
     hash,
+    parentHashes,
     parentCount,
     authorName,
     authorEmail,

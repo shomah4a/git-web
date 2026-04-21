@@ -18,6 +18,7 @@ export type CommitStats = {
  */
 export type CommitEntry = {
   readonly hash: string
+  readonly parentHashes: ReadonlyArray<string>
   readonly parentCount: number
   readonly authorName: string
   readonly authorEmail: string
