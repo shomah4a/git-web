@@ -1,36 +1,36 @@
 /**
- * d3-force シミュレーション composable (ADR 0047)。
+ * グラフレイアウト composable (ADR 0047)。
  *
- * GraphNode[] と GraphEdge[] を受け取り、力学シ���ュレーションで
- * ノード座標を計算する。tick ごとに ref を更新し、SVG 描画を駆動する。
+ * 力学シミュレーションではなく幾何的にノード座標を計算する。
+ * - メインストリーム: X=0 の縦一列、Y = rank * spacing
+ * - ブランチ: マージコミットと合流点を結ぶ弧上に等間隔配置
+ * - ドラッグ時は座標を直接上書きし、離すと幾何位置に戻る
  */
 
 import type { Ref } from 'vue'
-import type { Simulation, SimulationLinkDatum, SimulationNodeDatum } from 'd3-force'
-import { forceCollide, forceLink, forceManyBody, forceSimulation, forceX, forceY } from 'd3-force'
-import { ref, onBeforeUnmount } from 'vue'
+import { ref } from 'vue'
 import type { GraphEdge, GraphNode } from './build-graph.js'
 
-// ---------- シミュレーション用の mutable 型 ----------
+// ---------- レイアウトノード型 ----------
 
-export type SimNode = SimulationNodeDatum & {
+export type SimNode = {
   readonly id: string
   readonly radius: number
   readonly isMainStream: boolean
   readonly rank: number
-}
-
-type SimEdge = SimulationLinkDatum<SimNode> & {
-  readonly isMainStream: boolean
+  /** 幾何計算による本来の位置 */
+  readonly baseX: number
+  readonly baseY: number
+  /** 現在の表示位置 (ドラッグで移動可能) */
+  x: number
+  y: number
 }
 
 // ---------- 定数 ----------
 
 const Y_SPACING = 160
-const BRANCH_X_STRENGTH = 0.4
-const LINK_DISTANCE = 120
-const MANY_BODY_STRENGTH = -300
-const ALPHA_DECAY = 0.05
+/** ブランチ弧の横方向の膨らみ */
+const ARC_X_OFFSET = 100
 
 // ---------- composable ----------
 
@@ -40,57 +40,44 @@ export type ViewportSize = {
 }
 
 export type GraphSimulation = {
-  /** 現在のシミュレーションノード座標 (tick ごとに更新) */
   readonly simNodes: Ref<ReadonlyArray<SimNode>>
-  /** シミュレーションを新しいグラフデータで再構築する */
   readonly update: (
     nodes: ReadonlyArray<GraphNode>,
     edges: ReadonlyArray<GraphEdge>,
     viewportSize: ViewportSize,
   ) => void
-  /** 指定ノードの座標を固定する (ドラッグ用) */
   readonly fixNode: (id: string, x: number, y: number) => void
-  /** 指定ノードの座標固定を解除する */
   readonly unfixNode: (id: string) => void
-  /** シミュレーションを再加熱する */
   readonly reheat: () => void
 }
 
 export function useGraphSimulation(): GraphSimulation {
   const simNodes = ref<ReadonlyArray<SimNode>>([])
-  let simulation: Simulation<SimNode, SimEdge> | null = null
   let nodeMap = new Map<string, SimNode>()
-  let rankMap = new Map<string, number>()
 
-  function mainStreamX(): number {
-    return 0
-  }
-
+  /**
+   * トポロジカル順序でランクを割り当てる。
+   * ソース→ターゲット = 子→親 なので、ソースのランクが小さく(上)、
+   * ターゲットのランクが大きく(下)なる。
+   */
   function assignRanks(
     nodes: ReadonlyArray<GraphNode>,
     edges: ReadonlyArray<GraphEdge>,
   ): Map<string, number> {
-    // トポロジカル順序でランクを割り当てる
-    // ソースが子 (新しい)、ターゲットが親 (古い) なので、
-    // ソースのランクを小さく (上)、ターゲットのランクを大きく (下) する
     const ranks = new Map<string, number>()
     const childToParents = new Map<string, string[]>()
     const nodeIds = new Set(nodes.map((n) => n.id))
 
     for (const edge of edges) {
-      const targetId = typeof edge.target === 'string' ? edge.target : edge.target
       if (!childToParents.has(edge.source)) {
         childToParents.set(edge.source, [])
       }
-      childToParents.get(edge.source)?.push(targetId)
+      childToParents.get(edge.source)?.push(edge.target)
     }
 
-    // BFS でランク割り当て
-    // ルート (入次数0) を探す
     const hasIncoming = new Set<string>()
     for (const edge of edges) {
-      const targetId = typeof edge.target === 'string' ? edge.target : edge.target
-      hasIncoming.add(targetId)
+      hasIncoming.add(edge.target)
     }
 
     const roots = nodes.filter((n) => !hasIncoming.has(n.id)).map((n) => n.id)
@@ -116,7 +103,6 @@ export function useGraphSimulation(): GraphSimulation {
       }
     }
 
-    // ランクが割り当てられなかったノード (孤立ノード)
     for (const node of nodes) {
       if (!ranks.has(node.id)) {
         ranks.set(node.id, ranks.size)
@@ -126,107 +112,188 @@ export function useGraphSimulation(): GraphSimulation {
     return ranks
   }
 
+  /**
+   * ブランチノードのX座標を弧状に計算する。
+   *
+   * マージコミットの rank を topRank、分岐点 (first-parent の合流先) の rank を
+   * bottomRank として、ブランチノードの rank が topRank〜bottomRank の区間で
+   * sin カーブの弧を描く。
+   *
+   * branchIndex: 同じマージコミットに複数ブランチがある場合の番号 (0, 1, ...)
+   */
+  function arcX(
+    nodeRank: number,
+    topRank: number,
+    bottomRank: number,
+    branchIndex: number,
+  ): number {
+    const span = bottomRank - topRank
+    if (span <= 0) return ARC_X_OFFSET * (branchIndex + 1)
+    const t = (nodeRank - topRank) / span
+    return Math.sin(Math.PI * t) * ARC_X_OFFSET * (branchIndex + 1)
+  }
+
   function update(
     nodes: ReadonlyArray<GraphNode>,
     edges: ReadonlyArray<GraphEdge>,
     viewportSize: ViewportSize,
   ): void {
-    if (simulation !== null) {
-      simulation.stop()
-    }
-
-    rankMap = assignRanks(nodes, edges)
+    void viewportSize
+    const ranks = assignRanks(nodes, edges)
     const prevNodeMap = nodeMap
     nodeMap = new Map()
-    // viewportSize は将来の拡張用に受け取るが、現在は縦配置のため未使用
-    void viewportSize
 
+    // ノードの hash → GraphNode マップ
+    const graphNodeById = new Map<string, GraphNode>()
+    for (const n of nodes) {
+      graphNodeById.set(n.id, n)
+    }
+
+    // メインストリームノードの座標を先に計算
+    const mainStreamPositions = new Map<string, { x: number; y: number }>()
+    for (const node of nodes) {
+      if (node.isMainStream) {
+        const rank = ranks.get(node.id) ?? 0
+        mainStreamPositions.set(node.id, { x: 0, y: rank * Y_SPACING })
+      }
+    }
+
+    // ブランチノードの所属を特定する
+    // エッジからマージコミット→ブランチ親の関係を構築
+    // ブランチノード = isMainStream でないコミットノード
+    // 各ブランチノードの topRank/bottomRank を、
+    // そのノードに到達するまでのマージコミットの rank と、
+    // そのノードから first-parent を辿ってメインストリームに合流する点の rank で決める
+
+    // 簡易版: ブランチノードは単にメインストリームの横に弧で配置
+    // topRank = そのブランチノードに接続するマージコミットのrank
+    // bottomRank = そのブランチノードからfirst-parentを辿ってメインストリームに到達する点のrank
+    // 到達しない場合は自分のrank+1 (expand-branch等)
+
+    // マージコミットID → 非メインストリームの子エッジを持つノード群
+    const branchNodeSets = new Map<string, string[]>()
+
+    // 非メインストリームエッジから、ブランチのグループを構築
+    for (const edge of edges) {
+      if (!edge.isMainStream) {
+        const srcNode = graphNodeById.get(edge.source)
+        if (srcNode !== undefined && srcNode.isMainStream && srcNode.kind === 'commit') {
+          // マージコミットからブランチへの第一歩
+          if (!branchNodeSets.has(edge.source)) {
+            branchNodeSets.set(edge.source, [])
+          }
+          branchNodeSets.get(edge.source)?.push(edge.target)
+        }
+      }
+    }
+
+    // 各ブランチノードの位置を計算
+    const branchPositions = new Map<string, { x: number; y: number }>()
+    let branchGroupIndex = 0
+
+    for (const [mergeHash, branchRoots] of branchNodeSets) {
+      const mergeRank = ranks.get(mergeHash) ?? 0
+
+      for (const branchRootId of branchRoots) {
+        const branchRootRank = ranks.get(branchRootId) ?? mergeRank + 1
+        // ブランチルートからfirst-parentを辿ってメインストリームに合流する点を探す
+        let bottomRank = branchRootRank
+        let current = branchRootId
+        const visited = new Set<string>()
+
+        while (!visited.has(current)) {
+          visited.add(current)
+          const gn = graphNodeById.get(current)
+          if (gn === undefined || gn.isMainStream) {
+            bottomRank = ranks.get(current) ?? bottomRank
+            break
+          }
+          // first-parent エッジを探す
+          const firstParentEdge = edges.find((e) => e.source === current && e.isMainStream)
+          if (firstParentEdge !== undefined) {
+            current = firstParentEdge.target
+          } else {
+            // first-parent がない場合は任意のエッジ
+            const anyEdge = edges.find((e) => e.source === current)
+            if (anyEdge !== undefined) {
+              current = anyEdge.target
+            } else {
+              break
+            }
+          }
+        }
+
+        // ブランチルートの位置
+        const bx = arcX(branchRootRank, mergeRank, bottomRank, branchGroupIndex)
+        const by = branchRootRank * Y_SPACING
+        branchPositions.set(branchRootId, { x: bx, y: by })
+      }
+      branchGroupIndex++
+    }
+
+    // 全ノードの SimNode を構築
     const simNodeArray: SimNode[] = nodes.map((node) => {
-      const rank = rankMap.get(node.id) ?? 0
+      const rank = ranks.get(node.id) ?? 0
       const prev = prevNodeMap.get(node.id)
-      // メインストリーム: 左上→右下の斜め配置
-      const mainX = mainStreamX()
+
+      let baseX: number
+      let baseY: number
+
+      if (node.isMainStream) {
+        baseX = 0
+        baseY = rank * Y_SPACING
+      } else {
+        const branchPos = branchPositions.get(node.id)
+        if (branchPos !== undefined) {
+          baseX = branchPos.x
+          baseY = branchPos.y
+        } else {
+          // ブランチ位置が特定できないノード (expand-branch 疑似ノード等)
+          // 親 (マージコミット) の横に配置
+          baseX = ARC_X_OFFSET * 0.6
+          baseY = rank * Y_SPACING
+        }
+      }
+
       const sn: SimNode = {
         id: node.id,
         radius: node.radius,
         isMainStream: node.isMainStream,
         rank,
-        x: prev?.x ?? (node.isMainStream ? mainX : mainX + 60 + Math.random() * 40),
-        y: prev?.y ?? rank * Y_SPACING,
-        // メインストリームノードは斜めラインに固定して整列させる
-        fx: node.isMainStream ? mainX : undefined,
+        baseX,
+        baseY,
+        x: prev?.x ?? baseX,
+        y: prev?.y ?? baseY,
       }
       nodeMap.set(node.id, sn)
       return sn
     })
 
-    const simEdges: SimEdge[] = []
-    for (const e of edges) {
-      const src = nodeMap.get(e.source)
-      const tgt = nodeMap.get(e.target)
-      if (src !== undefined && tgt !== undefined) {
-        simEdges.push({ source: src, target: tgt, isMainStream: e.isMainStream })
-      }
-    }
-
-    simulation = forceSimulation<SimNode>(simNodeArray)
-      .alphaDecay(ALPHA_DECAY)
-      .force('y', forceY<SimNode>((d) => d.rank * Y_SPACING).strength(0.8))
-      .force(
-        'x',
-        forceX<SimNode>(() => mainStreamX()).strength((d) =>
-          d.isMainStream ? 0 : BRANCH_X_STRENGTH,
-        ),
-      )
-      .force(
-        'link',
-        forceLink<SimNode, SimEdge>(simEdges)
-          .id((d) => d.id)
-          .distance((d) => (d.isMainStream ? LINK_DISTANCE : LINK_DISTANCE * 0.35))
-          .strength((d) => (d.isMainStream ? 0.5 : 1.0)),
-      )
-      .force(
-        'collide',
-        forceCollide<SimNode>((d) => d.radius + 30),
-      )
-      .force('charge', forceManyBody<SimNode>().strength(MANY_BODY_STRENGTH))
-      .on('tick', () => {
-        // simNodeArray の座標は d3 が in-place で更新するので、
-        // ref に新しい配列参照を代入して Vue のリアクティビティを発火する
-        simNodes.value = [...simNodeArray]
-        // nodeMap も更新 (fixNode/unfixNode で参照するため)
-        for (const sn of simNodeArray) {
-          nodeMap.set(sn.id, sn)
-        }
-      })
+    simNodes.value = simNodeArray
   }
 
   function fixNode(id: string, x: number, y: number): void {
     const node = nodeMap.get(id)
     if (node !== undefined) {
-      node.fx = x
-      node.fy = y
-      simulation?.alpha(0.3).restart()
+      node.x = x
+      node.y = y
+      simNodes.value = [...simNodes.value]
     }
   }
 
   function unfixNode(id: string): void {
     const node = nodeMap.get(id)
     if (node !== undefined) {
-      // メインストリームノードは斜めライン上の固定位置を復元する
-      node.fx = node.isMainStream ? mainStreamX() : null
-      node.fy = null
-      simulation?.alpha(0.3).restart()
+      // 幾何位置に戻す
+      node.x = node.baseX
+      node.y = node.baseY
+      simNodes.value = [...simNodes.value]
     }
   }
 
   function reheat(): void {
-    simulation?.alpha(0.5).restart()
+    // 幾何レイアウトでは再計算不要。update が再呼び出しされるため。
   }
-
-  onBeforeUnmount(() => {
-    simulation?.stop()
-  })
 
   return { simNodes, update, fixNode, unfixNode, reheat }
 }
