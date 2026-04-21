@@ -316,6 +316,8 @@ onBeforeUnmount(() => {
 
     <div v-else class="graph-container">
       <svg ref="svgRef" class="graph-svg">
+        <!-- イベント受信用の背景 (透明だがポインタイベントを受け取る) -->
+        <rect width="100%" height="100%" fill="transparent" />
         <g
           :transform="`translate(${viewport.transform.value.x}, ${viewport.transform.value.y}) scale(${viewport.transform.value.k})`"
         >
