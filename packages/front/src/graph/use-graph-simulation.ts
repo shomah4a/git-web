@@ -30,7 +30,7 @@ export type SimNode = {
 
 const Y_SPACING = 160
 /** ブランチ弧の横方向の膨らみ */
-const ARC_X_OFFSET = 100
+const ARC_X_OFFSET = 250
 
 // ---------- composable ----------
 
@@ -140,7 +140,6 @@ export function useGraphSimulation(): GraphSimulation {
   ): void {
     void viewportSize
     const ranks = assignRanks(nodes, edges)
-    const prevNodeMap = nodeMap
     nodeMap = new Map()
 
     // ノードの hash → GraphNode マップ
@@ -195,11 +194,11 @@ export function useGraphSimulation(): GraphSimulation {
       const mergeRank = ranks.get(mergeHash) ?? 0
 
       for (const branchRootId of branchRoots) {
-        const branchRootRank = ranks.get(branchRootId) ?? mergeRank + 1
-        // ブランチルートからfirst-parentを辿ってメインストリームに合流する点を探す
-        let bottomRank = branchRootRank
+        // ブランチルートから辿って、ブランチ内の全ノードを収集する
+        const branchPath: string[] = []
         let current = branchRootId
         const visited = new Set<string>()
+        let bottomRank = ranks.get(branchRootId) ?? mergeRank + 1
 
         while (!visited.has(current)) {
           visited.add(current)
@@ -208,33 +207,32 @@ export function useGraphSimulation(): GraphSimulation {
             bottomRank = ranks.get(current) ?? bottomRank
             break
           }
-          // first-parent エッジを探す
-          const firstParentEdge = edges.find((e) => e.source === current && e.isMainStream)
-          if (firstParentEdge !== undefined) {
-            current = firstParentEdge.target
+          branchPath.push(current)
+          // 子→親のエッジを探す
+          const outEdge = edges.find((e) => e.source === current)
+          if (outEdge !== undefined) {
+            current = outEdge.target
           } else {
-            // first-parent がない場合は任意のエッジ
-            const anyEdge = edges.find((e) => e.source === current)
-            if (anyEdge !== undefined) {
-              current = anyEdge.target
-            } else {
-              break
-            }
+            bottomRank = ranks.get(current) ?? bottomRank
+            break
           }
         }
 
-        // ブランチルートの位置
-        const bx = arcX(branchRootRank, mergeRank, bottomRank, branchGroupIndex)
-        const by = branchRootRank * Y_SPACING
-        branchPositions.set(branchRootId, { x: bx, y: by })
+        // ブランチパス上の全ノードを弧上に配置
+        for (const nodeId of branchPath) {
+          const nodeRank = ranks.get(nodeId) ?? mergeRank + 1
+          const bx = arcX(nodeRank, mergeRank, bottomRank, branchGroupIndex)
+          const by = nodeRank * Y_SPACING
+          branchPositions.set(nodeId, { x: bx, y: by })
+        }
       }
       branchGroupIndex++
     }
 
     // 全ノードの SimNode を構築
+    // 幾何レイアウトなので常に計算座標を使う (追加読み込み時のリロケーション対応)
     const simNodeArray: SimNode[] = nodes.map((node) => {
       const rank = ranks.get(node.id) ?? 0
-      const prev = prevNodeMap.get(node.id)
 
       let baseX: number
       let baseY: number
@@ -250,7 +248,7 @@ export function useGraphSimulation(): GraphSimulation {
         } else {
           // ブランチ位置が特定できないノード (expand-branch 疑似ノード等)
           // 親 (マージコミット) の横に配置
-          baseX = ARC_X_OFFSET * 0.6
+          baseX = ARC_X_OFFSET * 0.5
           baseY = rank * Y_SPACING
         }
       }
@@ -262,8 +260,8 @@ export function useGraphSimulation(): GraphSimulation {
         rank,
         baseX,
         baseY,
-        x: prev?.x ?? baseX,
-        y: prev?.y ?? baseY,
+        x: baseX,
+        y: baseY,
       }
       nodeMap.set(node.id, sn)
       return sn
