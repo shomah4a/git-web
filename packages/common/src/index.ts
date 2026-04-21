@@ -19,6 +19,8 @@ export type RepoInfoDto = {
   readonly head: HeadInfoDto
 }
 
+export type { CommitDto, CommitStatsDto, CommitsResponseDto } from './commits.js'
+
 export type {
   DiffFileDto,
   DiffFileStatusDto,

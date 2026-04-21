@@ -18,6 +18,7 @@ import { WorktreeLister } from './adapter/git/worktree-lister.js'
 import { jsdiffParser } from './adapter/jsdiff/parser.js'
 import { createBlobHandler } from './controller/blob-controller.js'
 import { createBlobRawHandler } from './controller/blob-raw-controller.js'
+import { createCommitsHandler } from './controller/commits-controller.js'
 import { createDiffFileHandler, createDiffFilesHandler } from './controller/diff-controller.js'
 import { mapDomainErrorToHttpResponse } from './controller/error-mapper.js'
 import { createRefsHandler } from './controller/refs-controller.js'
@@ -40,6 +41,7 @@ import {
   writeRegistrySync,
 } from './lifecycle/registry-io-node.js'
 import { createBlobService } from './service/blob-service.js'
+import { createCommitsService } from './service/commits-service.js'
 import { createDiffService } from './service/diff-service.js'
 import { createRefsService } from './service/refs-service.js'
 import { createTreeService } from './service/tree-service.js'
@@ -173,6 +175,7 @@ export async function start(options: StartOptions = {}): Promise<StartedServer> 
     },
   )
 
+  const commitsService = createCommitsService(git)
   const treeService = createTreeService(git, git)
 
   const worktreeLister = new WorktreeLister(repoRoot, (p) => stat(p))
@@ -186,6 +189,7 @@ export async function start(options: StartOptions = {}): Promise<StartedServer> 
     { method: 'GET', path: '/api/blob', handler: createBlobHandler(blobService) },
     { method: 'GET', path: '/api/blob/raw', handler: createBlobRawHandler(rawBlobReader) },
     { method: 'GET', path: '/api/tree', handler: createTreeHandler(treeService) },
+    { method: 'GET', path: '/api/commits', handler: createCommitsHandler(commitsService) },
     { method: 'GET', path: '/api/worktree', handler: createWorktreeHandler(worktreeService) },
   ]
 
