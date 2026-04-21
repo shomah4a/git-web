@@ -219,6 +219,7 @@ onBeforeUnmount(() => {
         <thead>
           <tr>
             <th class="col-hash">SHA</th>
+            <th class="col-type">Type</th>
             <th class="col-message">Message</th>
             <th class="col-author">Author</th>
             <th class="col-date">Date</th>
@@ -230,6 +231,8 @@ onBeforeUnmount(() => {
           <tr v-for="commit in commits" :key="commit.hash">
             <td class="col-hash">
               <code>{{ shortHash(commit.hash) }}</code>
+            </td>
+            <td class="col-type">
               <span v-if="commit.parentCount >= 2" class="merge-badge">merge</span>
             </td>
             <td class="col-message">
@@ -333,9 +336,12 @@ onBeforeUnmount(() => {
   font-family: var(--font-mono);
   font-size: 0.8rem;
 }
+.col-type {
+  white-space: nowrap;
+  text-align: center;
+}
 .merge-badge {
   display: inline-block;
-  margin-left: 0.3rem;
   padding: 0.05rem 0.3rem;
   font-size: 0.65rem;
   border: 1px solid var(--color-border);
