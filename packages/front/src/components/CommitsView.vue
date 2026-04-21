@@ -119,16 +119,26 @@ async function loadMore(): Promise<void> {
   }
 }
 
-function onRevisionSubmit(rev: string): void {
-  currentRev.value = rev
+function syncUrl(): void {
   const query: Record<string, string> = {}
-  if (rev !== 'HEAD') {
-    query.rev = rev
+  if (currentRev.value !== 'HEAD') {
+    query.rev = currentRev.value
   }
   if (currentPath.value !== null) {
     query.path = currentPath.value
   }
   void router.push({ path: '/commits', query })
+}
+
+function onRevisionSubmit(): void {
+  syncUrl()
+  void loadCommits(currentRev.value, currentPath.value)
+}
+
+function onApply(): void {
+  if (loading.value) return
+  syncUrl()
+  void loadCommits(currentRev.value, currentPath.value)
 }
 
 /**
@@ -180,17 +190,15 @@ onBeforeUnmount(() => {
   <div class="commits-view">
     <Teleport to="#page-header-slot">
       <div class="commits-header">
-        <label class="rev-label">
-          Revision
-          <RevisionCombobox
-            :model-value="currentRev"
-            :initial-refs="initialRefs"
-            :allow-worktree="false"
-            placeholder="HEAD"
-            @update:model-value="currentRev = $event"
-            @submit="onRevisionSubmit"
-          />
-        </label>
+        <RevisionCombobox
+          :model-value="currentRev"
+          :initial-refs="initialRefs"
+          :allow-worktree="false"
+          placeholder="rev"
+          @update:model-value="currentRev = $event"
+          @submit="onRevisionSubmit"
+        />
+        <button class="apply-btn" :disabled="loading" @click="onApply">適用</button>
       </div>
     </Teleport>
 
@@ -261,15 +269,20 @@ onBeforeUnmount(() => {
 .commits-header {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 0.5rem;
   padding: 0.5rem 0;
 }
-.rev-label {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.85rem;
-  color: var(--color-fg-muted);
+.apply-btn {
+  padding: 0.3rem 0.8rem;
+  background: var(--color-input-bg);
+  color: var(--color-fg);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.apply-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 .path-filter {
   font-size: 0.85rem;
