@@ -13,10 +13,10 @@ import type { CommitEntry, CommitStats } from '../../domain/commit.js'
 /**
  * git log に渡す --format 文字列。
  *
- * フィールド順: hash / authorName / authorEmail / date(ISO) / subject / body
+ * フィールド順: hash / parentHashes / authorName / authorEmail / date(ISO) / subject / body
  * 末尾の %x01 は body 後のセパレータとして、numstat 行との分離に使う。
  */
-export const LOG_FORMAT = '%x00%H%x01%an%x01%ae%x01%aI%x01%s%x01%b%x01'
+export const LOG_FORMAT = '%x00%H%x01%P%x01%an%x01%ae%x01%aI%x01%s%x01%b%x01'
 
 /**
  * git log の stdout をパースして CommitEntry の配列を返す。
@@ -48,27 +48,29 @@ export function parseLogOutput(stdout: string): ReadonlyArray<CommitEntry> {
  * 1 レコード (NUL 区切りの 1 ブロック) をパースする。
  *
  * レコード構造:
- *   <hash>\x01<authorName>\x01<authorEmail>\x01<date>\x01<subject>\x01<body>\x01
+ *   <hash>\x01<parentHashes>\x01<authorName>\x01<authorEmail>\x01<date>\x01<subject>\x01<body>\x01
  *   <numstat lines (改行区切り)>
  */
 function parseRecord(record: string): CommitEntry | null {
   // SOH でフィールド分割
   const parts = record.split('\x01')
-  if (parts.length < 7) {
+  if (parts.length < 8) {
     return null
   }
 
   const hash = parts[0]?.trim()
-  const authorName = parts[1]
-  const authorEmail = parts[2]
-  const date = parts[3]
-  const subject = parts[4]
-  const body = parts[5]?.trim()
-  // parts[6] 以降は末尾 SOH の後ろ — numstat 行が入る
-  const numstatRaw = parts[6]
+  const parentHashesRaw = parts[1]
+  const authorName = parts[2]
+  const authorEmail = parts[3]
+  const date = parts[4]
+  const subject = parts[5]
+  const body = parts[6]?.trim()
+  // parts[7] 以降は末尾 SOH の後ろ — numstat 行が入る
+  const numstatRaw = parts[7]
 
   if (
     hash === undefined ||
+    parentHashesRaw === undefined ||
     authorName === undefined ||
     authorEmail === undefined ||
     date === undefined ||
@@ -79,10 +81,12 @@ function parseRecord(record: string): CommitEntry | null {
     return null
   }
 
+  const parentCount = parentHashesRaw === '' ? 0 : parentHashesRaw.split(' ').length
   const stats = parseNumstatBlock(numstatRaw)
 
   return {
     hash,
+    parentCount,
     authorName,
     authorEmail,
     date,

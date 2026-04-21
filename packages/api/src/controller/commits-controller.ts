@@ -94,6 +94,7 @@ function toCommitStatsDto(stats: CommitStats): CommitStatsDto {
 function toCommitDto(entry: CommitEntry): CommitDto {
   return {
     hash: entry.hash,
+    parentCount: entry.parentCount,
     authorName: entry.authorName,
     authorEmail: entry.authorEmail,
     date: entry.date,
