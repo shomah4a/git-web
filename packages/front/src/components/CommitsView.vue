@@ -52,18 +52,25 @@ function shortHash(hash: string): string {
 }
 
 /**
- * ISO 8601 日時を表示用に整形する。
+ * UNIX epoch 秒をブラウザのローカルタイムゾーンで整形する。
+ * タイムゾーンオフセットも末尾に付与する。
  */
-function formatDate(iso: string): string {
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleDateString('ja-JP', {
+function formatDate(epochSec: number): string {
+  const d = new Date(epochSec * 1000)
+  if (Number.isNaN(d.getTime())) return String(epochSec)
+  const dateStr = d.toLocaleDateString('ja-JP', {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
   })
+  const offset = -d.getTimezoneOffset()
+  const sign = offset >= 0 ? '+' : '-'
+  const absOffset = Math.abs(offset)
+  const hours = String(Math.floor(absOffset / 60)).padStart(2, '0')
+  const minutes = String(absOffset % 60).padStart(2, '0')
+  return `${dateStr} ${sign}${hours}${minutes}`
 }
 
 /**

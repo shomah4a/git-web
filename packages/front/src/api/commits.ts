@@ -64,7 +64,7 @@ function isCommitDto(value: unknown): value is CommitDto {
   if (!('parentCount' in value) || typeof value.parentCount !== 'number') return false
   if (!('authorName' in value) || typeof value.authorName !== 'string') return false
   if (!('authorEmail' in value) || typeof value.authorEmail !== 'string') return false
-  if (!('date' in value) || typeof value.date !== 'string') return false
+  if (!('date' in value) || typeof value.date !== 'number') return false
   if (!('subject' in value) || typeof value.subject !== 'string') return false
   if (!('body' in value) || typeof value.body !== 'string') return false
   if (!('stats' in value) || !isCommitStatsDto(value.stats)) return false

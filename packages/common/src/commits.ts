@@ -17,7 +17,8 @@ export type CommitDto = {
   readonly parentCount: number
   readonly authorName: string
   readonly authorEmail: string
-  readonly date: string
+  /** 著者日時 (UNIX epoch 秒)。 */
+  readonly date: number
   readonly subject: string
   readonly body: string
   readonly stats: CommitStatsDto

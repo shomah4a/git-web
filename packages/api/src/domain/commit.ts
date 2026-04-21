@@ -21,7 +21,8 @@ export type CommitEntry = {
   readonly parentCount: number
   readonly authorName: string
   readonly authorEmail: string
-  readonly date: string
+  /** 著者日時 (UNIX epoch 秒)。タイムゾーン独立。 */
+  readonly date: number
   readonly subject: string
   readonly body: string
   readonly stats: CommitStats

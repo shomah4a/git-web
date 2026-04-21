@@ -13,10 +13,10 @@ import type { CommitEntry, CommitStats } from '../../domain/commit.js'
 /**
  * git log に渡す --format 文字列。
  *
- * フィールド順: hash / parentHashes / authorName / authorEmail / date(ISO) / subject / body
+ * フィールド順: hash / parentHashes / authorName / authorEmail / date(UNIX epoch秒) / subject / body
  * 末尾の %x01 は body 後のセパレータとして、numstat 行との分離に使う。
  */
-export const LOG_FORMAT = '%x00%H%x01%P%x01%an%x01%ae%x01%aI%x01%s%x01%b%x01'
+export const LOG_FORMAT = '%x00%H%x01%P%x01%an%x01%ae%x01%at%x01%s%x01%b%x01'
 
 /**
  * git log の stdout をパースして CommitEntry の配列を返す。
@@ -62,7 +62,7 @@ function parseRecord(record: string): CommitEntry | null {
   const parentHashesRaw = parts[1]
   const authorName = parts[2]
   const authorEmail = parts[3]
-  const date = parts[4]
+  const dateRaw = parts[4]
   const subject = parts[5]
   const body = parts[6]?.trim()
   // parts[7] 以降は末尾 SOH の後ろ — numstat 行が入る
@@ -73,11 +73,16 @@ function parseRecord(record: string): CommitEntry | null {
     parentHashesRaw === undefined ||
     authorName === undefined ||
     authorEmail === undefined ||
-    date === undefined ||
+    dateRaw === undefined ||
     subject === undefined ||
     body === undefined ||
     numstatRaw === undefined
   ) {
+    return null
+  }
+
+  const date = Number.parseInt(dateRaw, 10)
+  if (Number.isNaN(date)) {
     return null
   }
 
