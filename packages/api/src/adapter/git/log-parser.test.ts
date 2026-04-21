@@ -14,6 +14,7 @@ describe('parseLogOutput', () => {
     expect(parseLogOutput(input)).toEqual([
       {
         hash: 'abc1234',
+        parentHashes: ['def5678'],
         parentCount: 1,
         authorName: 'Alice',
         authorEmail: 'alice@example.com',
@@ -62,6 +63,7 @@ describe('parseLogOutput', () => {
     expect(parseLogOutput(input)).toEqual([
       {
         hash: 'aaa1111',
+        parentHashes: ['parent1'],
         parentCount: 1,
         authorName: 'Alice',
         authorEmail: 'alice@example.com',
@@ -72,6 +74,7 @@ describe('parseLogOutput', () => {
       },
       {
         hash: 'bbb2222',
+        parentHashes: ['parent2'],
         parentCount: 1,
         authorName: 'Bob',
         authorEmail: 'bob@example.com',
@@ -105,6 +108,7 @@ describe('parseLogOutput', () => {
 
     expect(parseLogOutput(input)).toEqual([
       expect.objectContaining({
+        parentHashes: ['parent1', 'parent2'],
         parentCount: 2,
         stats: { filesChanged: 0, insertions: 0, deletions: 0 },
       }),
@@ -116,6 +120,7 @@ describe('parseLogOutput', () => {
 
     expect(parseLogOutput(input)).toEqual([
       expect.objectContaining({
+        parentHashes: [],
         parentCount: 0,
       }),
     ])

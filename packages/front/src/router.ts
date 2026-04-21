@@ -1,5 +1,5 @@
 /**
- * Vue Router 設定 (ADR 0022, ADR 0023, ADR 0028, ADR 0038, ADR 0046)。
+ * Vue Router 設定 (ADR 0022, ADR 0023, ADR 0028, ADR 0038, ADR 0046, ADR 0047)。
  *
  * - history mode を使用 (createWebHistory)
  * - 各画面は lazy import で code split する
@@ -34,6 +34,11 @@ const router = createRouter({
       path: '/commits',
       name: 'commits',
       component: () => import('./components/CommitsView.vue'),
+    },
+    {
+      path: '/graph',
+      name: 'graph',
+      component: () => import('./components/GraphView.vue'),
     },
     {
       path: '/diff',

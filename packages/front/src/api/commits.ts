@@ -61,6 +61,12 @@ function isCommitStatsDto(value: unknown): value is CommitStatsDto {
 function isCommitDto(value: unknown): value is CommitDto {
   if (typeof value !== 'object' || value === null) return false
   if (!('hash' in value) || typeof value.hash !== 'string') return false
+  if (
+    !('parentHashes' in value) ||
+    !Array.isArray(value.parentHashes) ||
+    !value.parentHashes.every((h: unknown) => typeof h === 'string')
+  )
+    return false
   if (!('parentCount' in value) || typeof value.parentCount !== 'number') return false
   if (!('authorName' in value) || typeof value.authorName !== 'string') return false
   if (!('authorEmail' in value) || typeof value.authorEmail !== 'string') return false
