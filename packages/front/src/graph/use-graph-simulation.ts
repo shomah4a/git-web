@@ -24,11 +24,10 @@ type SimEdge = SimulationLinkDatum<SimNode>
 
 // ---------- 定数 ----------
 
-const Y_SPACING = 80
-const MAIN_STREAM_X_STRENGTH = 0.8
-const BRANCH_X_STRENGTH = 0.1
-const LINK_DISTANCE = 80
-const MANY_BODY_STRENGTH = -100
+const Y_SPACING = 120
+const BRANCH_X_STRENGTH = 0.15
+const LINK_DISTANCE = 100
+const MANY_BODY_STRENGTH = -200
 const ALPHA_DECAY = 0.05
 
 // ---------- composable ----------
@@ -128,8 +127,10 @@ export function useGraphSimulation(): GraphSimulation {
         radius: node.radius,
         isMainStream: node.isMainStream,
         rank,
-        x: prev?.x ?? (node.isMainStream ? 0 : 80 + Math.random() * 40),
+        x: prev?.x ?? (node.isMainStream ? 0 : 120 + Math.random() * 60),
         y: prev?.y ?? rank * Y_SPACING,
+        // メインストリームノードは X=0 に固定して整列させる
+        fx: node.isMainStream ? 0 : undefined,
       }
       nodeMap.set(node.id, sn)
       return sn
@@ -149,9 +150,7 @@ export function useGraphSimulation(): GraphSimulation {
       .force('y', forceY<SimNode>((d) => d.rank * Y_SPACING).strength(0.8))
       .force(
         'x',
-        forceX<SimNode>(0).strength((d) =>
-          d.isMainStream ? MAIN_STREAM_X_STRENGTH : BRANCH_X_STRENGTH,
-        ),
+        forceX<SimNode>(0).strength((d) => (d.isMainStream ? 0 : BRANCH_X_STRENGTH)),
       )
       .force(
         'link',
@@ -162,7 +161,7 @@ export function useGraphSimulation(): GraphSimulation {
       )
       .force(
         'collide',
-        forceCollide<SimNode>((d) => d.radius + 8),
+        forceCollide<SimNode>((d) => d.radius + 20),
       )
       .force('charge', forceManyBody<SimNode>().strength(MANY_BODY_STRENGTH))
       .on('tick', () => {
@@ -188,7 +187,8 @@ export function useGraphSimulation(): GraphSimulation {
   function unfixNode(id: string): void {
     const node = nodeMap.get(id)
     if (node !== undefined) {
-      node.fx = null
+      // メインストリームノードは X=0 固定を復元する
+      node.fx = node.isMainStream ? 0 : null
       node.fy = null
       simulation?.alpha(0.3).restart()
     }

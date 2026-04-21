@@ -185,35 +185,42 @@ function expandBranch(mergeHash: string): void {
 
 let dragTarget: SimNode | null = null
 
-function onNodePointerDown(event: PointerEvent, nodeId: string): void {
-  const node = simulation.simNodes.value.find((n) => n.id === nodeId)
-  if (node === undefined) return
-  dragTarget = node
-  simulation.fixNode(nodeId, node.x ?? 0, node.y ?? 0)
+function toGraphCoords(event: PointerEvent): { x: number; y: number } | null {
   const svgEl = svgRef.value
-  if (svgEl !== null) {
-    svgEl.setPointerCapture(event.pointerId)
-  }
-}
-
-function onSvgPointerMove(event: PointerEvent): void {
-  if (dragTarget === null || svgRef.value === null) return
-  const svgEl = svgRef.value
+  if (svgEl === null) return null
   const ctm = svgEl.getScreenCTM()
-  if (ctm === null) return
+  if (ctm === null) return null
   const t = viewport.transform.value
   const svgX = (event.clientX - ctm.e) / ctm.a
   const svgY = (event.clientY - ctm.f) / ctm.d
-  const graphX = (svgX - t.x) / t.k
-  const graphY = (svgY - t.y) / t.k
-  simulation.fixNode(dragTarget.id, graphX, graphY)
+  return { x: (svgX - t.x) / t.k, y: (svgY - t.y) / t.k }
 }
 
-function onSvgPointerUp(): void {
+function onDragMove(event: PointerEvent): void {
+  if (dragTarget === null) return
+  const coords = toGraphCoords(event)
+  if (coords !== null) {
+    simulation.fixNode(dragTarget.id, coords.x, coords.y)
+  }
+}
+
+function onDragEnd(): void {
   if (dragTarget !== null) {
     simulation.unfixNode(dragTarget.id)
     dragTarget = null
   }
+  window.removeEventListener('pointermove', onDragMove)
+  window.removeEventListener('pointerup', onDragEnd)
+}
+
+function onNodePointerDown(event: PointerEvent, nodeId: string): void {
+  const node = simulation.simNodes.value.find((n) => n.id === nodeId)
+  if (node === undefined) return
+  event.preventDefault()
+  dragTarget = node
+  simulation.fixNode(nodeId, node.x ?? 0, node.y ?? 0)
+  window.addEventListener('pointermove', onDragMove)
+  window.addEventListener('pointerup', onDragEnd)
 }
 
 // ---------- ノードクリック ----------
@@ -282,6 +289,9 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   isUnmounted = true
   viewport.detach()
+  // ドラッグ中にアンマウントされた場合のクリーンアップ
+  window.removeEventListener('pointermove', onDragMove)
+  window.removeEventListener('pointerup', onDragEnd)
 })
 </script>
 
@@ -305,13 +315,7 @@ onBeforeUnmount(() => {
     <p v-else-if="errorMessage !== null" class="status-message error">{{ errorMessage }}</p>
 
     <div v-else class="graph-container">
-      <svg
-        ref="svgRef"
-        class="graph-svg"
-        @pointermove="onSvgPointerMove"
-        @pointerup="onSvgPointerUp"
-        @pointercancel="onSvgPointerUp"
-      >
+      <svg ref="svgRef" class="graph-svg">
         <g
           :transform="`translate(${viewport.transform.value.x}, ${viewport.transform.value.y}) scale(${viewport.transform.value.k})`"
         >
@@ -461,6 +465,7 @@ onBeforeUnmount(() => {
   width: 100%;
   height: 100%;
   cursor: grab;
+  touch-action: none;
 }
 .graph-svg:active {
   cursor: grabbing;
