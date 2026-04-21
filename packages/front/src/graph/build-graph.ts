@@ -28,6 +28,8 @@ export type GraphNode = {
 export type GraphEdge = {
   readonly source: string
   readonly target: string
+  /** メインストリーム間のエッジかどうか */
+  readonly isMainStream: boolean
 }
 
 export type GraphData = {
@@ -122,7 +124,8 @@ export function buildGraph(
     // first-parent エッジ
     const firstParent = commit.parentHashes[0]
     if (firstParent !== undefined && byHash.has(firstParent)) {
-      edges.push({ source: commit.hash, target: firstParent })
+      const bothMainStream = mainStream.has(commit.hash) && mainStream.has(firstParent)
+      edges.push({ source: commit.hash, target: firstParent, isMainStream: bothMainStream })
     }
 
     // マージ枝の処理
@@ -133,7 +136,7 @@ export function buildGraph(
       if (expandedBranches.has(commit.hash)) {
         // 枝展開済み: エッジを追加 (ノードがデータ内に存在すれば)
         if (byHash.has(branchParent)) {
-          edges.push({ source: commit.hash, target: branchParent })
+          edges.push({ source: commit.hash, target: branchParent, isMainStream: false })
         }
       } else {
         // 枝折りたたみ: expand-branch 疑似ノードを配置
@@ -149,7 +152,7 @@ export function buildGraph(
             branchParentHash: branchParent,
             radius: PSEUDO_NODE_RADIUS,
           })
-          edges.push({ source: commit.hash, target: pseudoId })
+          edges.push({ source: commit.hash, target: pseudoId, isMainStream: false })
         }
       }
     }
@@ -169,7 +172,7 @@ export function buildGraph(
         branchParentHash: null,
         radius: PSEUDO_NODE_RADIUS,
       })
-      edges.push({ source: lastCommit.hash, target: readMoreId })
+      edges.push({ source: lastCommit.hash, target: readMoreId, isMainStream: false })
     }
   }
 

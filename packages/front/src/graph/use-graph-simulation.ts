@@ -20,7 +20,9 @@ export type SimNode = SimulationNodeDatum & {
   readonly rank: number
 }
 
-type SimEdge = SimulationLinkDatum<SimNode>
+type SimEdge = SimulationLinkDatum<SimNode> & {
+  readonly isMainStream: boolean
+}
 
 // ---------- 定数 ----------
 
@@ -168,7 +170,7 @@ export function useGraphSimulation(): GraphSimulation {
       const src = nodeMap.get(e.source)
       const tgt = nodeMap.get(e.target)
       if (src !== undefined && tgt !== undefined) {
-        simEdges.push({ source: src, target: tgt })
+        simEdges.push({ source: src, target: tgt, isMainStream: e.isMainStream })
       }
     }
 
@@ -183,8 +185,8 @@ export function useGraphSimulation(): GraphSimulation {
         'link',
         forceLink<SimNode, SimEdge>(simEdges)
           .id((d) => d.id)
-          .distance(LINK_DISTANCE)
-          .strength(0.5),
+          .distance((d) => (d.isMainStream ? LINK_DISTANCE : LINK_DISTANCE * 0.4))
+          .strength((d) => (d.isMainStream ? 0.5 : 0.8)),
       )
       .force(
         'collide',

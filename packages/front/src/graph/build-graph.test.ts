@@ -102,8 +102,8 @@ describe('buildGraph', () => {
     expect(result.nodes.every((n) => n.isMainStream)).toBe(true)
 
     expect(result.edges).toEqual([
-      { source: 'a', target: 'b' },
-      { source: 'b', target: 'c' },
+      { source: 'a', target: 'b', isMainStream: true },
+      { source: 'b', target: 'c', isMainStream: true },
     ])
   })
 
@@ -137,10 +137,14 @@ describe('buildGraph', () => {
     expect(expandNode?.branchParentHash).toBe('x')
 
     // first-parent エッジ + expand-branch エッジ
-    expect(result.edges).toContainEqual({ source: 'a', target: 'b' })
-    expect(result.edges).toContainEqual({ source: 'a', target: 'expand:a:x' })
+    expect(result.edges).toContainEqual({ source: 'a', target: 'b', isMainStream: true })
+    expect(result.edges).toContainEqual({
+      source: 'a',
+      target: 'expand:a:x',
+      isMainStream: false,
+    })
     // x へのエッジは折りたたまれているので存在しない
-    expect(result.edges).not.toContainEqual({ source: 'a', target: 'x' })
+    expect(result.edges.find((e) => e.source === 'a' && e.target === 'x')).toBeUndefined()
   })
 
   it('展開済みのマージ枝は expand-branch ではなく直接エッジになる', () => {
@@ -154,8 +158,8 @@ describe('buildGraph', () => {
     const expandNode = result.nodes.find((n) => n.kind === 'expand-branch')
     expect(expandNode).toBeUndefined()
 
-    expect(result.edges).toContainEqual({ source: 'a', target: 'b' })
-    expect(result.edges).toContainEqual({ source: 'a', target: 'x' })
+    expect(result.edges).toContainEqual({ source: 'a', target: 'b', isMainStream: true })
+    expect(result.edges).toContainEqual({ source: 'a', target: 'x', isMainStream: false })
   })
 
   it('ルートコミットはエッジを持たない', () => {
