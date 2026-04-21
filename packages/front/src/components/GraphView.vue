@@ -277,7 +277,7 @@ watch(
 
 onMounted(async () => {
   if (svgRef.value !== null) {
-    viewport.attach(svgRef.value)
+    viewport.initTransform(svgRef.value)
   }
 
   const [refsResult] = await Promise.all([fetchRefs(''), loadCommits(currentRev.value)])
@@ -288,7 +288,6 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   isUnmounted = true
-  viewport.detach()
   // ドラッグ中にアンマウントされた場合のクリーンアップ
   window.removeEventListener('pointermove', onDragMove)
   window.removeEventListener('pointerup', onDragEnd)
@@ -315,7 +314,12 @@ onBeforeUnmount(() => {
     <p v-else-if="errorMessage !== null" class="status-message error">{{ errorMessage }}</p>
 
     <div v-else class="graph-container">
-      <svg ref="svgRef" class="graph-svg">
+      <svg
+        ref="svgRef"
+        class="graph-svg"
+        @wheel.prevent="viewport.onWheel"
+        @pointerdown="viewport.onPointerDown"
+      >
         <!-- イベント受信用の背景 (透明だがポインタイベントを受け取る) -->
         <rect width="100%" height="100%" fill="transparent" />
         <g

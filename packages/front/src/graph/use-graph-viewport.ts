@@ -1,14 +1,13 @@
 /**
  * SVG のパン・ズーム制御 composable (ADR 0047)。
  *
- * d3-zoom を使い、背景ドラッグでパン、ホイールでズームを実現する。
- * transform 状態を ref で保持し、Vue テンプレートで <g> の transform に適用する。
+ * d3-zoom を使わず自前で実装する。
+ * - 背景ドラッグでパン
+ * - ホイールでズーム (ポインタ位置を中心にスケール)
+ * - transform 状態を ref で保持し、Vue テンプレートで <g> の transform に適用
  */
 
 import type { Ref } from 'vue'
-import type { D3ZoomEvent, ZoomBehavior } from 'd3-zoom'
-import { zoom, zoomIdentity } from 'd3-zoom'
-import { select } from 'd3-selection'
 import { ref } from 'vue'
 
 export type ViewportTransform = {
@@ -20,49 +19,72 @@ export type ViewportTransform = {
 export type GraphViewport = {
   /** 現在の transform (x, y, k) */
   readonly transform: Ref<ViewportTransform>
-  /** SVG 要素に d3-zoom をアタッチする。onMounted で呼ぶ。 */
-  readonly attach: (svgElement: SVGSVGElement) => void
-  /** d3-zoom をデタッチする。onBeforeUnmount で呼ぶ。 */
-  readonly detach: () => void
+  /** ホイールイベントハンドラ (テンプレートから呼ぶ) */
+  readonly onWheel: (event: WheelEvent) => void
+  /** ポインタダウンハンドラ (テンプレートから呼ぶ) */
+  readonly onPointerDown: (event: PointerEvent) => void
+  /** 初期 transform を設定する。onMounted で呼ぶ。 */
+  readonly initTransform: (svgElement: SVGSVGElement) => void
 }
 
 const MIN_ZOOM = 0.1
 const MAX_ZOOM = 3
+const ZOOM_SENSITIVITY = 0.002
 
 export function useGraphViewport(): GraphViewport {
   const transform = ref<ViewportTransform>({ x: 0, y: 0, k: 1 })
-  let zoomBehavior: ZoomBehavior<SVGSVGElement, unknown> | null = null
-  let svgEl: SVGSVGElement | null = null
 
-  function attach(svgElement: SVGSVGElement): void {
-    svgEl = svgElement
-
-    zoomBehavior = zoom<SVGSVGElement, unknown>()
-      .scaleExtent([MIN_ZOOM, MAX_ZOOM])
-      .on('zoom', (event: D3ZoomEvent<SVGSVGElement, unknown>) => {
-        transform.value = {
-          x: event.transform.x,
-          y: event.transform.y,
-          k: event.transform.k,
-        }
-      })
-
-    const zb = zoomBehavior
-    select(svgElement).call(zb)
-
-    // 初期 transform を適用 (中央寄せのため少しオフセット)
+  function initTransform(svgElement: SVGSVGElement): void {
     const rect = svgElement.getBoundingClientRect()
-    const initialTransform = zoomIdentity.translate(rect.width / 2, 60)
-    select(svgElement).call(zb.transform.bind(zb), initialTransform)
+    transform.value = { x: rect.width / 2, y: 60, k: 1 }
   }
 
-  function detach(): void {
-    if (svgEl !== null) {
-      select(svgEl).on('.zoom', null)
+  function onWheel(event: WheelEvent): void {
+    event.preventDefault()
+
+    const t = transform.value
+    // deltaY > 0 → ズームアウト, deltaY < 0 → ズームイン
+    const factor = 1 - event.deltaY * ZOOM_SENSITIVITY
+    const newK = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, t.k * factor))
+
+    // ポインタ位置を中心にスケール
+    const svgEl = event.currentTarget
+    if (!(svgEl instanceof SVGSVGElement)) return
+    const rect = svgEl.getBoundingClientRect()
+    const pointerX = event.clientX - rect.left
+    const pointerY = event.clientY - rect.top
+
+    // ポインタ位置のグラフ座標を維持する変換
+    const newX = pointerX - (pointerX - t.x) * (newK / t.k)
+    const newY = pointerY - (pointerY - t.y) * (newK / t.k)
+
+    transform.value = { x: newX, y: newY, k: newK }
+  }
+
+  function onPointerDown(event: PointerEvent): void {
+    // ノードのクリックは stopPropagation されるので、ここに来るのは背景クリックのみ
+    const startX = event.clientX
+    const startY = event.clientY
+    const startTransform = transform.value
+
+    function onMove(e: PointerEvent): void {
+      const dx = e.clientX - startX
+      const dy = e.clientY - startY
+      transform.value = {
+        x: startTransform.x + dx,
+        y: startTransform.y + dy,
+        k: startTransform.k,
+      }
     }
-    zoomBehavior = null
-    svgEl = null
+
+    function onUp(): void {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+    }
+
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
   }
 
-  return { transform, attach, detach }
+  return { transform, onWheel, onPointerDown, initTransform }
 }
