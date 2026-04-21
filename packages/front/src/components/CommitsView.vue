@@ -316,10 +316,16 @@ onBeforeUnmount(() => {
   border-collapse: collapse;
   font-size: 0.85rem;
 }
+.commits-table thead {
+  position: sticky;
+  top: var(--header-height, 0px);
+  z-index: 10;
+}
 .commits-table th {
   text-align: left;
   padding: 0.4rem 0.6rem;
   border-bottom: 2px solid var(--color-border);
+  background: var(--color-bg);
   color: var(--color-fg-muted);
   font-weight: 600;
   white-space: nowrap;
