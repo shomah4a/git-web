@@ -106,6 +106,14 @@ function truncateSubject(subject: string, maxLen: number): string {
   return subject.length > maxLen ? subject.slice(0, maxLen) + '...' : subject
 }
 
+/**
+ * simNode.id からノード情報を安全に取得するヘルパー。
+ */
+function nodeStatsText(nodeId: string): string {
+  const c = graphNodeMap.value.get(nodeId)?.commit
+  return c !== undefined && c !== null ? statsText(c) : ''
+}
+
 // ---------- 選択ノードの詳細 ----------
 
 const selectedCommit = computed<CommitDto | null>(() => {
@@ -349,7 +357,17 @@ onBeforeUnmount(() => {
           >
             <!-- commit ノード -->
             <template v-if="graphNodeMap.get(simNode.id)?.kind === 'commit'">
-              <circle :r="simNode.radius" class="node-circle" />
+              <!-- 通常コミット: 単一の円 -->
+              <circle
+                v-if="(graphNodeMap.get(simNode.id)?.commit?.parentCount ?? 0) < 2"
+                :r="simNode.radius"
+                class="node-circle"
+              />
+              <!-- マージコミット: 二重丸 (合流を表現) -->
+              <template v-else>
+                <circle :r="simNode.radius" class="node-circle node-circle--merge" />
+                <circle :r="simNode.radius - 4" class="node-circle-inner" />
+              </template>
               <text class="node-subject" :y="-simNode.radius - 6" text-anchor="middle">
                 {{ truncateSubject(graphNodeMap.get(simNode.id)?.commit?.subject ?? '', 24) }}
               </text>
@@ -360,7 +378,7 @@ onBeforeUnmount(() => {
                 {{ formatDate(graphNodeMap.get(simNode.id)?.commit?.date ?? 0) }}
               </text>
               <text class="node-stats" :y="simNode.radius + 26" text-anchor="middle">
-                {{ statsText(graphNodeMap.get(simNode.id)?.commit!) }}
+                {{ nodeStatsText(simNode.id) }}
               </text>
               <!-- マージコミットで未展開の枝がある場合のバッジ -->
               <g
@@ -496,6 +514,17 @@ onBeforeUnmount(() => {
 .graph-node--mainstream .node-circle {
   stroke: var(--color-fg-muted);
   stroke-width: 2.5;
+}
+.node-circle--merge {
+  stroke-width: 3;
+}
+.node-circle-inner {
+  fill: none;
+  stroke: var(--color-border);
+  stroke-width: 1.5;
+}
+.graph-node--mainstream .node-circle-inner {
+  stroke: var(--color-fg-muted);
 }
 .graph-node--selected .node-circle {
   stroke: var(--color-fg);

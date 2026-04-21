@@ -24,10 +24,10 @@ type SimEdge = SimulationLinkDatum<SimNode>
 
 // ---------- 定数 ----------
 
-const Y_SPACING = 120
+const Y_SPACING = 160
 const BRANCH_X_STRENGTH = 0.15
-const LINK_DISTANCE = 100
-const MANY_BODY_STRENGTH = -200
+const LINK_DISTANCE = 120
+const MANY_BODY_STRENGTH = -300
 const ALPHA_DECAY = 0.05
 
 // ---------- composable ----------
@@ -127,7 +127,7 @@ export function useGraphSimulation(): GraphSimulation {
         radius: node.radius,
         isMainStream: node.isMainStream,
         rank,
-        x: prev?.x ?? (node.isMainStream ? 0 : 120 + Math.random() * 60),
+        x: prev?.x ?? (node.isMainStream ? 0 : 160 + Math.random() * 80),
         y: prev?.y ?? rank * Y_SPACING,
         // メインストリームノードは X=0 に固定して整列させる
         fx: node.isMainStream ? 0 : undefined,
@@ -161,7 +161,7 @@ export function useGraphSimulation(): GraphSimulation {
       )
       .force(
         'collide',
-        forceCollide<SimNode>((d) => d.radius + 20),
+        forceCollide<SimNode>((d) => d.radius + 30),
       )
       .force('charge', forceManyBody<SimNode>().strength(MANY_BODY_STRENGTH))
       .on('tick', () => {
