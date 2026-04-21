@@ -7,7 +7,8 @@ describe('parseLogOutput', () => {
   })
 
   it('numstat なしの単一コミットをパースできる', () => {
-    const input = '\0abc1234\x01Alice\x01alice@example.com\x012026-04-21T10:00:00+09:00\x01initial commit\x01\x01'
+    const input =
+      '\0abc1234\x01Alice\x01alice@example.com\x012026-04-21T10:00:00+09:00\x01initial commit\x01\x01'
 
     expect(parseLogOutput(input)).toEqual([
       {

@@ -162,13 +162,7 @@ export class CliGitClient
 
   async log(query: LogQuery): Promise<LogResult> {
     const fetchCount = query.limit + 1
-    const args = [
-      'log',
-      `--format=${LOG_FORMAT}`,
-      '--numstat',
-      `-n`,
-      fetchCount.toString(),
-    ]
+    const args = ['log', `--format=${LOG_FORMAT}`, '--numstat', `-n`, fetchCount.toString()]
 
     if (query.after !== null) {
       args.push(`${query.after}^`)
