@@ -204,7 +204,7 @@ export function useGraphSimulation(): GraphSimulation {
         while (!visited.has(current)) {
           visited.add(current)
           const gn = graphNodeById.get(current)
-          if (gn === undefined || gn.isMainStream) {
+          if (gn === undefined || gn.isMainStream || gn.kind !== 'commit') {
             forkPointRank = ranks.get(current) ?? forkPointRank
             break
           }
@@ -239,6 +239,21 @@ export function useGraphSimulation(): GraphSimulation {
       branchGroupIndex++
     }
 
+    // expand-branch 疑似ノードの位置を親マージコミット基準で計算
+    const expandPositions = new Map<string, { x: number; y: number }>()
+    let expandIndex = 0
+    for (const node of nodes) {
+      if (node.kind !== 'expand-branch' || node.mergeCommitHash === null) continue
+      const parentPos = mainStreamPositions.get(node.mergeCommitHash)
+      if (parentPos !== undefined) {
+        expandPositions.set(node.id, {
+          x: ARC_X_OFFSET * 0.5 * (expandIndex + 1),
+          y: parentPos.y + Y_SPACING * 0.4,
+        })
+        expandIndex++
+      }
+    }
+
     // 全ノードの SimNode を構築
     // 幾何レイアウトなので常に計算座標を使う (追加読み込み時のリロケーション対応)
     const simNodeArray: SimNode[] = nodes.map((node) => {
@@ -252,12 +267,16 @@ export function useGraphSimulation(): GraphSimulation {
         baseY = rank * Y_SPACING
       } else {
         const branchPos = branchPositions.get(node.id)
+        const expandPos = expandPositions.get(node.id)
         if (branchPos !== undefined) {
           baseX = branchPos.x
           baseY = branchPos.y
+        } else if (expandPos !== undefined) {
+          // expand-branch: 親マージコミットの横下にオフセット配置
+          baseX = expandPos.x
+          baseY = expandPos.y
         } else {
-          // ブランチ位置が特定できないノード (expand-branch 疑似ノード等)
-          // 親 (マージコミット) の横に配置
+          // その他の非メインストリームノード
           baseX = ARC_X_OFFSET * 0.5
           baseY = rank * Y_SPACING
         }

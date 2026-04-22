@@ -147,4 +147,57 @@ describe('useGraphSimulation', () => {
       }
     })
   })
+
+  describe('expand-branch 疑似ノード配置', () => {
+    it('expand ノードは親マージコミットと read-more の間に配置され重ならない', () => {
+      // main: merge -> base, branch collapsed
+      const nodes: GraphNode[] = [
+        makeNode('merge', true, makeCommit({ hash: 'merge', parentHashes: ['base', 'b1'] })),
+        makeNode('base', true, makeCommit({ hash: 'base', parentHashes: [] })),
+        {
+          id: 'expand:merge:b1',
+          kind: 'expand-branch',
+          commit: null,
+          isMainStream: false,
+          mergeCommitHash: 'merge',
+          branchParentHash: 'b1',
+          radius: 14,
+        },
+        {
+          id: 'read-more',
+          kind: 'read-more',
+          commit: null,
+          isMainStream: true,
+          mergeCommitHash: null,
+          branchParentHash: null,
+          radius: 14,
+        },
+      ]
+      const edges: GraphEdge[] = [
+        { source: 'merge', target: 'base', isMainStream: true },
+        { source: 'merge', target: 'expand:merge:b1', isMainStream: false },
+        { source: 'base', target: 'read-more', isMainStream: true },
+      ]
+
+      const sim = useGraphSimulation()
+      sim.update(nodes, edges, defaultViewport)
+
+      const expandNode = sim.simNodes.value.find((n) => n.id === 'expand:merge:b1')
+      const readMoreNode = sim.simNodes.value.find((n) => n.id === 'read-more')
+      const mergeNode = sim.simNodes.value.find((n) => n.id === 'merge')
+      const baseNode = sim.simNodes.value.find((n) => n.id === 'base')
+
+      // expand はマージコミットの右横（X > 0）に配置
+      expect(expandNode?.baseX).toBeGreaterThan(0)
+
+      // expand と read-more の Y 座標が異なる
+      expect(expandNode?.baseY).not.toBe(readMoreNode?.baseY)
+
+      // expand の Y はマージと base の間にある
+      const mergeY = mergeNode?.baseY ?? 0
+      const baseY = baseNode?.baseY ?? 0
+      expect(expandNode?.baseY).toBeGreaterThan(mergeY)
+      expect(expandNode?.baseY).toBeLessThan(baseY)
+    })
+  })
 })
