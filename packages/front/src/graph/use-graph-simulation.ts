@@ -113,24 +113,42 @@ export function useGraphSimulation(): GraphSimulation {
   }
 
   /**
-   * ブランチノードのX座標を弧状に計算する。
+   * ブランチノードを円周上に配置する座標を返す。
    *
-   * マージコミットの rank を topRank、分岐点 (first-parent の合流先) の rank を
-   * bottomRank として、ブランチノードの rank が topRank〜bottomRank の区間で
-   * sin カーブの弧を描く。
+   * merge と fork を円周の上端・下端とし、ブランチノードを右側の円弧上に
+   * 等間隔配置する。merge/fork 自体も円周上の点であり、接続が自然に見える。
    *
-   * branchIndex: 同じマージコミットに複数ブランチがある場合の番号 (0, 1, ...)
+   * 円の中心は merge と fork の中点から左に半径分ずれた位置。
+   * merge (角度 -π/2 = 上) から fork (角度 π/2 = 下) へ右回り。
+   *
+   * @param index ブランチパス内のインデックス (0-based)
+   * @param count ブランチパスのノード総数
+   * @param mergeY マージコミットの Y 座標
+   * @param forkY フォークポイントの Y 座標
+   * @param branchIndex 同一マージの複数ブランチ番号 (0, 1, ...)
    */
-  function arcX(
-    nodeRank: number,
-    topRank: number,
-    bottomRank: number,
+  /** ブランチノード間の最低弧長 (px) */
+  const MIN_ARC_SPACING = 60
+
+  function branchCirclePosition(
+    index: number,
+    count: number,
+    mergeY: number,
+    forkY: number,
     branchIndex: number,
-  ): number {
-    const span = bottomRank - topRank
-    if (span <= 0) return ARC_X_OFFSET * (branchIndex + 1)
-    const t = (nodeRank - topRank) / span
-    return Math.sin(Math.PI * t) * ARC_X_OFFSET * (branchIndex + 1)
+  ): { x: number; y: number } {
+    // 半円の弧長がノード数 × 最低間隔を満たすよう半径を決める
+    // 半円の弧長 = π * r なので r = (count + 1) * MIN_ARC_SPACING / π
+    const halfSpan = (forkY - mergeY) / 2
+    const radiusBySpacing = ((count + 1) * MIN_ARC_SPACING) / Math.PI
+    const radius = Math.max(halfSpan, radiusBySpacing)
+    const centerY = mergeY + halfSpan
+
+    // 角度: merge (-π/2) → fork (π/2) の右半円を等間隔に分割
+    const angle = -Math.PI / 2 + (Math.PI * (index + 1)) / (count + 1)
+    const x = Math.cos(angle) * radius * (branchIndex + 1)
+    const y = centerY + Math.sin(angle) * radius
+    return { x, y }
   }
 
   function update(
@@ -191,49 +209,43 @@ export function useGraphSimulation(): GraphSimulation {
     let branchGroupIndex = 0
 
     for (const [mergeHash, branchRoots] of branchNodeSets) {
-      const mergeRank = ranks.get(mergeHash) ?? 0
-
       for (const branchRootId of branchRoots) {
         // ブランチルートから辿って、ブランチ内の全ノードを収集する
         const branchPath: string[] = []
         let current = branchRootId
         const visited = new Set<string>()
-        let forkPointRank = ranks.get(branchRootId) ?? mergeRank + 1
-        let maxBranchRank = forkPointRank
+        let forkPointId: string | null = null
 
         while (!visited.has(current)) {
           visited.add(current)
           const gn = graphNodeById.get(current)
           if (gn === undefined || gn.isMainStream || gn.kind !== 'commit') {
-            forkPointRank = ranks.get(current) ?? forkPointRank
+            if (gn !== undefined && gn.isMainStream) {
+              forkPointId = current
+            }
             break
           }
           branchPath.push(current)
-          const nodeRank = ranks.get(current) ?? mergeRank + 1
-          if (nodeRank > maxBranchRank) {
-            maxBranchRank = nodeRank
-          }
           // 子→親のエッジを探す
           const outEdge = edges.find((e) => e.source === current)
           if (outEdge !== undefined) {
             current = outEdge.target
           } else {
-            forkPointRank = ranks.get(current) ?? forkPointRank
             break
           }
         }
 
-        // fork point の rank が BFS 最短経路で低い場合、ブランチパスの
-        // 最大 rank を使って弧の範囲がノード全体をカバーするようにする
-        // (ADR 0048)
-        const bottomRank = Math.max(forkPointRank, maxBranchRank)
+        // merge と fork の Y 座標を取得
+        const mergeY = mainStreamPositions.get(mergeHash)?.y ?? 0
+        const forkPos = forkPointId !== null ? mainStreamPositions.get(forkPointId) : undefined
+        const forkY = forkPos !== undefined ? forkPos.y : mergeY + Y_SPACING
 
-        // ブラン��パス上の全ノードを弧上に配置
-        for (const nodeId of branchPath) {
-          const nodeRank = ranks.get(nodeId) ?? mergeRank + 1
-          const bx = arcX(nodeRank, mergeRank, bottomRank, branchGroupIndex)
-          const by = nodeRank * Y_SPACING
-          branchPositions.set(nodeId, { x: bx, y: by })
+        // ブランチパス上の全ノードを円周上に配置
+        for (let i = 0; i < branchPath.length; i++) {
+          const nodeId = branchPath[i]
+          if (nodeId === undefined) continue
+          const pos = branchCirclePosition(i, branchPath.length, mergeY, forkY, branchGroupIndex)
+          branchPositions.set(nodeId, pos)
         }
       }
       branchGroupIndex++
