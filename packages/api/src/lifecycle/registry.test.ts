@@ -1,11 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { InstanceEntry, LivenessChecks, Logger, Registry } from './registry.js'
 import {
+  collectUsedPorts,
   EMPTY_REGISTRY,
   isEntryLive,
   loadRegistry,
-  pruneStale,
-  removeEntry,
   saveRegistry,
   upsertEntry,
   withRegistryLock,
@@ -163,8 +162,8 @@ describe('withRegistryLock', () => {
   })
 })
 
-describe('upsertEntry / removeEntry', () => {
-  it('upsertEntry は既存レジストリをそのまま mutate しない', () => {
+describe('upsertEntry', () => {
+  it('既存レジストリをそのまま mutate しない', () => {
     const original: Registry = { version: 1, instances: { '/repo/a': makeEntry() } }
     const entry = makeEntry({ port: 99 })
 
@@ -175,7 +174,7 @@ describe('upsertEntry / removeEntry', () => {
     expect(next.instances['/repo/a']).toEqual(original.instances['/repo/a'])
   })
 
-  it('upsertEntry は既存キーの値を上書きする', () => {
+  it('既存キーの値を上書きする', () => {
     const old = makeEntry({ port: 1 })
     const fresh = makeEntry({ port: 2 })
     const original: Registry = { version: 1, instances: { '/repo/a': old } }
@@ -183,26 +182,6 @@ describe('upsertEntry / removeEntry', () => {
     const next = upsertEntry(original, '/repo/a', fresh)
 
     expect(next.instances['/repo/a']).toEqual(fresh)
-  })
-
-  it('removeEntry は対象キーを除去する', () => {
-    const original: Registry = {
-      version: 1,
-      instances: { '/repo/a': makeEntry(), '/repo/b': makeEntry() },
-    }
-
-    const next = removeEntry(original, '/repo/a')
-
-    expect(next.instances['/repo/a']).toBeUndefined()
-    expect(next.instances['/repo/b']).toBeDefined()
-  })
-
-  it('removeEntry は存在しないキー指定で同じインスタンスを返す', () => {
-    const original: Registry = { version: 1, instances: { '/repo/a': makeEntry() } }
-
-    const next = removeEntry(original, '/repo/x')
-
-    expect(next).toBe(original)
   })
 })
 
@@ -260,23 +239,23 @@ describe('isEntryLive', () => {
   })
 })
 
-describe('pruneStale', () => {
-  it('live なエントリだけ残し、除去したキーを返す', async () => {
-    const live = makeEntry({ pid: 100 })
-    const dead = makeEntry({ pid: 200 })
+describe('collectUsedPorts', () => {
+  it('全エントリのポート番号を Set で返す', () => {
     const registry: Registry = {
       version: 1,
-      instances: { '/repo/live': live, '/repo/dead': dead },
-    }
-    const checks: LivenessChecks = {
-      pidAlive: (pid: number) => pid === 100,
-      httpCheck: () => Promise.resolve(true),
-      httpTimeoutMs: 500,
+      instances: {
+        '/repo/a': makeEntry({ port: 10000 }),
+        '/repo/b': makeEntry({ port: 20000 }),
+        '/repo/c': makeEntry({ port: 30000 }),
+      },
     }
 
-    const result = await pruneStale(registry, checks)
+    const ports = collectUsedPorts(registry)
 
-    expect(result.registry.instances).toEqual({ '/repo/live': live })
-    expect(result.pruned).toEqual(['/repo/dead'])
+    expect(ports).toEqual(new Set([10000, 20000, 30000]))
+  })
+
+  it('空レジストリでは空の Set を返す', () => {
+    expect(collectUsedPorts(EMPTY_REGISTRY)).toEqual(new Set())
   })
 })

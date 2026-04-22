@@ -1,23 +1,27 @@
 /**
- * 同一 repoRoot の重複起動抑止つき起動処理 (ADR 0044)。
+ * 同一 repoRoot の重複起動抑止つき起動処理 (ADR 0044, ADR 0049)。
  *
  * フロー:
  *   1. repoRoot を解決し realpath で正規化する
- *   2. registry を排他ロック下でロード / stale prune する
- *   3. live なエントリがあれば `{ kind: 'existing' }` を返して終了する
- *   4. それ以外はサーバを起動し、再度ロック取得のうえエントリを登録する
- *   5. 競合で別プロセスが同一 repoRoot を登録済みだった場合は自サーバを
+ *   2. registry を排他ロック下でロードする
+ *   3. 自リポジトリのエントリが live なら `{ kind: 'existing' }` を返して終了する
+ *   4. 自リポジトリのエントリが stale なら前回のポートで起動を試みる
+ *      - EADDRINUSE なら port=0 でフォールバック起動する
+ *   5. エントリがなければ port=0 で起動し、レジストリ内の既存ポートと
+ *      重複していたら 1 回だけリトライする
+ *   6. 起動成功後、再度ロック取得のうえエントリを upsert する
+ *      競合で別プロセスが同一 repoRoot を登録済みだった場合は自サーバを
  *      close して `{ kind: 'existing' }` を返す
  *
- * 返却オブジェクトには unregister / unregisterSync を含め、
- * 呼び出し側が終了時にレジストリから抜けられるようにする。
+ * ADR 0049: エントリの削除は行わない。ポートの永続化のため、
+ * レジストリは追記・上書きのみ。
  */
 
-import type { LivenessChecks, Logger, Registry, RegistryIO } from './registry.js'
+import type { LivenessChecks, Logger, RegistryIO } from './registry.js'
 import {
+  collectUsedPorts,
+  isEntryLive,
   loadRegistry,
-  pruneStale,
-  removeEntry,
   saveRegistry,
   upsertEntry,
   withRegistryLock,
@@ -44,8 +48,6 @@ export type StartedInstance = {
   readonly pid: number
   readonly repoRoot: string
   readonly close: () => Promise<void>
-  readonly unregister: () => Promise<void>
-  readonly unregisterSync: () => void
 }
 
 export type LaunchResult = ExistingInstance | StartedInstance
@@ -61,17 +63,6 @@ export type RepoRootResolver = (cwd: string) => Promise<string>
 
 export type PathNormalizer = (path: string) => Promise<string>
 
-/**
- * registry を同期書き込みする関数（`process.on('exit')` 用）。
- * ENOENT / JSON 壊れなどが起きても best-effort で吸収する。
- */
-export type SyncRegistryWriter = (filePath: string, content: string) => void
-
-/**
- * 同期ロード関数。壊れている／存在しないときは空扱いで返す。
- */
-export type SyncRegistryReader = (filePath: string) => Registry
-
 export type LauncherDeps = {
   readonly start: StartFn
   readonly resolveRepoRoot: RepoRootResolver
@@ -82,56 +73,75 @@ export type LauncherDeps = {
   readonly now: () => Date
   readonly pid: number
   readonly paths: { filePath: string; lockPath: string }
-  readonly syncRegistry: {
-    readonly read: SyncRegistryReader
-    readonly write: SyncRegistryWriter
-  }
 }
 
 export async function launch(deps: LauncherDeps, options: LaunchOptions): Promise<LaunchResult> {
   const rawRepoRoot = await deps.resolveRepoRoot(options.cwd)
   const repoRoot = await deps.realpath(rawRepoRoot.trim())
 
-  const existing = await withRegistryLock(deps.io, deps.paths.lockPath, async () => {
-    const loaded = await loadRegistry(deps.io, deps.paths.filePath, deps.logger)
-    const { registry: pruned, pruned: removed } = await pruneStale(loaded, deps.liveness)
-    if (removed.length > 0 || pruned !== loaded) {
-      await saveRegistry(deps.io, deps.paths.filePath, pruned)
-    }
-    const entry = pruned.instances[repoRoot]
+  // レジストリをロードし、自リポジトリのエントリを確認する
+  const check = await withRegistryLock(deps.io, deps.paths.lockPath, async () => {
+    const registry = await loadRegistry(deps.io, deps.paths.filePath, deps.logger)
+    const entry = registry.instances[repoRoot]
     if (entry !== undefined) {
+      const live = await isEntryLive(entry, deps.liveness)
+      if (live) {
+        return {
+          action: 'existing' as const,
+          url: entry.url,
+          pid: entry.pid,
+        }
+      }
       return {
-        kind: 'existing' as const,
-        url: entry.url,
-        pid: entry.pid,
-        repoRoot,
+        action: 'start-with-port' as const,
+        port: entry.port,
       }
     }
-    return null
+    const usedPorts = collectUsedPorts(registry)
+    return {
+      action: 'start-new' as const,
+      usedPorts,
+    }
   })
 
-  if (existing !== null) {
-    return existing
+  if (check.action === 'existing') {
+    return {
+      kind: 'existing',
+      url: check.url,
+      pid: check.pid,
+      repoRoot,
+    }
   }
 
-  const started = await deps.start({
-    cwd: options.cwd,
-    ...(options.host !== undefined ? { host: options.host } : {}),
-    ...(options.port !== undefined ? { port: options.port } : {}),
-    ...(options.staticDir !== undefined ? { staticDir: options.staticDir } : {}),
-  })
+  let started: Awaited<ReturnType<StartFn>>
+
+  if (options.port !== undefined) {
+    // PORT 環境変数等による明示指定は最優先 (ADR 0044, ADR 0049)
+    started = await deps.start({
+      cwd: options.cwd,
+      ...(options.host !== undefined ? { host: options.host } : {}),
+      port: options.port,
+      ...(options.staticDir !== undefined ? { staticDir: options.staticDir } : {}),
+    })
+  } else if (check.action === 'start-with-port') {
+    // stale エントリがある場合: 前回のポートで起動を試みる
+    started = await startWithFallback(deps, options, check.port)
+  } else {
+    // 新規起動: port=0 で OS 割当し、既存ポートとの重複を回避する
+    started = await startAvoidingUsedPorts(deps, options, check.usedPorts)
+  }
 
   const port = portFromUrl(started.url)
 
+  // 再度ロックを取得してエントリを登録する
   const registration = await withRegistryLock(deps.io, deps.paths.lockPath, async () => {
     const loaded = await loadRegistry(deps.io, deps.paths.filePath, deps.logger)
-    // 2 回目の lock 取得中にも stale entry が復活している可能性があるので
-    // 再度 prune する。prune だけを独立に save せずとも、直後の upsertEntry
-    // による save で pruned 状態も反映される。
-    const { registry: pruned } = await pruneStale(loaded, deps.liveness)
-    const raceEntry = pruned.instances[repoRoot]
+    const raceEntry = loaded.instances[repoRoot]
     if (raceEntry !== undefined) {
-      return { conflict: raceEntry }
+      const live = await isEntryLive(raceEntry, deps.liveness)
+      if (live) {
+        return { conflict: raceEntry }
+      }
     }
     const entry = {
       port,
@@ -139,7 +149,7 @@ export async function launch(deps: LauncherDeps, options: LaunchOptions): Promis
       url: started.url,
       startedAt: deps.now().toISOString(),
     }
-    const next = upsertEntry(pruned, repoRoot, entry)
+    const next = upsertEntry(loaded, repoRoot, entry)
     await saveRegistry(deps.io, deps.paths.filePath, next)
     return { conflict: null }
   })
@@ -159,50 +169,6 @@ export async function launch(deps: LauncherDeps, options: LaunchOptions): Promis
     }
   }
 
-  let unregistered = false
-
-  const unregister = async (): Promise<void> => {
-    if (unregistered) {
-      return
-    }
-    unregistered = true
-    try {
-      await withRegistryLock(deps.io, deps.paths.lockPath, async () => {
-        const loaded = await loadRegistry(deps.io, deps.paths.filePath, deps.logger)
-        const entry = loaded.instances[repoRoot]
-        if (entry?.pid !== deps.pid) {
-          return
-        }
-        const next = removeEntry(loaded, repoRoot)
-        await saveRegistry(deps.io, deps.paths.filePath, next)
-      })
-    } catch (err) {
-      deps.logger.warn(
-        `failed to unregister from registry: ${err instanceof Error ? err.message : String(err)}`,
-      )
-    }
-  }
-
-  const unregisterSync = (): void => {
-    if (unregistered) {
-      return
-    }
-    unregistered = true
-    try {
-      const current = deps.syncRegistry.read(deps.paths.filePath)
-      const entry = current.instances[repoRoot]
-      if (entry?.pid !== deps.pid) {
-        return
-      }
-      const next = removeEntry(current, repoRoot)
-      const serialized = JSON.stringify(next, null, 2) + '\n'
-      deps.syncRegistry.write(deps.paths.filePath, serialized)
-    } catch {
-      // `process.on('exit')` の保険経路では例外を握りつぶす。
-      // 次回起動時の stale prune で回収される。
-    }
-  }
-
   return {
     kind: 'started',
     url: started.url,
@@ -210,9 +176,65 @@ export async function launch(deps: LauncherDeps, options: LaunchOptions): Promis
     pid: deps.pid,
     repoRoot,
     close: () => started.close(),
-    unregister,
-    unregisterSync,
   }
+}
+
+/**
+ * 指定ポートで起動を試み、EADDRINUSE なら port=0 でフォールバックする。
+ */
+async function startWithFallback(
+  deps: LauncherDeps,
+  options: LaunchOptions,
+  preferredPort: number,
+): Promise<Awaited<ReturnType<StartFn>>> {
+  try {
+    return await deps.start({
+      cwd: options.cwd,
+      ...(options.host !== undefined ? { host: options.host } : {}),
+      port: preferredPort,
+      ...(options.staticDir !== undefined ? { staticDir: options.staticDir } : {}),
+    })
+  } catch (err) {
+    if (isEADDRINUSE(err)) {
+      deps.logger.warn(`port ${preferredPort.toString()} is in use, falling back to auto-assign`)
+      return deps.start({
+        cwd: options.cwd,
+        ...(options.host !== undefined ? { host: options.host } : {}),
+        ...(options.staticDir !== undefined ? { staticDir: options.staticDir } : {}),
+      })
+    }
+    throw err
+  }
+}
+
+/**
+ * port=0 で起動し、割り当てられたポートがレジストリ内の既存ポートと
+ * 重複していた場合は 1 回だけ再起動する。
+ */
+async function startAvoidingUsedPorts(
+  deps: LauncherDeps,
+  options: LaunchOptions,
+  usedPorts: ReadonlySet<number>,
+): Promise<Awaited<ReturnType<StartFn>>> {
+  const startOpts = {
+    cwd: options.cwd,
+    ...(options.host !== undefined ? { host: options.host } : {}),
+    ...(options.staticDir !== undefined ? { staticDir: options.staticDir } : {}),
+  }
+
+  const first = await deps.start(startOpts)
+  const firstPort = portFromUrl(first.url)
+
+  if (!usedPorts.has(firstPort)) {
+    return first
+  }
+
+  // 既存ポートと重複した場合、サーバーを閉じて 1 回だけリトライする
+  deps.logger.warn(
+    `auto-assigned port ${firstPort.toString()} conflicts with an existing registry entry, retrying`,
+  )
+  await first.close()
+  return deps.start(startOpts)
 }
 
 function portFromUrl(url: string): number {
@@ -222,4 +244,21 @@ function portFromUrl(url: string): number {
     return Number.parseInt(fromField, 10)
   }
   return parsed.protocol === 'https:' ? 443 : 80
+}
+
+function hasCode(value: unknown, code: string): boolean {
+  if (value === null || typeof value !== 'object') {
+    return false
+  }
+  return 'code' in value && value.code === code
+}
+
+function isEADDRINUSE(err: unknown): boolean {
+  if (hasCode(err, 'EADDRINUSE')) {
+    return true
+  }
+  if (err !== null && typeof err === 'object' && 'cause' in err) {
+    return hasCode(err.cause, 'EADDRINUSE')
+  }
+  return false
 }

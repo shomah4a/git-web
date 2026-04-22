@@ -36,9 +36,7 @@ import { launch as launchCore } from './lifecycle/launcher.js'
 import {
   createNodeLivenessChecks,
   createNodeRegistryIO,
-  readRegistrySync,
   resolveRegistryPaths,
-  writeRegistrySync,
 } from './lifecycle/registry-io-node.js'
 import { createBlobService } from './service/blob-service.js'
 import { createCommitsService } from './service/commits-service.js'
@@ -200,7 +198,13 @@ export async function start(options: StartOptions = {}): Promise<StartedServer> 
       ? { fallback: createStaticHandler({ rootDir: options.staticDir, spaFallback: true }) }
       : {}),
   })
-  const addr = await listen(server, options.host ?? '127.0.0.1', options.port ?? 0)
+  let addr: Awaited<ReturnType<typeof listen>>
+  try {
+    addr = await listen(server, options.host ?? '127.0.0.1', options.port ?? 0)
+  } catch (err) {
+    await close(server)
+    throw err
+  }
   const url = `http://${addr.host}:${addr.port.toString()}`
 
   return {
@@ -239,7 +243,6 @@ export function launch(options: LaunchOptions): Promise<LaunchResult> {
       now: () => new Date(),
       pid: process.pid,
       paths: { filePath: paths.filePath, lockPath: paths.lockPath },
-      syncRegistry: { read: readRegistrySync, write: writeRegistrySync },
     },
     options,
   )

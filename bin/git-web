@@ -45,7 +45,7 @@ if (!existsSync(frontDistPath)) {
 /**
  * @typedef {{ kind: 'existing', url: string, pid: number, repoRoot: string }} ExistingInstance
  * @typedef {{ kind: 'started', url: string, port: number, pid: number, repoRoot: string,
- *   close: () => Promise<void>, unregister: () => Promise<void>, unregisterSync: () => void }} StartedInstance
+ *   close: () => Promise<void> }} StartedInstance
  * @typedef {ExistingInstance | StartedInstance} LaunchResult
  *
  * @type {{
@@ -76,9 +76,10 @@ try {
   console.log(`target repository: ${result.repoRoot}`)
   openBrowser(result.url)
 
-  // ADR 0045: ローカル専用 CLI では graceful shutdown の実益が無いため、
-  // SIGINT / SIGTERM では同期 unregister と即時 exit のみ行う。
-  // HTTP サーバの socket は OS が回収する。
+  // ADR 0045 / ADR 0049: ローカル専用 CLI では graceful shutdown の実益が無い。
+  // SIGINT / SIGTERM では即時 exit する。HTTP サーバの socket は OS が回収する。
+  // ADR 0049 によりレジストリのエントリは削除しない（ポート永続化のため）。
+  // 次回起動時に isEntryLive で生死判定する。
   // exit code は POSIX 慣習に従い 128 + signal number を返す。
   /** @type {Record<'SIGINT' | 'SIGTERM', number>} */
   const SIGNAL_EXIT_CODES = { SIGINT: 130, SIGTERM: 143 }
@@ -86,18 +87,10 @@ try {
    * @param {'SIGINT' | 'SIGTERM'} signal
    */
   const shutdown = (signal) => {
-    result.unregisterSync()
     process.exit(SIGNAL_EXIT_CODES[signal])
   }
   process.on('SIGINT', () => shutdown('SIGINT'))
   process.on('SIGTERM', () => shutdown('SIGTERM'))
-  // process.exit() 経由や uncaughtException 経由の終了で同期 unregister が
-  // 走るよう保険を登録する。unregisterSync は idempotent なので二重呼び出しは
-  // no-op となる。SIGKILL / segfault / 電源断では走らないが、そのケースは
-  // 次回起動時の pruneStale で回収される (ADR 0044)
-  process.on('exit', () => {
-    result.unregisterSync()
-  })
 } catch (err) {
   console.error(err instanceof Error ? err.message : 'failed to start')
   process.exit(1)
