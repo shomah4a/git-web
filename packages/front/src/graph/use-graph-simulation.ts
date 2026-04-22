@@ -128,7 +128,7 @@ export function useGraphSimulation(): GraphSimulation {
    * @param branchIndex 同一マージの複数ブランチ番号 (0, 1, ...)
    */
   /** ブランチノード間の最低弧長 (px)。ノード直径 + テキスト + 余白 */
-  const MIN_ARC_SPACING = 120
+  const MIN_ARC_SPACING = 240
 
   function branchCirclePosition(
     index: number,
