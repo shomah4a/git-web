@@ -103,11 +103,35 @@ export function buildGraph(
   }
 
   const mainStream = findMainStream(commits)
+
+  // グラフに含めるコミットを決定する:
+  // 本流 + 展開済みブランチのパス上にあるコミットのみ
+  const includedHashes = new Set<string>(mainStream)
+  for (const commit of commits) {
+    if (!mainStream.has(commit.hash)) continue
+    for (let i = 1; i < commit.parentHashes.length; i++) {
+      const branchParent = commit.parentHashes[i]
+      if (branchParent === undefined) continue
+      if (!expandedBranches.has(commit.hash)) continue
+      // 展開済み: ブランチパスを first-parent で辿り、含める
+      let current = branchParent
+      while (byHash.has(current) && !includedHashes.has(current)) {
+        includedHashes.add(current)
+        const c = byHash.get(current)
+        if (c === undefined) break
+        const fp = c.parentHashes[0]
+        if (fp === undefined) break
+        current = fp
+      }
+    }
+  }
+
   const nodes: GraphNode[] = []
   const edges: GraphEdge[] = []
   const addedNodeIds = new Set<string>()
 
   for (const commit of commits) {
+    if (!includedHashes.has(commit.hash)) continue
     if (addedNodeIds.has(commit.hash)) continue
     addedNodeIds.add(commit.hash)
 
@@ -121,9 +145,9 @@ export function buildGraph(
       radius: commitRadius(commit),
     })
 
-    // first-parent エッジ
+    // first-parent エッジ (対象がグラフに含まれる場合のみ)
     const firstParent = commit.parentHashes[0]
-    if (firstParent !== undefined && byHash.has(firstParent)) {
+    if (firstParent !== undefined && includedHashes.has(firstParent)) {
       const bothMainStream = mainStream.has(commit.hash) && mainStream.has(firstParent)
       edges.push({ source: commit.hash, target: firstParent, isMainStream: bothMainStream })
     }
@@ -134,8 +158,8 @@ export function buildGraph(
       if (branchParent === undefined) continue
 
       if (expandedBranches.has(commit.hash)) {
-        // 枝展開済み: エッジを追加 (ノードがデータ内に存在すれば)
-        if (byHash.has(branchParent)) {
+        // 枝展開済み: エッジを追加 (ノードがグラフに含まれていれば)
+        if (includedHashes.has(branchParent)) {
           edges.push({ source: commit.hash, target: branchParent, isMainStream: false })
         }
       } else {
@@ -158,23 +182,40 @@ export function buildGraph(
     }
   }
 
-  // read-more 疑似ノード
-  if (hasMore && commits.length > 0) {
-    const lastCommit = commits[commits.length - 1]
-    if (lastCommit !== undefined) {
+  // read-more 疑似ノード (本流の最後のコミットから接続する)
+  if (hasMore) {
+    const lastMainStream = findLastMainStreamCommit(commits, mainStream)
+    if (lastMainStream !== undefined) {
       const readMoreId = 'read-more'
       nodes.push({
         id: readMoreId,
         kind: 'read-more',
         commit: null,
-        isMainStream: false,
+        isMainStream: true,
         mergeCommitHash: null,
         branchParentHash: null,
         radius: PSEUDO_NODE_RADIUS,
       })
-      edges.push({ source: lastCommit.hash, target: readMoreId, isMainStream: false })
+      edges.push({ source: lastMainStream.hash, target: readMoreId, isMainStream: true })
     }
   }
 
   return { nodes, edges }
+}
+
+/**
+ * コミット配列内で本流に属する最後のコミットを返す。
+ * first-parent 連鎖の末端 (最も古い本流コミット) に相当する。
+ */
+function findLastMainStreamCommit(
+  commits: ReadonlyArray<CommitDto>,
+  mainStream: ReadonlySet<string>,
+): CommitDto | undefined {
+  let last: CommitDto | undefined
+  for (const c of commits) {
+    if (mainStream.has(c.hash)) {
+      last = c
+    }
+  }
+  return last
 }

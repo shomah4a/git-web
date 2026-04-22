@@ -169,4 +169,69 @@ describe('buildGraph', () => {
     expect(result.nodes).toHaveLength(1)
     expect(result.edges).toEqual([])
   })
+
+  it('折りたたみ状態のブランチコミットはグラフに含まれない', () => {
+    // main: a(merge) -> b
+    // branch: a -> x -> y -> b (collapsed)
+    const commits = [
+      makeCommit({ hash: 'a', parentHashes: ['b', 'x'] }),
+      makeCommit({ hash: 'b', parentHashes: [] }),
+      makeCommit({ hash: 'x', parentHashes: ['y'] }),
+      makeCommit({ hash: 'y', parentHashes: ['b'] }),
+    ]
+    const result = buildGraph(commits, false, new Set())
+
+    // x, y はグラフに含まれない
+    const nodeIds = result.nodes.map((n) => n.id)
+    expect(nodeIds).toContain('a')
+    expect(nodeIds).toContain('b')
+    expect(nodeIds).not.toContain('x')
+    expect(nodeIds).not.toContain('y')
+
+    // expand-branch 疑似ノードは存在する
+    expect(result.nodes.find((n) => n.kind === 'expand-branch')).toBeDefined()
+  })
+
+  it('展開済みブランチのコミットはグラフに含まれる', () => {
+    const commits = [
+      makeCommit({ hash: 'a', parentHashes: ['b', 'x'] }),
+      makeCommit({ hash: 'b', parentHashes: [] }),
+      makeCommit({ hash: 'x', parentHashes: ['y'] }),
+      makeCommit({ hash: 'y', parentHashes: ['b'] }),
+    ]
+    const result = buildGraph(commits, false, new Set(['a']))
+
+    const nodeIds = result.nodes.map((n) => n.id)
+    expect(nodeIds).toContain('a')
+    expect(nodeIds).toContain('b')
+    expect(nodeIds).toContain('x')
+    expect(nodeIds).toContain('y')
+  })
+
+  it('read-more は本流の最後のコミットから接続される', () => {
+    // main: a(merge) -> b, branch: a -> x (collapsed)
+    // commits 配列の末尾が x でも read-more は b から接続
+    const commits = [
+      makeCommit({ hash: 'a', parentHashes: ['b', 'x'] }),
+      makeCommit({ hash: 'b', parentHashes: [] }),
+      makeCommit({ hash: 'x', parentHashes: [] }),
+    ]
+    const result = buildGraph(commits, true, new Set())
+
+    const readMoreEdge = result.edges.find((e) => e.target === 'read-more')
+    expect(readMoreEdge).toBeDefined()
+    expect(readMoreEdge?.source).toBe('b')
+    expect(readMoreEdge?.isMainStream).toBe(true)
+  })
+
+  it('read-more は本流上に配置される', () => {
+    const commits = [
+      makeCommit({ hash: 'a', parentHashes: ['b'] }),
+      makeCommit({ hash: 'b', parentHashes: [] }),
+    ]
+    const result = buildGraph(commits, true, new Set())
+
+    const readMoreNode = result.nodes.find((n) => n.kind === 'read-more')
+    expect(readMoreNode?.isMainStream).toBe(true)
+  })
 })

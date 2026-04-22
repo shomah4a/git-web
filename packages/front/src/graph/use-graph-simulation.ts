@@ -113,24 +113,44 @@ export function useGraphSimulation(): GraphSimulation {
   }
 
   /**
-   * ブランチノードのX座標を弧状に計算する。
+   * ブランチノードを円周上に配置する座標を返す。
    *
-   * マージコミットの rank を topRank、分岐点 (first-parent の合流先) の rank を
-   * bottomRank として、ブランチノードの rank が topRank〜bottomRank の区間で
-   * sin カーブの弧を描く。
+   * merge と fork を円周の上端・下端とし、ブランチノードを右側の円弧上に
+   * 等間隔配置する。merge/fork 自体も円周上の点であり、接続が自然に見える。
    *
-   * branchIndex: 同じマージコミットに複数ブランチがある場合の番号 (0, 1, ...)
+   * 円の中心は merge と fork の中点から左に半径分ずれた位置。
+   * merge (角度 -π/2 = 上) から fork (角度 π/2 = 下) へ右回り。
+   *
+   * @param index ブランチパス内のインデックス (0-based)
+   * @param count ブランチパスのノード総数
+   * @param mergeY マージコミットの Y 座標
+   * @param forkY フォークポイントの Y 座標
+   * @param branchIndex 同一マージの複数ブランチ番号 (0, 1, ...)
    */
-  function arcX(
-    nodeRank: number,
-    topRank: number,
-    bottomRank: number,
+  /** ブランチノード間の最低弧長 (px)。ノード直径 + テキスト + 余白 */
+  const MIN_ARC_SPACING = 240
+
+  function branchCirclePosition(
+    index: number,
+    count: number,
+    mergeY: number,
+    forkY: number,
     branchIndex: number,
-  ): number {
-    const span = bottomRank - topRank
-    if (span <= 0) return ARC_X_OFFSET * (branchIndex + 1)
-    const t = (nodeRank - topRank) / span
-    return Math.sin(Math.PI * t) * ARC_X_OFFSET * (branchIndex + 1)
+  ): { x: number; y: number } {
+    // 楕円の横幅: ノード数に応じて弧長を確保する
+    // 全楕円の円周近似 ≈ π*(rx+ry) で、(count+1)*MIN_ARC_SPACING を満たす
+    const halfSpan = (forkY - mergeY) / 2
+    const ry = Math.max(halfSpan, ((count + 1) * MIN_ARC_SPACING) / (2 * Math.PI))
+    const rx = Math.max(ARC_X_OFFSET * 0.5, ry * 0.6)
+    const centerY = mergeY + halfSpan
+
+    // 角度: merge (π) → fork (-π) 左端を起点に右回りで一周
+    // merge/fork が楕円の左端 (X=0) に来る
+    const angle = Math.PI - (2 * Math.PI * (index + 1)) / (count + 1)
+    // cx = rx にすることで左端が X=0 (本流上) になる
+    const x = (rx + Math.cos(angle) * rx) * (branchIndex + 1)
+    const y = centerY + Math.sin(angle) * ry
+    return { x, y }
   }
 
   function update(
@@ -191,20 +211,20 @@ export function useGraphSimulation(): GraphSimulation {
     let branchGroupIndex = 0
 
     for (const [mergeHash, branchRoots] of branchNodeSets) {
-      const mergeRank = ranks.get(mergeHash) ?? 0
-
       for (const branchRootId of branchRoots) {
         // ブランチルートから辿って、ブランチ内の全ノードを収集する
         const branchPath: string[] = []
         let current = branchRootId
         const visited = new Set<string>()
-        let bottomRank = ranks.get(branchRootId) ?? mergeRank + 1
+        let forkPointId: string | null = null
 
         while (!visited.has(current)) {
           visited.add(current)
           const gn = graphNodeById.get(current)
-          if (gn === undefined || gn.isMainStream) {
-            bottomRank = ranks.get(current) ?? bottomRank
+          if (gn === undefined || gn.isMainStream || gn.kind !== 'commit') {
+            if (gn !== undefined && gn.isMainStream) {
+              forkPointId = current
+            }
             break
           }
           branchPath.push(current)
@@ -213,20 +233,39 @@ export function useGraphSimulation(): GraphSimulation {
           if (outEdge !== undefined) {
             current = outEdge.target
           } else {
-            bottomRank = ranks.get(current) ?? bottomRank
             break
           }
         }
 
-        // ブランチパス上の全ノードを弧上に配置
-        for (const nodeId of branchPath) {
-          const nodeRank = ranks.get(nodeId) ?? mergeRank + 1
-          const bx = arcX(nodeRank, mergeRank, bottomRank, branchGroupIndex)
-          const by = nodeRank * Y_SPACING
-          branchPositions.set(nodeId, { x: bx, y: by })
+        // merge と fork の Y 座標を取得
+        const mergeY = mainStreamPositions.get(mergeHash)?.y ?? 0
+        const forkPos = forkPointId !== null ? mainStreamPositions.get(forkPointId) : undefined
+        const forkY = forkPos !== undefined ? forkPos.y : mergeY + Y_SPACING
+
+        // ブランチパス上の全ノードを円周上に配置
+        for (let i = 0; i < branchPath.length; i++) {
+          const nodeId = branchPath[i]
+          if (nodeId === undefined) continue
+          const pos = branchCirclePosition(i, branchPath.length, mergeY, forkY, branchGroupIndex)
+          branchPositions.set(nodeId, pos)
         }
       }
       branchGroupIndex++
+    }
+
+    // expand-branch 疑似ノードの位置を親マージコミット基準で計算
+    const expandPositions = new Map<string, { x: number; y: number }>()
+    let expandIndex = 0
+    for (const node of nodes) {
+      if (node.kind !== 'expand-branch' || node.mergeCommitHash === null) continue
+      const parentPos = mainStreamPositions.get(node.mergeCommitHash)
+      if (parentPos !== undefined) {
+        expandPositions.set(node.id, {
+          x: ARC_X_OFFSET * 0.5 * (expandIndex + 1),
+          y: parentPos.y + Y_SPACING * 0.4,
+        })
+        expandIndex++
+      }
     }
 
     // 全ノードの SimNode を構築
@@ -242,12 +281,16 @@ export function useGraphSimulation(): GraphSimulation {
         baseY = rank * Y_SPACING
       } else {
         const branchPos = branchPositions.get(node.id)
+        const expandPos = expandPositions.get(node.id)
         if (branchPos !== undefined) {
           baseX = branchPos.x
           baseY = branchPos.y
+        } else if (expandPos !== undefined) {
+          // expand-branch: 親マージコミットの横下にオフセット配置
+          baseX = expandPos.x
+          baseY = expandPos.y
         } else {
-          // ブランチ位置が特定できないノード (expand-branch 疑似ノード等)
-          // 親 (マージコミット) の横に配置
+          // その他の非メインストリームノード
           baseX = ARC_X_OFFSET * 0.5
           baseY = rank * Y_SPACING
         }
