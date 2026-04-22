@@ -1,13 +1,14 @@
 /**
  * bin/git-web の SIGINT シャットダウンに関する統合テスト。
  *
- * ADR 0045 の決定（graceful を放棄し即時 exit する）を回帰的に保証する。
+ * ADR 0045 / ADR 0049 の決定（graceful を放棄し即時 exit する。
+ * レジストリのエントリは削除しない）を回帰的に保証する。
  *
  * 検証内容:
  *   - git-web を子プロセスとして起動
  *   - HTTP keep-alive 接続を 1 本張ってブラウザで開いた状態を模擬
  *   - SIGINT を送信
- *   - 1s 以内に exit code 0 で落ちること
+ *   - 1s 以内に exit code 130 で落ちること
  *
  * 前提: packages/api/dist/main.js と packages/front/dist が存在すること
  * （./bin/pnpm check のフローでは build → test の順なので常に満たされる）。

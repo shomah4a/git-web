@@ -1,14 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import type {
-  LauncherDeps,
-  LaunchResult,
-  StartFn,
-  SyncRegistryReader,
-  SyncRegistryWriter,
-} from './launcher.js'
+import type { LauncherDeps, StartFn } from './launcher.js'
 import { launch } from './launcher.js'
 import type { InstanceEntry, LivenessChecks, Logger, Registry, RegistryIO } from './registry.js'
-import { EMPTY_REGISTRY } from './registry.js'
 
 function makeLogger(): { logger: Logger; warnings: string[] } {
   const warnings: string[] = []
@@ -163,6 +156,35 @@ function makeStart(
   }
 }
 
+/**
+ * EADDRINUSE を模擬する StartFn。指定ポートで呼ばれたら reject し、
+ * port 未指定（フォールバック）なら成功する。
+ */
+function makeStartWithEADDRINUSE(
+  failPort: number,
+  fallbackUrl: string,
+  repoRoot: string,
+  invocations: StartInvocation[],
+): StartFn {
+  return (options) => {
+    invocations.push({
+      cwd: options.cwd,
+      ...(options.port !== undefined ? { port: options.port } : {}),
+      ...(options.staticDir !== undefined ? { staticDir: options.staticDir } : {}),
+    })
+    if (options.port === failPort) {
+      const err = new Error(`listen EADDRINUSE: address already in use 127.0.0.1:${failPort}`)
+      Object.assign(err, { code: 'EADDRINUSE' })
+      return Promise.reject(err)
+    }
+    return Promise.resolve({
+      url: fallbackUrl,
+      repoRoot,
+      close: () => Promise.resolve(),
+    })
+  }
+}
+
 function makeDeps(overrides: Partial<LauncherDeps>): LauncherDeps {
   const { logger } = makeLogger()
   const base: LauncherDeps = {
@@ -175,10 +197,6 @@ function makeDeps(overrides: Partial<LauncherDeps>): LauncherDeps {
     now: () => new Date('2026-04-19T00:00:00.000Z'),
     pid: 100,
     paths: { filePath: '/tmp/registry.json', lockPath: '/tmp/registry.lock' },
-    syncRegistry: {
-      read: (): Registry => EMPTY_REGISTRY,
-      write: (): void => {},
-    },
   }
   return { ...base, ...overrides }
 }
@@ -216,37 +234,65 @@ describe('launch', () => {
     expect(invocations).toHaveLength(0)
   })
 
-  it('stale エントリがあれば prune してから新規起動・登録する', async () => {
-    const stale = makeEntry({ port: 40001, pid: 111 })
+  it('stale エントリがある場合は前回のポートで起動する', async () => {
+    const stale = makeEntry({ port: 40001, pid: 111, url: 'http://127.0.0.1:40001' })
     const state = makeFakeIO({
       version: 1,
       instances: { '/real/repo': stale },
     })
     const invocations: StartInvocation[] = []
-    const started: LaunchResult = await launch(
+    const result = await launch(
       makeDeps({
         io: state.io,
         resolveRepoRoot: () => Promise.resolve('/real/repo'),
         realpath: (p) => Promise.resolve(p),
         liveness: makeLiveness({ 111: false, 100: true }, () => true),
-        start: makeStart('http://127.0.0.1:50000', '/real/repo', invocations),
+        start: makeStart('http://127.0.0.1:40001', '/real/repo', invocations),
       }),
       { cwd: '/real/repo', staticDir: '/dist' },
     )
 
-    expect(started.kind).toBe('started')
+    expect(result.kind).toBe('started')
     expect(invocations).toHaveLength(1)
+    expect(invocations[0]?.port).toBe(40001)
     expect(invocations[0]?.staticDir).toBe('/dist')
     const content = state.getContent()
     expect(content).not.toBeNull()
     if (content !== null) {
       const parsed = parseRegistry(content)
-      expect(parsed.instances['/real/repo']?.port).toBe(50000)
+      expect(parsed.instances['/real/repo']?.port).toBe(40001)
       expect(parsed.instances['/real/repo']?.pid).toBe(100)
     }
   })
 
-  it('PID live でも HTTP check が失敗すれば stale として扱う', async () => {
+  it('stale エントリのポートが EADDRINUSE の場合は port=0 でフォールバックする', async () => {
+    const stale = makeEntry({ port: 40001, pid: 111, url: 'http://127.0.0.1:40001' })
+    const state = makeFakeIO({
+      version: 1,
+      instances: { '/real/repo': stale },
+    })
+    const invocations: StartInvocation[] = []
+    const result = await launch(
+      makeDeps({
+        io: state.io,
+        resolveRepoRoot: () => Promise.resolve('/real/repo'),
+        realpath: (p) => Promise.resolve(p),
+        liveness: makeLiveness({ 111: false, 100: true }, () => true),
+        start: makeStartWithEADDRINUSE(40001, 'http://127.0.0.1:50000', '/real/repo', invocations),
+      }),
+      { cwd: '/real/repo' },
+    )
+
+    expect(result.kind).toBe('started')
+    if (result.kind === 'started') {
+      expect(result.port).toBe(50000)
+    }
+    expect(invocations).toHaveLength(2)
+    expect(invocations[0]?.port).toBe(40001)
+    expect(invocations[1]?.port).toBeUndefined()
+  })
+
+  it('PID live でも HTTP check が失敗すれば stale として前回ポートで起動する', async () => {
     const entry = makeEntry({ port: 40001, pid: 111 })
     const state = makeFakeIO({
       version: 1,
@@ -259,16 +305,17 @@ describe('launch', () => {
         resolveRepoRoot: () => Promise.resolve('/real/repo'),
         realpath: (p) => Promise.resolve(p),
         liveness: makeLiveness({ 111: true, 100: true }, () => false),
-        start: makeStart('http://127.0.0.1:50000', '/real/repo', invocations),
+        start: makeStart('http://127.0.0.1:40001', '/real/repo', invocations),
       }),
       { cwd: '/real/repo' },
     )
 
     expect(result.kind).toBe('started')
     expect(invocations).toHaveLength(1)
+    expect(invocations[0]?.port).toBe(40001)
   })
 
-  it('既存エントリがなければ起動して登録する', async () => {
+  it('既存エントリがなければ port=0 で起動して登録する', async () => {
     const state = makeFakeIO(null)
     const invocations: StartInvocation[] = []
     const result = await launch(
@@ -288,8 +335,66 @@ describe('launch', () => {
       expect(result.port).toBe(50000)
       expect(result.pid).toBe(100)
     }
+    expect(invocations).toHaveLength(1)
+    expect(invocations[0]?.port).toBeUndefined()
     const parsed = parseRegistry(state.getContent() ?? '')
     expect(parsed.instances['/real/repo']?.url).toBe('http://127.0.0.1:50000')
+  })
+
+  it('新規起動で割り当てポートがレジストリ内の既存ポートと重複した場合はリトライする', async () => {
+    // 他リポジトリが port=50000 を使用中
+    const state = makeFakeIO({
+      version: 1,
+      instances: {
+        '/other/repo': makeEntry({ port: 50000, pid: 200, url: 'http://127.0.0.1:50000' }),
+      },
+    })
+    const invocations: StartInvocation[] = []
+    let callCount = 0
+    let closed = false
+    const start: StartFn = (options) => {
+      invocations.push({
+        cwd: options.cwd,
+        ...(options.port !== undefined ? { port: options.port } : {}),
+      })
+      callCount++
+      if (callCount === 1) {
+        // 1回目: OS が重複ポートを割り当てる
+        return Promise.resolve({
+          url: 'http://127.0.0.1:50000',
+          repoRoot: '/real/repo',
+          close: () => {
+            closed = true
+            return Promise.resolve()
+          },
+        })
+      }
+      // 2回目: 別のポートが割り当てられる
+      return Promise.resolve({
+        url: 'http://127.0.0.1:60000',
+        repoRoot: '/real/repo',
+        close: () => Promise.resolve(),
+      })
+    }
+
+    const result = await launch(
+      makeDeps({
+        io: state.io,
+        resolveRepoRoot: () => Promise.resolve('/real/repo'),
+        realpath: (p) => Promise.resolve(p),
+        liveness: makeLiveness({ 100: true, 200: true }, () => true),
+        start,
+        pid: 100,
+      }),
+      { cwd: '/real/repo' },
+    )
+
+    expect(result.kind).toBe('started')
+    if (result.kind === 'started') {
+      expect(result.port).toBe(60000)
+    }
+    expect(invocations).toHaveLength(2)
+    expect(closed).toBe(true)
   })
 
   it('起動中に他プロセスが同一 repoRoot を登録した場合は自サーバを close して existing を返す', async () => {
@@ -337,100 +442,30 @@ describe('launch', () => {
     expect(closed).toBe(true)
   })
 
-  it('unregister は自 PID のエントリだけ削除する', async () => {
-    const state = makeFakeIO(null)
-    const invocations: StartInvocation[] = []
-    const result = await launch(
-      makeDeps({
-        io: state.io,
-        resolveRepoRoot: () => Promise.resolve('/real/repo'),
-        realpath: (p) => Promise.resolve(p),
-        liveness: makeLiveness({ 100: true }, () => true),
-        start: makeStart('http://127.0.0.1:50000', '/real/repo', invocations),
-        pid: 100,
-      }),
-      { cwd: '/real/repo' },
-    )
-
-    if (result.kind !== 'started') {
-      throw new Error('expected started')
-    }
-    await result.unregister()
-    const parsed = parseRegistry(state.getContent() ?? '')
-    expect(parsed.instances['/real/repo']).toBeUndefined()
-  })
-
-  it('unregister は別 PID で上書きされていたら触らない', async () => {
-    const state = makeFakeIO(null)
-    const invocations: StartInvocation[] = []
-    const result = await launch(
-      makeDeps({
-        io: state.io,
-        resolveRepoRoot: () => Promise.resolve('/real/repo'),
-        realpath: (p) => Promise.resolve(p),
-        liveness: makeLiveness({ 100: true }, () => true),
-        start: makeStart('http://127.0.0.1:50000', '/real/repo', invocations),
-        pid: 100,
-      }),
-      { cwd: '/real/repo' },
-    )
-    if (result.kind !== 'started') {
-      throw new Error('expected started')
-    }
-
-    state.setContent(
-      serialize({
-        version: 1,
-        instances: {
-          '/real/repo': makeEntry({ port: 60000, pid: 777, url: 'http://other:60000' }),
-        },
-      }),
-    )
-
-    await result.unregister()
-    const parsed = parseRegistry(state.getContent() ?? '')
-    expect(parsed.instances['/real/repo']?.pid).toBe(777)
-  })
-
-  it('unregisterSync は read/write 関数経由で自 PID エントリを削除する', async () => {
-    const state = makeFakeIO(null)
-    const invocations: StartInvocation[] = []
-
-    let syncContent: Registry = EMPTY_REGISTRY
-    const syncRead: SyncRegistryReader = (): Registry => syncContent
-    const writes: string[] = []
-    const syncWrite: SyncRegistryWriter = (_: string, content: string): void => {
-      writes.push(content)
-      syncContent = parseRegistry(content)
-    }
-
-    const result = await launch(
-      makeDeps({
-        io: state.io,
-        resolveRepoRoot: () => Promise.resolve('/real/repo'),
-        realpath: (p) => Promise.resolve(p),
-        liveness: makeLiveness({ 100: true }, () => true),
-        start: makeStart('http://127.0.0.1:50000', '/real/repo', invocations),
-        pid: 100,
-        syncRegistry: { read: syncRead, write: syncWrite },
-      }),
-      { cwd: '/real/repo' },
-    )
-
-    if (result.kind !== 'started') {
-      throw new Error('expected started')
-    }
-
-    syncContent = {
+  it('options.port が指定されている場合はレジストリのポートより優先する', async () => {
+    const stale = makeEntry({ port: 40001, pid: 111, url: 'http://127.0.0.1:40001' })
+    const state = makeFakeIO({
       version: 1,
-      instances: {
-        '/real/repo': makeEntry({ port: 50000, pid: 100, url: 'http://127.0.0.1:50000' }),
-      },
-    }
-    result.unregisterSync()
+      instances: { '/real/repo': stale },
+    })
+    const invocations: StartInvocation[] = []
+    const result = await launch(
+      makeDeps({
+        io: state.io,
+        resolveRepoRoot: () => Promise.resolve('/real/repo'),
+        realpath: (p) => Promise.resolve(p),
+        liveness: makeLiveness({ 111: false, 100: true }, () => true),
+        start: makeStart('http://127.0.0.1:47906', '/real/repo', invocations),
+      }),
+      { cwd: '/real/repo', port: 47906 },
+    )
 
-    expect(writes).toHaveLength(1)
-    expect(syncContent.instances['/real/repo']).toBeUndefined()
+    expect(result.kind).toBe('started')
+    if (result.kind === 'started') {
+      expect(result.port).toBe(47906)
+    }
+    expect(invocations).toHaveLength(1)
+    expect(invocations[0]?.port).toBe(47906)
   })
 
   it('repoRoot は resolveRepoRoot の結果を trim + realpath で正規化する', async () => {

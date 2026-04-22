@@ -137,42 +137,15 @@ export function upsertEntry(registry: Registry, repoRoot: string, entry: Instanc
 }
 
 /**
- * repoRoot のエントリを除去して新しい Registry を返す。
+ * レジストリ内の全エントリからポート番号の Set を返す。
+ * 新規起動時にポート重複を回避するために使用する。
  */
-export function removeEntry(registry: Registry, repoRoot: string): Registry {
-  if (!(repoRoot in registry.instances)) {
-    return registry
+export function collectUsedPorts(registry: Registry): ReadonlySet<number> {
+  const ports = new Set<number>()
+  for (const entry of Object.values(registry.instances)) {
+    ports.add(entry.port)
   }
-  const next: Record<string, InstanceEntry> = {}
-  for (const [key, value] of Object.entries(registry.instances)) {
-    if (key !== repoRoot) {
-      next[key] = value
-    }
-  }
-  return { version: REGISTRY_FORMAT_VERSION, instances: next }
-}
-
-/**
- * stale なエントリを取り除いた新しい Registry を返す。
- * 戻り値に削除されたキー一覧も含める（ログ用途）。
- */
-export async function pruneStale(
-  registry: Registry,
-  checks: LivenessChecks,
-): Promise<{ registry: Registry; pruned: ReadonlyArray<string> }> {
-  const liveInstances: Record<string, InstanceEntry> = {}
-  const pruned: string[] = []
-  for (const [key, entry] of Object.entries(registry.instances)) {
-    if (await isEntryLive(entry, checks)) {
-      liveInstances[key] = entry
-    } else {
-      pruned.push(key)
-    }
-  }
-  return {
-    registry: { version: REGISTRY_FORMAT_VERSION, instances: liveInstances },
-    pruned,
-  }
+  return ports
 }
 
 function tryParse(content: string): unknown {
