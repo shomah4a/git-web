@@ -198,27 +198,37 @@ export function useGraphSimulation(): GraphSimulation {
         const branchPath: string[] = []
         let current = branchRootId
         const visited = new Set<string>()
-        let bottomRank = ranks.get(branchRootId) ?? mergeRank + 1
+        let forkPointRank = ranks.get(branchRootId) ?? mergeRank + 1
+        let maxBranchRank = forkPointRank
 
         while (!visited.has(current)) {
           visited.add(current)
           const gn = graphNodeById.get(current)
           if (gn === undefined || gn.isMainStream) {
-            bottomRank = ranks.get(current) ?? bottomRank
+            forkPointRank = ranks.get(current) ?? forkPointRank
             break
           }
           branchPath.push(current)
+          const nodeRank = ranks.get(current) ?? mergeRank + 1
+          if (nodeRank > maxBranchRank) {
+            maxBranchRank = nodeRank
+          }
           // 子→親のエッジを探す
           const outEdge = edges.find((e) => e.source === current)
           if (outEdge !== undefined) {
             current = outEdge.target
           } else {
-            bottomRank = ranks.get(current) ?? bottomRank
+            forkPointRank = ranks.get(current) ?? forkPointRank
             break
           }
         }
 
-        // ブランチパス上の全ノードを弧上に配置
+        // fork point の rank が BFS 最短経路で低い場合、ブランチパスの
+        // 最大 rank を使って弧の範囲がノード全体をカバーするようにする
+        // (ADR 0048)
+        const bottomRank = Math.max(forkPointRank, maxBranchRank)
+
+        // ブラン��パス上の全ノードを弧上に配置
         for (const nodeId of branchPath) {
           const nodeRank = ranks.get(nodeId) ?? mergeRank + 1
           const bx = arcX(nodeRank, mergeRank, bottomRank, branchGroupIndex)
