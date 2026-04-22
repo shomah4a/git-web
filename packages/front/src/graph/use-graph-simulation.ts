@@ -137,17 +137,19 @@ export function useGraphSimulation(): GraphSimulation {
     forkY: number,
     branchIndex: number,
   ): { x: number; y: number } {
-    // 半円の弧長がノード数 × 最低間隔を満たすよう半径を決める
-    // 半円の弧長 = π * r なので r = (count + 1) * MIN_ARC_SPACING / π
+    // 楕円の横幅: ノード数に応じて弧長を確保する
+    // 全楕円の円周近似 ≈ π*(rx+ry) で、(count+1)*MIN_ARC_SPACING を満たす
     const halfSpan = (forkY - mergeY) / 2
-    const radiusBySpacing = ((count + 1) * MIN_ARC_SPACING) / Math.PI
-    const radius = Math.max(halfSpan, radiusBySpacing)
+    const ry = Math.max(halfSpan, ((count + 1) * MIN_ARC_SPACING) / (2 * Math.PI))
+    const rx = Math.max(ARC_X_OFFSET * 0.5, ry * 0.6)
     const centerY = mergeY + halfSpan
 
-    // 角度: merge (-π/2) → fork (π/2) の右半円を等間隔に分割
-    const angle = -Math.PI / 2 + (Math.PI * (index + 1)) / (count + 1)
-    const x = Math.cos(angle) * radius * (branchIndex + 1)
-    const y = centerY + Math.sin(angle) * radius
+    // 角度: merge (π) → fork (-π) 左端を起点に右回りで一周
+    // merge/fork が楕円の左端 (X=0) に来る
+    const angle = Math.PI - (2 * Math.PI * (index + 1)) / (count + 1)
+    // cx = rx にすることで左端が X=0 (本流上) になる
+    const x = (rx + Math.cos(angle) * rx) * (branchIndex + 1)
+    const y = centerY + Math.sin(angle) * ry
     return { x, y }
   }
 
