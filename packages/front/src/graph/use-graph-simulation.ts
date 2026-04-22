@@ -127,8 +127,8 @@ export function useGraphSimulation(): GraphSimulation {
    * @param forkY フォークポイントの Y 座標
    * @param branchIndex 同一マージの複数ブランチ番号 (0, 1, ...)
    */
-  /** ブランチノード間の最低弧長 (px) */
-  const MIN_ARC_SPACING = 60
+  /** ブランチノード間の最低弧長 (px)。ノード直径 + テキスト + 余白 */
+  const MIN_ARC_SPACING = 120
 
   function branchCirclePosition(
     index: number,
