@@ -60,6 +60,16 @@ describe('computeGaps', () => {
     expect(gaps[1]).toBeNull()
   })
 
+  it('addedファイル(oldStart=0, oldLines=0)では末尾ギャップがnullになる', () => {
+    // added: old側なし、new側は全行がhunk
+    const gaps = computeGaps([hunk(0, 0, 1, 10)], 0, 10)
+    expect(gaps).toHaveLength(2)
+    // 先頭: oldFrom=1, oldTo=-1 → 空、newFrom=1, newTo=0 → 空 → null
+    expect(gaps[0]).toBeNull()
+    // 末尾: oldFrom=0, oldTo=0 → 0 < 1 で空、newFrom=11, newTo=10 → 空 → null
+    expect(gaps[1]).toBeNull()
+  })
+
   it('old側とnew側で行数が異なるhunkのギャップを正しく計算する', () => {
     // hunk1: old 5行消費、new 7行消費 → ギャップの開始行がずれる
     const gaps = computeGaps([hunk(5, 5, 5, 7), hunk(20, 2, 22, 2)], 50, 52)

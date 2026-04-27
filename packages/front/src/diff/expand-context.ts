@@ -99,8 +99,11 @@ export function computeGaps(
 }
 
 function buildGap(oldFrom: number, oldTo: number, newFrom: number, newTo: number): GapInfo | null {
-  // old 側と new 側の両方とも行がなければギャップなし
-  if (oldFrom > oldTo && newFrom > newTo) {
+  // 行番号は 1-based。0 以下は「そのサイドが存在しない」を意味する
+  // (added ファイルの old 側で oldStart=0 となるケース等)
+  const oldEmpty = oldFrom < 1 || oldFrom > oldTo
+  const newEmpty = newFrom < 1 || newFrom > newTo
+  if (oldEmpty && newEmpty) {
     return null
   }
   return { oldFrom, oldTo, newFrom, newTo }
