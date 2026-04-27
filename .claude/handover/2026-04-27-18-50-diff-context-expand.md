@@ -16,9 +16,9 @@
    - `expandState` (Map<string, Map<number, GapExpansion>>) で展開状態を管理
    - 各 hunk の上端に ↑、下端に ↓ ボタンを配置（hunk に紐づいた直感的な配置）
    - ボタンは常に展開済み行の外側（展開の先端）に位置する
-   - ギャップが完全展開されたら後続 hunk ヘッダーを非表示��して視覚的に結合
-   - revision 切り替え時に expandState をリセッ���
-   - tokenMap にデータがないファイ��では���開ボタン非表示
+   - ギャップが完全展開されたら後続 hunk ヘッダーを非表示にして視覚的に結合
+   - revision 切り替え時に expandState をリセット
+   - tokenMap にデータがないファイルでは展開ボタン非表示
 
 ### UI フィードバックによる修正履歴
 
@@ -28,20 +28,20 @@
 
 ### テスト結果
 
-- `./bin/pnpm check`: green (API 605件、front 238件、common 7���)
+- `./bin/pnpm check`: green (API 605件、front 238件、common 7件)
 
 ### 評価結果
 
 - 防衛的計画評価: 確度 0.90、主要指摘は GapInfo.total の old/new 分離（対応済み）
   - 全文: `.claude/tmp/2026-04-27_diff-expand-defensive-plan-review.md`
-- 実装安全性評価: HIGH/CRITICAL なし、MEDIUM 3件（ADR 記述修正は対応済み、残り2件は対���不要と判断）、LOW 2件
+- 実装安全性評価: HIGH/CRITICAL なし、MEDIUM 3件（ADR 記述修正は対応済み、残り2件は対応不要と判断）、LOW 2件
   - 全文: `.claude/tmp/2026-04-27_diff-expand-safety-review.md`
 
 ## TODO
 
 - main へのマージ
 - MEDIUM 指摘の対応判断:
-  - テンプレ���ト内 `getGaps()` の重複���び出し（パ��ォーマンス）
+  - テンプレート内 `getGaps()` の重複呼び出し（パフォーマンス）
   - 展開行の左右スクロール同期未設定
 - 既存 TODO（申し送り 2026-04-22-11-20）の継続:
   - `edgePath` の O(N) 検索を Map 化（大規模リポジトリ対応）
