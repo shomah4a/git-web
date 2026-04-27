@@ -156,9 +156,18 @@ function computeExpandedRangeForSide(
     return { down: null, up: null }
   }
 
-  // 全行表示
+  // 全行表示: 各方向が実際に占める範囲で分割する。
+  // down のみなら全行を down に、up のみなら全行を up に入れる。
+  // 両方ある場合は down の末尾と up の先頭が重ならないように境界を決める。
   if (expansion.expandedDown + expansion.expandedUp >= total) {
-    return { down: { from, to }, up: null }
+    if (expansion.expandedDown === 0) {
+      return { down: null, up: { from, to } }
+    }
+    if (expansion.expandedUp === 0) {
+      return { down: { from, to }, up: null }
+    }
+    const downTo = Math.min(from + expansion.expandedDown - 1, to)
+    return { down: { from, to: downTo }, up: { from: downTo + 1, to } }
   }
 
   const downRange =

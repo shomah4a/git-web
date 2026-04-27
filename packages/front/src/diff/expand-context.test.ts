@@ -127,15 +127,27 @@ describe('computeExpandedRange', () => {
     expect(range.up).toEqual({ from: 20, to: 29 })
   })
 
-  it('down+upが重なった場合は全行をdownに統合する', () => {
-    // ギャップ20行に対して down=12, up=12 → 重なるので全行
+  it('down+upが重なった場合はdown側の範囲とup側の残りに分割する', () => {
+    // ギャップ20行に対して down=12, up=12 → down が 10-21, up が 22-29
     const range = computeExpandedRange(gap, { expandedDown: 12, expandedUp: 12 })
-    expect(range.down).toEqual({ from: 10, to: 29 })
-    expect(range.up).toBeNull()
+    expect(range.down).toEqual({ from: 10, to: 21 })
+    expect(range.up).toEqual({ from: 22, to: 29 })
   })
 
-  it('down+upがちょうどギャップ行数なら全行をdownに統合する', () => {
+  it('down+upがちょうどギャップ行数なら各方向の範囲で分割する', () => {
     const range = computeExpandedRange(gap, { expandedDown: 10, expandedUp: 10 })
+    expect(range.down).toEqual({ from: 10, to: 19 })
+    expect(range.up).toEqual({ from: 20, to: 29 })
+  })
+
+  it('upのみで全展開した場合は全行がupに入る', () => {
+    const range = computeExpandedRange(gap, { expandedDown: 0, expandedUp: 20 })
+    expect(range.down).toBeNull()
+    expect(range.up).toEqual({ from: 10, to: 29 })
+  })
+
+  it('downのみで全展開した場合は全行がdownに入る', () => {
+    const range = computeExpandedRange(gap, { expandedDown: 20, expandedUp: 0 })
     expect(range.down).toEqual({ from: 10, to: 29 })
     expect(range.up).toBeNull()
   })
