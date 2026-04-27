@@ -949,140 +949,121 @@ function hasExpandedRows(path: string, gapIdx: number): boolean {
               <p v-else-if="entry.state.kind === 'error'" class="error">
                 error: {{ entry.state.message }}
               </p>
+              <!--
+                コンテキスト展開 (ADR 0050)。
+
+                レイアウト方針: 展開ボタンを各 hunk に紐づけて配置する。
+                - hunk 上端に ↑ ボタン: gap[hunkIdx] を up 方向に展開
+                  (このhunkの上にコンテキストを追加)
+                - hunk 下端に ↓ ボタン: gap[hunkIdx+1] を down 方向に展開
+                  (このhunkの下にコンテキストを追加)
+
+                描画順序 (hunk N と hunk N+1 の間):
+                  [hunk N の内容]
+                  [↓] gap[N+1] down (hunk N の下端)
+                  [gap[N+1] の展開済み行]
+                  [↑] gap[N+1] up (hunk N+1 の上端)
+                  [hunk N+1 のヘッダー]
+              -->
               <template v-else-if="successFile(entry.state) !== null">
                 <template
                   v-for="(hunk, hunkIdx) in successFile(entry.state)?.hunks ?? []"
                   :key="hunkIdx"
                 >
-                  <!-- ギャップ展開ブロック: hunk の前 (ADR 0050) -->
-                  <template
+                  <!-- gap[hunkIdx] の展開済み行 (この hunk の前) -->
+                  <div
                     v-if="
-                      canExpand(entry.summary.path) &&
-                      getGaps(entry.summary.path, successFile(entry.state)?.hunks ?? [])[
-                        hunkIdx
-                      ] !== undefined
+                      canExpand(entry.summary.path) && hasExpandedRows(entry.summary.path, hunkIdx)
                     "
+                    class="hunk expand-hunk"
                   >
-                    <!-- 展開済みの行 -->
-                    <div
-                      v-if="hasExpandedRows(entry.summary.path, hunkIdx)"
-                      class="hunk expand-hunk"
-                    >
-                      <div class="hunk-content">
-                        <div class="side side-left">
-                          <div class="side-inner">
-                            <div
-                              v-for="(row, rowIdx) in buildExpandedRows(
-                                entry.summary.path,
-                                getGaps(entry.summary.path, successFile(entry.state)?.hunks ?? [])[
-                                  hunkIdx
-                                ]!,
-                                getExpansion(entry.summary.path, hunkIdx),
-                              )"
-                              :key="rowIdx"
-                              class="row cell-context"
-                            >
-                              <span class="row-lineno">{{ row.left?.oldLineNo ?? '' }}</span>
-                              <span class="row-content">
-                                <template v-if="row.leftTokens !== null">
-                                  <span
-                                    v-for="(tok, tokIdx) in row.leftTokens"
-                                    :key="tokIdx"
-                                    class="shiki-tok"
-                                    :style="shikiTokenStyle(tok)"
-                                    >{{ tok.content }}</span
-                                  >
-                                </template>
-                                <template v-else>{{ row.left?.content ?? '' }}</template>
-                              </span>
-                            </div>
+                    <div class="hunk-content">
+                      <div class="side side-left">
+                        <div class="side-inner">
+                          <div
+                            v-for="(row, rowIdx) in buildExpandedRows(
+                              entry.summary.path,
+                              getGaps(entry.summary.path, successFile(entry.state)?.hunks ?? [])[
+                                hunkIdx
+                              ]!,
+                              getExpansion(entry.summary.path, hunkIdx),
+                            )"
+                            :key="rowIdx"
+                            class="row cell-context"
+                          >
+                            <span class="row-lineno">{{ row.left?.oldLineNo ?? '' }}</span>
+                            <span class="row-content">
+                              <template v-if="row.leftTokens !== null">
+                                <span
+                                  v-for="(tok, tokIdx) in row.leftTokens"
+                                  :key="tokIdx"
+                                  class="shiki-tok"
+                                  :style="shikiTokenStyle(tok)"
+                                  >{{ tok.content }}</span
+                                >
+                              </template>
+                              <template v-else>{{ row.left?.content ?? '' }}</template>
+                            </span>
                           </div>
                         </div>
-                        <div class="side side-right">
-                          <div class="side-inner">
-                            <div
-                              v-for="(row, rowIdx) in buildExpandedRows(
-                                entry.summary.path,
-                                getGaps(entry.summary.path, successFile(entry.state)?.hunks ?? [])[
-                                  hunkIdx
-                                ]!,
-                                getExpansion(entry.summary.path, hunkIdx),
-                              )"
-                              :key="rowIdx"
-                              class="row cell-context"
-                            >
-                              <span class="row-lineno">{{ row.right?.newLineNo ?? '' }}</span>
-                              <span class="row-content">
-                                <template v-if="row.rightTokens !== null">
-                                  <span
-                                    v-for="(tok, tokIdx) in row.rightTokens"
-                                    :key="tokIdx"
-                                    class="shiki-tok"
-                                    :style="shikiTokenStyle(tok)"
-                                    >{{ tok.content }}</span
-                                  >
-                                </template>
-                                <template v-else>{{ row.right?.content ?? '' }}</template>
-                              </span>
-                            </div>
+                      </div>
+                      <div class="side side-right">
+                        <div class="side-inner">
+                          <div
+                            v-for="(row, rowIdx) in buildExpandedRows(
+                              entry.summary.path,
+                              getGaps(entry.summary.path, successFile(entry.state)?.hunks ?? [])[
+                                hunkIdx
+                              ]!,
+                              getExpansion(entry.summary.path, hunkIdx),
+                            )"
+                            :key="rowIdx"
+                            class="row cell-context"
+                          >
+                            <span class="row-lineno">{{ row.right?.newLineNo ?? '' }}</span>
+                            <span class="row-content">
+                              <template v-if="row.rightTokens !== null">
+                                <span
+                                  v-for="(tok, tokIdx) in row.rightTokens"
+                                  :key="tokIdx"
+                                  class="shiki-tok"
+                                  :style="shikiTokenStyle(tok)"
+                                  >{{ tok.content }}</span
+                                >
+                              </template>
+                              <template v-else>{{ row.right?.content ?? '' }}</template>
+                            </span>
                           </div>
                         </div>
                       </div>
                     </div>
-                    <!-- 展開ボタン -->
-                    <div
-                      v-if="
-                        shouldShowExpandButton(
-                          getGaps(entry.summary.path, successFile(entry.state)?.hunks ?? [])[
-                            hunkIdx
-                          ] ?? null,
-                          entry.summary.path,
-                          hunkIdx,
-                          hunkIdx === 0 ? 'down' : 'up',
-                        )
-                      "
-                      class="expand-bar"
-                    >
-                      <button
-                        v-if="
-                          hunkIdx > 0 &&
-                          shouldShowExpandButton(
-                            getGaps(entry.summary.path, successFile(entry.state)?.hunks ?? [])[
-                              hunkIdx
-                            ] ?? null,
-                            entry.summary.path,
-                            hunkIdx,
-                            'down',
-                          )
-                        "
-                        type="button"
-                        class="expand-btn"
-                        @click="expandGap(entry.summary.path, hunkIdx, 'down')"
-                      >
-                        ↓
-                      </button>
-                      <button
-                        v-if="
-                          shouldShowExpandButton(
-                            getGaps(entry.summary.path, successFile(entry.state)?.hunks ?? [])[
-                              hunkIdx
-                            ] ?? null,
-                            entry.summary.path,
-                            hunkIdx,
-                            'up',
-                          )
-                        "
-                        type="button"
-                        class="expand-btn"
-                        @click="expandGap(entry.summary.path, hunkIdx, 'up')"
-                      >
-                        ↑
-                      </button>
-                    </div>
-                  </template>
+                  </div>
 
+                  <!-- ↑ ボタン: gap[hunkIdx] を up 方向に展開 (hunk 上端) -->
+                  <div
+                    v-if="
+                      shouldShowExpandButton(
+                        getGaps(entry.summary.path, successFile(entry.state)?.hunks ?? [])[
+                          hunkIdx
+                        ] ?? null,
+                        entry.summary.path,
+                        hunkIdx,
+                        'up',
+                      )
+                    "
+                    class="expand-bar"
+                  >
+                    <button
+                      type="button"
+                      class="expand-btn"
+                      @click="expandGap(entry.summary.path, hunkIdx, 'up')"
+                    >
+                      ↑
+                    </button>
+                  </div>
+
+                  <!-- hunk 本体 -->
                   <div class="hunk">
-                    <!-- hunk ヘッダー: ギャップが完全展開されたら非表示 (ADR 0050) -->
                     <div
                       v-if="
                         !isGapFilled(
@@ -1151,23 +1132,17 @@ function hasExpandedRows(path: string, gapIdx: number): boolean {
                       </div>
                     </div>
                   </div>
-                </template>
-                <!-- 末尾ギャップ展開 (ADR 0050) -->
-                <template
-                  v-if="
-                    canExpand(entry.summary.path) &&
-                    (successFile(entry.state)?.hunks ?? []).length > 0
-                  "
-                >
+
+                  <!-- ↓ ボタン: gap[hunkIdx+1] を down 方向に展開 (hunk 下端) -->
                   <div
                     v-if="
                       shouldShowExpandButton(
                         getGaps(entry.summary.path, successFile(entry.state)?.hunks ?? [])[
-                          (successFile(entry.state)?.hunks ?? []).length
+                          hunkIdx + 1
                         ] ?? null,
                         entry.summary.path,
-                        (successFile(entry.state)?.hunks ?? []).length,
-                        'up',
+                        hunkIdx + 1,
+                        'down',
                       )
                     "
                     class="expand-bar"
@@ -1175,94 +1150,91 @@ function hasExpandedRows(path: string, gapIdx: number): boolean {
                     <button
                       type="button"
                       class="expand-btn"
-                      @click="
-                        expandGap(
-                          entry.summary.path,
-                          (successFile(entry.state)?.hunks ?? []).length,
-                          'up',
-                        )
-                      "
+                      @click="expandGap(entry.summary.path, hunkIdx + 1, 'down')"
                     >
                       ↓
                     </button>
                   </div>
-                  <div
-                    v-if="
-                      hasExpandedRows(
-                        entry.summary.path,
-                        (successFile(entry.state)?.hunks ?? []).length,
-                      )
-                    "
-                    class="hunk expand-hunk"
-                  >
-                    <div class="hunk-content">
-                      <div class="side side-left">
-                        <div class="side-inner">
-                          <div
-                            v-for="(row, rowIdx) in buildExpandedRows(
+                </template>
+
+                <!-- 末尾ギャップの展開済み行 (ADR 0050) -->
+                <div
+                  v-if="
+                    canExpand(entry.summary.path) &&
+                    hasExpandedRows(
+                      entry.summary.path,
+                      (successFile(entry.state)?.hunks ?? []).length,
+                    )
+                  "
+                  class="hunk expand-hunk"
+                >
+                  <div class="hunk-content">
+                    <div class="side side-left">
+                      <div class="side-inner">
+                        <div
+                          v-for="(row, rowIdx) in buildExpandedRows(
+                            entry.summary.path,
+                            getGaps(entry.summary.path, successFile(entry.state)?.hunks ?? [])[
+                              (successFile(entry.state)?.hunks ?? []).length
+                            ]!,
+                            getExpansion(
                               entry.summary.path,
-                              getGaps(entry.summary.path, successFile(entry.state)?.hunks ?? [])[
-                                (successFile(entry.state)?.hunks ?? []).length
-                              ]!,
-                              getExpansion(
-                                entry.summary.path,
-                                (successFile(entry.state)?.hunks ?? []).length,
-                              ),
-                            )"
-                            :key="rowIdx"
-                            class="row cell-context"
-                          >
-                            <span class="row-lineno">{{ row.left?.oldLineNo ?? '' }}</span>
-                            <span class="row-content">
-                              <template v-if="row.leftTokens !== null">
-                                <span
-                                  v-for="(tok, tokIdx) in row.leftTokens"
-                                  :key="tokIdx"
-                                  class="shiki-tok"
-                                  :style="shikiTokenStyle(tok)"
-                                  >{{ tok.content }}</span
-                                >
-                              </template>
-                              <template v-else>{{ row.left?.content ?? '' }}</template>
-                            </span>
-                          </div>
+                              (successFile(entry.state)?.hunks ?? []).length,
+                            ),
+                          )"
+                          :key="rowIdx"
+                          class="row cell-context"
+                        >
+                          <span class="row-lineno">{{ row.left?.oldLineNo ?? '' }}</span>
+                          <span class="row-content">
+                            <template v-if="row.leftTokens !== null">
+                              <span
+                                v-for="(tok, tokIdx) in row.leftTokens"
+                                :key="tokIdx"
+                                class="shiki-tok"
+                                :style="shikiTokenStyle(tok)"
+                                >{{ tok.content }}</span
+                              >
+                            </template>
+                            <template v-else>{{ row.left?.content ?? '' }}</template>
+                          </span>
                         </div>
                       </div>
-                      <div class="side side-right">
-                        <div class="side-inner">
-                          <div
-                            v-for="(row, rowIdx) in buildExpandedRows(
+                    </div>
+                    <div class="side side-right">
+                      <div class="side-inner">
+                        <div
+                          v-for="(row, rowIdx) in buildExpandedRows(
+                            entry.summary.path,
+                            getGaps(entry.summary.path, successFile(entry.state)?.hunks ?? [])[
+                              (successFile(entry.state)?.hunks ?? []).length
+                            ]!,
+                            getExpansion(
                               entry.summary.path,
-                              getGaps(entry.summary.path, successFile(entry.state)?.hunks ?? [])[
-                                (successFile(entry.state)?.hunks ?? []).length
-                              ]!,
-                              getExpansion(
-                                entry.summary.path,
-                                (successFile(entry.state)?.hunks ?? []).length,
-                              ),
-                            )"
-                            :key="rowIdx"
-                            class="row cell-context"
-                          >
-                            <span class="row-lineno">{{ row.right?.newLineNo ?? '' }}</span>
-                            <span class="row-content">
-                              <template v-if="row.rightTokens !== null">
-                                <span
-                                  v-for="(tok, tokIdx) in row.rightTokens"
-                                  :key="tokIdx"
-                                  class="shiki-tok"
-                                  :style="shikiTokenStyle(tok)"
-                                  >{{ tok.content }}</span
-                                >
-                              </template>
-                              <template v-else>{{ row.right?.content ?? '' }}</template>
-                            </span>
-                          </div>
+                              (successFile(entry.state)?.hunks ?? []).length,
+                            ),
+                          )"
+                          :key="rowIdx"
+                          class="row cell-context"
+                        >
+                          <span class="row-lineno">{{ row.right?.newLineNo ?? '' }}</span>
+                          <span class="row-content">
+                            <template v-if="row.rightTokens !== null">
+                              <span
+                                v-for="(tok, tokIdx) in row.rightTokens"
+                                :key="tokIdx"
+                                class="shiki-tok"
+                                :style="shikiTokenStyle(tok)"
+                                >{{ tok.content }}</span
+                              >
+                            </template>
+                            <template v-else>{{ row.right?.content ?? '' }}</template>
+                          </span>
                         </div>
                       </div>
                     </div>
                   </div>
-                </template>
+                </div>
               </template>
             </div>
             <div v-else class="tab-content code-view">
