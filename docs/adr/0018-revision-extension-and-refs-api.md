@@ -6,6 +6,8 @@
 
 ## 文脈
 
+> **注**: 本 ADR の refname 許可文字は ADR 0051 で git `check-ref-format` 仕様に合わせて拡張された。
+
 ADR 0012 §5 の初版 `Revision` 許可形式は SHA / `HEAD` / `HEAD~N` / `HEAD^N` に限定しており、ブランチ名・タグ名・`refs/heads/...` 形式を明示的に拒否していた。また ADR 0009 §1 で将来計画とされていた `GET /api/refs` は未実装だった。
 
 ユーザーからの要望により、diff 画面上で from / to を指定できるようにする。その前提として:
