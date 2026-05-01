@@ -30,6 +30,20 @@ describe('parseRevision', () => {
       ['main~3', 'ブランチ名 + ~N'],
       ['feature/foo^2', 'ブランチ名 + ^N'],
       ['v1.0.0^', 'タグ名 + ^'],
+      // ADR 0051: git check-ref-format 準拠の追加文字
+      ['feature+bar', 'プラス記号を含むブランチ名'],
+      ['dependabot/npm_and_yarn/lodash+4.17.21', 'dependabot 形式のプラス入りブランチ名'],
+      ['a+b/c+d', 'スラッシュとプラスの組み合わせ'],
+      ['feature+bar~3', 'プラス入りブランチ名 + modifier'],
+      ['a+b^2', 'プラス入りブランチ名 + ^ modifier'],
+      ['+start', '先頭プラスのブランチ名'],
+      ['user@feature', 'アットマークを含むブランチ名'],
+      ['@', '単独 @ は HEAD エイリアス (リビジョン指定として合法)'],
+      ['fix!urgent', 'エクスクラメーションを含むブランチ名'],
+      ['issue#123', 'シャープを含むブランチ名'],
+      ['release%beta', 'パーセントを含むブランチ名'],
+      ['a,b', 'カンマを含むブランチ名'],
+      ['key=value', 'イコールを含むブランチ名'],
     ]
 
     for (const [input, desc] of accepted) {
