@@ -95,3 +95,69 @@ function aggregateDirStatus(
   }
   return found
 }
+
+/**
+ * `git ls-files --others --ignored --exclude-standard --directory -z` の出力から
+ * 1 階層分の ignored エントリを抽出する (ADR 0055)。
+ *
+ * - 出力中、末尾 `/` 付きはディレクトリ、なしはファイル
+ * - basePath 配下に限定。さらに既存 (tracked/untracked) entry の name と
+ *   衝突するものは除外する (例: `.claude` ディレクトリ自体は tracked エントリ経由で
+ *   出ているが、その配下の ignored `tmp/` は basePath='.claude' で `tmp` として出す)
+ *
+ * @param stdout `git ls-files ... -z` の出力
+ * @param basePath 問い合わせたパス (空文字 = ルート)
+ * @param existingNames 既に entries に含まれる name の集合 (重複防止)
+ */
+export function extractIgnoredOneLevel(
+  stdout: string,
+  basePath: string,
+  existingNames: ReadonlySet<string>,
+): ReadonlyArray<WorktreeEntry> {
+  if (stdout.length === 0) {
+    return []
+  }
+
+  const prefix = basePath === '' ? '' : `${basePath}/`
+  const seen = new Set<string>(existingNames)
+  const entries: WorktreeEntry[] = []
+
+  const paths = stdout.split('\0')
+  for (const raw of paths) {
+    if (raw.length === 0) {
+      continue
+    }
+    if (prefix !== '' && !raw.startsWith(prefix)) {
+      continue
+    }
+
+    const isDir = raw.endsWith('/')
+    const trimmed = isDir ? raw.slice(0, -1) : raw
+    const relative = prefix === '' ? trimmed : trimmed.slice(prefix.length)
+    if (relative === '') {
+      continue
+    }
+    const slashIdx = relative.indexOf('/')
+
+    // ignored は --directory で 1 階層単位に丸められる前提だが、子ファイル単独で
+    // 出る (ディレクトリ全体が ignored ではない場合の) ケースもある。1 階層の
+    // 親 name を取り、type は親が tree (slashIdx >= 0 もしくは isDir) かで決める。
+    const name = slashIdx === -1 ? relative : relative.slice(0, slashIdx)
+    if (seen.has(name)) {
+      continue
+    }
+    seen.add(name)
+    const path = basePath === '' ? name : `${basePath}/${name}`
+    const type = isDir || slashIdx !== -1 ? 'tree' : 'blob'
+    entries.push({
+      status: 'ignored',
+      name,
+      path,
+      type,
+      mode: type === 'tree' ? '040000' : null,
+      size: null,
+    })
+  }
+
+  return entries
+}

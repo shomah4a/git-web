@@ -208,6 +208,7 @@ function statusLabel(status: WorktreeEntryStatusDto): string {
   if (status === 'modified') return 'M'
   if (status === 'deleted') return 'D'
   if (status === 'untracked') return '?'
+  if (status === 'ignored') return 'I'
   return ''
 }
 </script>
@@ -422,6 +423,10 @@ function statusLabel(status: WorktreeEntryStatusDto): string {
 }
 .entry-status[data-status='untracked'] {
   color: var(--color-fg-faint);
+}
+.entry-status[data-status='ignored'] {
+  color: var(--color-fg-faint);
+  opacity: 0.7;
 }
 .error {
   color: var(--color-error);

@@ -50,7 +50,14 @@ function isWorktreeEntryDto(value: unknown): value is WorktreeEntryDto {
   const t = value.type
   if (t !== 'blob' && t !== 'tree') return false
   const s = value.status
-  if (s !== null && s !== 'added' && s !== 'modified' && s !== 'deleted' && s !== 'untracked') {
+  if (
+    s !== null &&
+    s !== 'added' &&
+    s !== 'modified' &&
+    s !== 'deleted' &&
+    s !== 'untracked' &&
+    s !== 'ignored'
+  ) {
     return false
   }
   const m = value.mode
