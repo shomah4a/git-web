@@ -15,6 +15,7 @@ import type { ExecFileFn } from './adapter/git/cat-file-blob-reader.js'
 import { createCatFileBlobReader } from './adapter/git/cat-file-blob-reader.js'
 import { CliGitClient } from './adapter/git/cli-client.js'
 import { WorktreeLister } from './adapter/git/worktree-lister.js'
+import { WorktreeListClient } from './adapter/git/worktree-list-client.js'
 import { jsdiffParser } from './adapter/jsdiff/parser.js'
 import { createBlobHandler } from './controller/blob-controller.js'
 import { createBlobRawHandler } from './controller/blob-raw-controller.js'
@@ -26,6 +27,7 @@ import { createRepoHandler } from './controller/repo-controller.js'
 import { createTreeCommitsHandler } from './controller/tree-commits-controller.js'
 import { createTreeHandler } from './controller/tree-controller.js'
 import { createWorktreeHandler } from './controller/worktree-controller.js'
+import { createWorktreesListHandler } from './controller/worktrees-list-controller.js'
 import { NotAGitRepositoryError } from './domain/errors.js'
 import type { Revision } from './domain/revision.js'
 import { createRawBlobReader } from './adapter/raw-blob-reader-composite.js'
@@ -46,6 +48,7 @@ import { createRefsService } from './service/refs-service.js'
 import { createTreeCommitsService } from './service/tree-commits-service.js'
 import { createTreeService } from './service/tree-service.js'
 import { createWorktreeService } from './service/worktree-service.js'
+import { createWorktreesListService } from './service/worktrees-list-service.js'
 
 export type StartOptions = {
   /**
@@ -182,6 +185,28 @@ export async function start(options: StartOptions = {}): Promise<StartedServer> 
   const worktreeLister = new WorktreeLister(repoRoot, (p) => stat(p))
   const worktreeService = createWorktreeService(worktreeLister)
 
+  const worktreeListClient = new WorktreeListClient(
+    repoRoot,
+    (file, args, opts) =>
+      new Promise<{ stdout: string }>((resolveExec, reject) => {
+        execFile(file, [...args], { cwd: opts.cwd, env: opts.env }, (err, stdout) => {
+          if (err !== null) {
+            reject(err instanceof Error ? err : new Error('git worktree list failed'))
+            return
+          }
+          const text = typeof stdout === 'string' ? stdout : Buffer.from(stdout).toString('utf8')
+          resolveExec({ stdout: text })
+        })
+      }),
+  )
+  // 起動時 cwd を realpath 解決し、default worktree の絶対パスとして使う
+  const defaultWorktreePath = await realpath(repoRoot)
+  const worktreesListService = createWorktreesListService({
+    client: worktreeListClient,
+    realpath: (p) => realpath(p),
+    defaultWorktreePath,
+  })
+
   const routes: ReadonlyArray<Route> = [
     { method: 'GET', path: '/api/repo', handler: createRepoHandler(git) },
     { method: 'GET', path: '/api/diff/files', handler: createDiffFilesHandler(diffService) },
@@ -197,6 +222,11 @@ export async function start(options: StartOptions = {}): Promise<StartedServer> 
     },
     { method: 'GET', path: '/api/commits', handler: createCommitsHandler(commitsService) },
     { method: 'GET', path: '/api/worktree', handler: createWorktreeHandler(worktreeService) },
+    {
+      method: 'GET',
+      path: '/api/worktrees',
+      handler: createWorktreesListHandler(worktreesListService),
+    },
   ]
 
   const server = createApiServer({

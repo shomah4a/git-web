@@ -24,8 +24,9 @@ export type WorktreeListItemDto = {
 
   /**
    * HEAD コミットの 40 桁 hex ハッシュ。
+   * 新規初期化直後で HEAD コミットが無い worktree の場合は null。
    */
-  readonly headHash: string
+  readonly headHash: string | null
 
   /**
    * HEAD が指しているブランチ名 (例: `feat/foo`)。detached HEAD の場合は null。
