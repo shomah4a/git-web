@@ -48,6 +48,8 @@ export type {
   WorktreeResponseDto,
 } from './worktree.js'
 
+export type { WorktreeListItemDto, WorktreesListResponseDto } from './worktrees-list.js'
+
 export {
   IMAGE_EXTENSION_TO_MIME,
   inferImageContentType,
