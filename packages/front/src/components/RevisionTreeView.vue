@@ -10,13 +10,15 @@
  * - URL の rev / path クエリでステート管理
  */
 
-import type { RefListDto, TreeEntryDto, TreeEntryStatusDto } from '@git-web/common'
+import type { LastCommitDto, RefListDto, TreeEntryDto, TreeEntryStatusDto } from '@git-web/common'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { fetchBlob } from '../api/blob.js'
 import { fetchRefs } from '../api/refs.js'
 import { renderMarkdown } from '../markdown/render.js'
 import { fetchTree } from '../api/tree.js'
+import { fetchTreeCommits } from '../api/tree-commits.js'
+import { createYmdFormatter, detectBrowserTimeZone } from '../format/date.js'
 import { formatMode, formatSize } from '../format/entry.js'
 import RevisionCombobox from './RevisionCombobox.vue'
 
@@ -51,6 +53,16 @@ type ReadmeState =
   | { readonly kind: 'success'; readonly name: string; readonly html: string }
 
 const readmeState = ref<ReadmeState>({ kind: 'none' })
+
+/**
+ * 各エントリの最終コミット情報マップ (ADR 0054)。
+ *
+ * tree 表示後に /api/tree-commits を遅延フェッチし結果をここに格納する。
+ * entries とは独立した ref に持ち、テンプレで name でルックアップして表示する。
+ */
+const lastCommitByName = ref<ReadonlyMap<string, LastCommitDto>>(new Map())
+
+const formatYmd = createYmdFormatter(detectBrowserTimeZone())
 
 let isUnmounted = false
 let generation = 0
@@ -89,12 +101,15 @@ async function loadTree(rev: string, path: string): Promise<void> {
   loading.value = true
   errorMessage.value = null
   readmeState.value = { kind: 'none' }
+  lastCommitByName.value = new Map()
   try {
     const result = await fetchTree(rev, path)
     if (isUnmounted || gen !== generation) return
     entries.value = result
     // README 検出・取得 (世代チェック付き)
     void loadReadme(gen, rev, result)
+    // 最終コミット情報の遅延フェッチ (世代チェック付き、失敗しても tree 表示は維持)
+    void loadTreeCommits(gen, rev, path)
   } catch (err) {
     if (isUnmounted || gen !== generation) return
     errorMessage.value = err instanceof Error ? err.message : 'unknown error'
@@ -103,6 +118,29 @@ async function loadTree(rev: string, path: string): Promise<void> {
     if (!isUnmounted && gen === generation) {
       loading.value = false
     }
+  }
+}
+
+/**
+ * /api/tree-commits を呼び、各エントリの最終コミット情報を lastCommitByName に格納する。
+ *
+ * - 失敗時はコンソール warn のみ。ツリー自体の表示は維持する (ADR 0054 §9)
+ * - 世代チェックで古いリクエストの結果が新しい表示を上書きしないよう守る
+ */
+async function loadTreeCommits(gen: number, rev: string, path: string): Promise<void> {
+  try {
+    const result = await fetchTreeCommits(rev, path)
+    if (isUnmounted || gen !== generation) return
+    const map = new Map<string, LastCommitDto>()
+    for (const entry of result) {
+      if (entry.lastCommit !== null) {
+        map.set(entry.name, entry.lastCommit)
+      }
+    }
+    lastCommitByName.value = map
+  } catch (err) {
+    if (isUnmounted || gen !== generation) return
+    console.warn('[RevisionTreeView] fetchTreeCommits failed', err)
   }
 }
 
@@ -276,6 +314,8 @@ onBeforeUnmount(() => {
       <thead>
         <tr>
           <th class="col-name">Name</th>
+          <th class="col-commit-msg">Last commit message</th>
+          <th class="col-commit-date">Last commit date</th>
           <th class="col-mode">Mode</th>
           <th class="col-size">Size</th>
         </tr>
@@ -304,6 +344,16 @@ onBeforeUnmount(() => {
             <span v-if="entry.status !== null" class="entry-status" :data-status="entry.status">
               {{ statusLabel(entry.status) }}
             </span>
+          </td>
+          <td class="col-commit-msg" :title="lastCommitByName.get(entry.name)?.subject ?? ''">
+            {{ lastCommitByName.get(entry.name)?.subject ?? '\u2014' }}
+          </td>
+          <td class="col-commit-date">
+            {{
+              lastCommitByName.get(entry.name)
+                ? formatYmd(lastCommitByName.get(entry.name)!.date)
+                : '\u2014'
+            }}
           </td>
           <td class="col-mode">{{ formatMode(entry) }}</td>
           <td class="col-size">{{ formatSize(entry) }}</td>
@@ -403,11 +453,27 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
 }
+.col-commit-msg {
+  padding: 0.35rem 0.75rem;
+  color: var(--color-fg-muted);
+  font-size: 0.85em;
+  max-width: 24rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.col-commit-date {
+  padding: 0.35rem 0.75rem;
+  white-space: nowrap;
+  color: var(--color-fg-muted);
+  font-size: 0.85em;
+}
 .col-mode {
   padding: 0.35rem 0.75rem;
   white-space: nowrap;
   color: var(--color-fg-muted);
   font-size: 0.85em;
+  text-align: right;
 }
 .col-size {
   padding: 0.35rem 0.75rem;

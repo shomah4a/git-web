@@ -23,6 +23,10 @@ import type { GitLogClient } from '../../domain/ports/git-log-client.js'
 import type { LogQuery, LogResult } from '../../domain/ports/git-log-client.js'
 import type { GitRefsClient } from '../../domain/ports/git-refs-client.js'
 import type { GitTreeClient } from '../../domain/ports/git-tree-client.js'
+import type {
+  GitTreeCommitsClient,
+  LastCommitInfo,
+} from '../../domain/ports/git-tree-commits-client.js'
 import type { Revision } from '../../domain/revision.js'
 import type { TreeEntry } from '../../domain/tree.js'
 import { parseNumstatZ, parseRawZ } from './diff-summary-parser.js'
@@ -30,6 +34,7 @@ import { extractOneLevel } from './ls-files-parser.js'
 import { LOG_FORMAT, parseLogOutput } from './log-parser.js'
 import { parseLsTreeZ } from './ls-tree-parser.js'
 import { parseStatusZ } from './status-parser.js'
+import { parseTreeCommitsOutput } from './tree-commits-parser.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -40,10 +45,24 @@ const execFileAsync = promisify(execFile)
 const DIFF_MAX_BUFFER = 50 * 1024 * 1024
 
 /**
+ * tree-commits 用の git log --format 文字列 (ADR 0054)。
+ *
+ * フィールド順: hash / date(epoch秒) / subject
+ * 末尾の %x01 は subject と続く name-only ブロックの境界マーカ。
+ */
+const TREE_COMMITS_FORMAT = '%x00%H%x01%ct%x01%s%x01'
+
+/**
  * 子プロセスとして git CLI を起動する GitClient / GitDiffClient 実装。
  */
 export class CliGitClient
-  implements GitClient, GitDiffClient, GitLogClient, GitRefsClient, GitTreeClient
+  implements
+    GitClient,
+    GitDiffClient,
+    GitLogClient,
+    GitRefsClient,
+    GitTreeClient,
+    GitTreeCommitsClient
 {
   readonly #cwd: string
 
@@ -190,6 +209,77 @@ export class CliGitClient
   }
 
   /**
+   * 指定 dir 直下の各 name について最終コミット情報を返す (ADR 0054)。
+   *
+   * - `--no-merges`: マージコミットを除外し、ファイル内容を実際に変更した
+   *   コミットを最終コミットとして採用する (subject が "Merge branch 'X'" の
+   *   情報量薄いコミットを避ける、ADR 0054 §2)
+   * - `-c core.quotePath=true`: ユーザー gitconfig に依存せずパスの非 ASCII を
+   *   C-style クォートさせる
+   * - `--no-renames`: rename 追跡は本機能スコープ外
+   * - 早期終了: 全 targetNames が確定したら git の出力読み取りは続行するが、
+   *   ループ内で確定済みエントリは無視する (Promise 単位で一気に取得済みのため
+   *   実装上は走査打ち切りのみ)
+   */
+  async lastCommitsByName(
+    rev: Revision,
+    dir: string,
+    targetNames: ReadonlySet<string>,
+    maxCount: number,
+  ): Promise<ReadonlyMap<string, LastCommitInfo>> {
+    if (targetNames.size === 0) {
+      return new Map()
+    }
+
+    const dirPrefix = dir === '' ? '' : ensureTrailingSlash(dir)
+    const args: string[] = [
+      '-c',
+      'core.quotePath=true',
+      'log',
+      '--no-merges',
+      `--format=${TREE_COMMITS_FORMAT}`,
+      '--name-only',
+      '--no-renames',
+      `--max-count=${maxCount.toString()}`,
+      '--end-of-options',
+      rev.raw,
+    ]
+    if (dirPrefix !== '') {
+      args.push('--', dirPrefix)
+    }
+
+    const { stdout } = await execFileAsync('git', args, {
+      cwd: this.#cwd,
+      maxBuffer: DIFF_MAX_BUFFER,
+    })
+
+    const records = parseTreeCommitsOutput(stdout)
+    const result = new Map<string, LastCommitInfo>()
+
+    for (const record of records) {
+      if (result.size === targetNames.size) {
+        break
+      }
+      for (const path of record.paths) {
+        const name = extractImmediateChildName(path, dirPrefix)
+        if (name === null) continue
+        if (!targetNames.has(name)) continue
+        if (result.has(name)) continue
+        result.set(name, {
+          hash: record.hash,
+          date: record.date,
+          subject: record.subject,
+        })
+        if (result.size === targetNames.size) {
+          break
+        }
+      }
+    }
+
+    return result
+  }
+
+  /**
    * worktree の指定パス配下 1 階層分のエントリを返す。
    *
    * git ls-files で tracked + untracked (.gitignore 除外) を列挙し、
@@ -231,4 +321,33 @@ function toGuardedRangeArgs(range: DiffRange): ReadonlyArray<string> {
         ? [range.from.raw]
         : [range.from.raw, range.to.raw]
   return ['--end-of-options', ...revs]
+}
+
+/**
+ * パスフィルタ用ディレクトリの末尾スラッシュを保証する (防御的二重化)。
+ *
+ * ADR 0054: 末尾 / の付与は service 層の normalizeDir が一次担当だが、
+ * 将来別 service が直接 port を呼んだ場合の暴発回避として adapter でも保険を入れる。
+ */
+function ensureTrailingSlash(dir: string): string {
+  return dir.endsWith('/') ? dir : `${dir}/`
+}
+
+/**
+ * tree-commits ロジック用に、変更されたパスから immediate child name を抽出する。
+ *
+ * 例:
+ * - dirPrefix='', path='src/foo.ts'        → 'src'
+ * - dirPrefix='src/', path='src/foo.ts'    → 'foo.ts'
+ * - dirPrefix='src/', path='src/sub/x.ts'  → 'sub'
+ * - dirPrefix='src/', path='other/x.ts'    → null (対象外)
+ */
+function extractImmediateChildName(path: string, dirPrefix: string): string | null {
+  if (dirPrefix !== '' && !path.startsWith(dirPrefix)) {
+    return null
+  }
+  const remainder = path.slice(dirPrefix.length)
+  if (remainder.length === 0) return null
+  const slash = remainder.indexOf('/')
+  return slash === -1 ? remainder : remainder.slice(0, slash)
 }

@@ -23,6 +23,7 @@ import { createDiffFileHandler, createDiffFilesHandler } from './controller/diff
 import { mapDomainErrorToHttpResponse } from './controller/error-mapper.js'
 import { createRefsHandler } from './controller/refs-controller.js'
 import { createRepoHandler } from './controller/repo-controller.js'
+import { createTreeCommitsHandler } from './controller/tree-commits-controller.js'
 import { createTreeHandler } from './controller/tree-controller.js'
 import { createWorktreeHandler } from './controller/worktree-controller.js'
 import { NotAGitRepositoryError } from './domain/errors.js'
@@ -42,6 +43,7 @@ import { createBlobService } from './service/blob-service.js'
 import { createCommitsService } from './service/commits-service.js'
 import { createDiffService } from './service/diff-service.js'
 import { createRefsService } from './service/refs-service.js'
+import { createTreeCommitsService } from './service/tree-commits-service.js'
 import { createTreeService } from './service/tree-service.js'
 import { createWorktreeService } from './service/worktree-service.js'
 
@@ -175,6 +177,7 @@ export async function start(options: StartOptions = {}): Promise<StartedServer> 
 
   const commitsService = createCommitsService(git)
   const treeService = createTreeService(git, git)
+  const treeCommitsService = createTreeCommitsService(treeService, git, git)
 
   const worktreeLister = new WorktreeLister(repoRoot, (p) => stat(p))
   const worktreeService = createWorktreeService(worktreeLister)
@@ -187,6 +190,11 @@ export async function start(options: StartOptions = {}): Promise<StartedServer> 
     { method: 'GET', path: '/api/blob', handler: createBlobHandler(blobService) },
     { method: 'GET', path: '/api/blob/raw', handler: createBlobRawHandler(rawBlobReader) },
     { method: 'GET', path: '/api/tree', handler: createTreeHandler(treeService) },
+    {
+      method: 'GET',
+      path: '/api/tree-commits',
+      handler: createTreeCommitsHandler(treeCommitsService),
+    },
     { method: 'GET', path: '/api/commits', handler: createCommitsHandler(commitsService) },
     { method: 'GET', path: '/api/worktree', handler: createWorktreeHandler(worktreeService) },
   ]
