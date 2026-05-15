@@ -42,7 +42,7 @@ git -c core.quotePath=true log
 - `--format=%x00%H%x01%ct%x01%s%x01`: ADR 0046 と同じく NUL レコードセパレータ・SOH フィールドセパレータ。末尾 `%x01` は subject と続く name-only ブロックの境界マーカとする
 - `--name-only`: 各コミットが変更したファイル一覧を取得
 - `--no-renames`: rename 追跡は本 ADR スコープ外とし、rename 直後のファイルは履歴未確定として `null` を返す
-- `--max-count=<LIMIT>`: 暴走防止。**初期値は 1000 とし、運用で見直す**。これは経験的暫定値であり、実測 fixture で打ち切り挙動を確認したうえで採用する
+- `--max-count=<LIMIT>`: 暴走防止。**初期値は 1000 とし、運用で見直す**。実測値: 本リポ (339 コミット) のリポルートに対する full scan で、コールド時 ~150ms / ホット時 ~40ms。339 件規模なら max-count に依らず即終了する。大規模リポ (数万コミット) で過小と分かった時点で再設定する
 - `-c core.quotePath=true`: ファイル名内の非 ASCII 文字を C-style クォートさせ、ユーザー gitconfig の `core.quotePath` 設定に依存しないようにする
 - `--end-of-options <rev>`: ADR 0018 の二層防御を踏襲
 
