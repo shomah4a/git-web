@@ -51,6 +51,12 @@ function fakeFactory(resolvedEntriesByPath: Map<string, ReadonlyArray<WorktreeEn
       path: bounded,
       worktreeLister: lister,
       // 以下は本テストでは未使用なので空ダミーで埋める
+      gitClient: {
+        head: () => Promise.resolve({ commitHash: '', branch: null }),
+        repoRoot: () => Promise.resolve(path),
+      },
+      gitTreeClient: { listTree: () => Promise.resolve([]) },
+      worktreeTreeLister: { listWorktreeTree: () => Promise.resolve([]) },
       treeCommitsClient: { lastCommitsByName: () => Promise.resolve(new Map()) },
       worktreeBlobReader: { read: () => Promise.resolve(null) },
       rawBlobReader: { read: () => Promise.resolve(null) },

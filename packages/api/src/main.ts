@@ -181,7 +181,7 @@ export async function start(options: StartOptions = {}): Promise<StartedServer> 
 
   const commitsService = createCommitsService(git)
   const treeService = createTreeService(git, git)
-  const treeCommitsService = createTreeCommitsService(treeService, git, git)
+  const treeCommitsService = createTreeCommitsService()
 
   const worktreeService = createWorktreeService()
 
@@ -232,7 +232,11 @@ export async function start(options: StartOptions = {}): Promise<StartedServer> 
     {
       method: 'GET',
       path: '/api/tree-commits',
-      handler: createTreeCommitsHandler(treeCommitsService),
+      handler: createTreeCommitsHandler({
+        service: treeCommitsService,
+        resolver: worktreeContextResolver,
+        factory: worktreeClientsFactory,
+      }),
     },
     { method: 'GET', path: '/api/commits', handler: createCommitsHandler(commitsService) },
     {

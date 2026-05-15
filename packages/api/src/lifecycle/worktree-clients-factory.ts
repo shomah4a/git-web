@@ -12,10 +12,13 @@
  */
 
 import type { BlobReader } from '../domain/ports/blob-reader.js'
+import type { GitClient } from '../domain/ports/git-client.js'
+import type { GitTreeClient } from '../domain/ports/git-tree-client.js'
 import type { GitTreeCommitsClient } from '../domain/ports/git-tree-commits-client.js'
 import type { GitWorktreeClient } from '../domain/ports/git-worktree-client.js'
 import type { RawBlobReader } from '../domain/ports/raw-blob-reader.js'
 import type { Revision } from '../domain/revision.js'
+import type { WorktreeTreeLister } from '../service/tree-service.js'
 import { createCompositeBlobReader } from '../adapter/blob-reader-composite.js'
 import { createCatFileBlobReader, type ExecFileFn } from '../adapter/git/cat-file-blob-reader.js'
 import { CliGitClient } from '../adapter/git/cli-client.js'
@@ -26,6 +29,9 @@ import type { BoundedWorktreePath } from './worktree-path.js'
 
 export type WorktreeClients = {
   readonly path: BoundedWorktreePath
+  readonly gitClient: GitClient
+  readonly gitTreeClient: GitTreeClient
+  readonly worktreeTreeLister: WorktreeTreeLister
   readonly worktreeLister: GitWorktreeClient
   readonly treeCommitsClient: GitTreeCommitsClient
   readonly worktreeBlobReader: BlobReader
@@ -64,6 +70,9 @@ export function createWorktreeClientsFactory(
 
     return {
       path: bounded,
+      gitClient,
+      gitTreeClient: gitClient,
+      worktreeTreeLister: gitClient,
       worktreeLister,
       treeCommitsClient: gitClient,
       worktreeBlobReader,

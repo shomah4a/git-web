@@ -6,7 +6,7 @@ import type {
 } from '../domain/ports/git-tree-commits-client.js'
 import { parseRevision } from '../domain/revision.js'
 import type { TreeEntry } from '../domain/tree.js'
-import { createTreeCommitsService } from './tree-commits-service.js'
+import { createTreeCommitsService, type TreeCommitsClients } from './tree-commits-service.js'
 import type { TreeService } from './tree-service.js'
 
 function makeTreeService(entries: ReadonlyArray<TreeEntry>): TreeService {
@@ -66,6 +66,13 @@ function makeTreeCommitsClient(
   }
 }
 
+function makeClients(
+  treeCommitsClient: GitTreeCommitsClient,
+  gitClient: GitClient,
+): TreeCommitsClients {
+  return { treeCommitsClient, gitClient }
+}
+
 const sampleEntries: ReadonlyArray<TreeEntry> = [
   { name: 'README.md', path: 'README.md', type: 'blob', status: null, mode: null, size: null },
   { name: 'src', path: 'src', type: 'tree', status: null, mode: null, size: null },
@@ -77,8 +84,8 @@ describe('createTreeCommitsService', () => {
       ['README.md', { hash: 'h1', date: 100, subject: 'first' }],
       ['src', { hash: 'h2', date: 200, subject: 'second' }],
     ])
-    const service = createTreeCommitsService(
-      makeTreeService(sampleEntries),
+    const service = createTreeCommitsService()
+    const clients = makeClients(
       makeTreeCommitsClient(map, {
         expectedRev: 'v1.0',
         expectedDir: '',
@@ -88,7 +95,12 @@ describe('createTreeCommitsService', () => {
       makeGitClient(true),
     )
 
-    const result = await service.getTreeCommits(parseRevision('v1.0'), '')
+    const result = await service.getTreeCommits(
+      clients,
+      makeTreeService(sampleEntries),
+      parseRevision('v1.0'),
+      '',
+    )
 
     expect(result).toEqual([
       { name: 'README.md', lastCommit: { hash: 'h1', date: 100, subject: 'first' } },
@@ -100,25 +112,22 @@ describe('createTreeCommitsService', () => {
     const map = new Map<string, LastCommitInfo>([
       ['README.md', { hash: 'h1', date: 100, subject: 'first' }],
     ])
-    const service = createTreeCommitsService(
-      makeTreeService(sampleEntries),
+    const service = createTreeCommitsService()
+    const clients = makeClients(
       makeTreeCommitsClient(map, { expectedRev: 'HEAD' }),
       makeGitClient(true),
     )
 
-    const result = await service.getTreeCommits(null, '')
+    const result = await service.getTreeCommits(clients, makeTreeService(sampleEntries), null, '')
 
     expect(result[0]?.lastCommit?.subject).toBe('first')
   })
 
   it('HEAD が解決できない (空リポ) 場合は全エントリ lastCommit=null', async () => {
-    const service = createTreeCommitsService(
-      makeTreeService(sampleEntries),
-      makeTreeCommitsClient(new Map()),
-      makeGitClient(false),
-    )
+    const service = createTreeCommitsService()
+    const clients = makeClients(makeTreeCommitsClient(new Map()), makeGitClient(false))
 
-    const result = await service.getTreeCommits(null, '')
+    const result = await service.getTreeCommits(clients, makeTreeService(sampleEntries), null, '')
 
     expect(result).toEqual([
       { name: 'README.md', lastCommit: null },
@@ -127,13 +136,15 @@ describe('createTreeCommitsService', () => {
   })
 
   it('tree が空なら空配列を返す', async () => {
-    const service = createTreeCommitsService(
-      makeTreeService([]),
-      makeTreeCommitsClient(new Map()),
-      makeGitClient(true),
-    )
+    const service = createTreeCommitsService()
+    const clients = makeClients(makeTreeCommitsClient(new Map()), makeGitClient(true))
 
-    const result = await service.getTreeCommits(parseRevision('HEAD'), 'empty-dir')
+    const result = await service.getTreeCommits(
+      clients,
+      makeTreeService([]),
+      parseRevision('HEAD'),
+      'empty-dir',
+    )
 
     expect(result).toEqual([])
   })
@@ -142,44 +153,56 @@ describe('createTreeCommitsService', () => {
     const map = new Map<string, LastCommitInfo>([
       ['README.md', { hash: 'h1', date: 100, subject: 'first' }],
     ])
-    const service = createTreeCommitsService(
-      makeTreeService(sampleEntries),
-      makeTreeCommitsClient(map),
-      makeGitClient(true),
-    )
+    const service = createTreeCommitsService()
+    const clients = makeClients(makeTreeCommitsClient(map), makeGitClient(true))
 
-    const result = await service.getTreeCommits(parseRevision('HEAD'), '')
+    const result = await service.getTreeCommits(
+      clients,
+      makeTreeService(sampleEntries),
+      parseRevision('HEAD'),
+      '',
+    )
 
     expect(result.find((r) => r.name === 'src')?.lastCommit).toBeNull()
   })
 
   it('非ルートの path は末尾スラッシュを付けて port に渡す', async () => {
-    const service = createTreeCommitsService(
-      makeTreeService(sampleEntries),
+    const service = createTreeCommitsService()
+    const clients = makeClients(
       makeTreeCommitsClient(new Map(), { expectedDir: 'src/' }),
       makeGitClient(true),
     )
 
-    await service.getTreeCommits(parseRevision('HEAD'), 'src')
+    await service.getTreeCommits(
+      clients,
+      makeTreeService(sampleEntries),
+      parseRevision('HEAD'),
+      'src',
+    )
   })
 
   it('既に末尾スラッシュ付きの path はそのまま port に渡す', async () => {
-    const service = createTreeCommitsService(
-      makeTreeService(sampleEntries),
+    const service = createTreeCommitsService()
+    const clients = makeClients(
       makeTreeCommitsClient(new Map(), { expectedDir: 'src/' }),
       makeGitClient(true),
     )
 
-    await service.getTreeCommits(parseRevision('HEAD'), 'src/')
+    await service.getTreeCommits(
+      clients,
+      makeTreeService(sampleEntries),
+      parseRevision('HEAD'),
+      'src/',
+    )
   })
 
   it('ルート (空文字) はそのまま port に渡す', async () => {
-    const service = createTreeCommitsService(
-      makeTreeService(sampleEntries),
+    const service = createTreeCommitsService()
+    const clients = makeClients(
       makeTreeCommitsClient(new Map(), { expectedDir: '' }),
       makeGitClient(true),
     )
 
-    await service.getTreeCommits(parseRevision('HEAD'), '')
+    await service.getTreeCommits(clients, makeTreeService(sampleEntries), parseRevision('HEAD'), '')
   })
 })

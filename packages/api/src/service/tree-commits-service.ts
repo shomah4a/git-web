@@ -1,11 +1,13 @@
 /**
- * ツリービューのファイル単位最終コミット取得ユースケース (ADR 0054)。
+ * ツリービューのファイル単位最終コミット取得ユースケース (ADR 0054 / ADR 0055)。
  *
  * 設計方針 (ADR 0011):
  * - tree 取得は既存 TreeService を再利用して targetNames を確定する
  * - rev=null (worktree) のときは内部的に HEAD を rev として log を呼ぶ
  * - HEAD が解決できない (空リポ等) 場合は全エントリ null を返す
  * - HTTP / DTO には依存しない
+ * - wt 切替対応 (ADR 0055): クライアント群はリクエストごとに controller が
+ *   bind した状態で渡される。本サービスは bind 済みの clients を引数で受ける
  */
 
 import type { GitClient } from '../domain/ports/git-client.js'
@@ -37,6 +39,14 @@ export type TreeCommitResult = {
   readonly lastCommit: LastCommitInfo | null
 }
 
+/**
+ * tree-commits-service が利用する、リクエストごとの worktree-bind 済み clients。
+ */
+export type TreeCommitsClients = {
+  readonly gitClient: GitClient
+  readonly treeCommitsClient: GitTreeCommitsClient
+}
+
 export type TreeCommitsService = {
   /**
    * 指定リビジョン・パス配下のエントリ各々について最終コミット情報を返す。
@@ -44,29 +54,30 @@ export type TreeCommitsService = {
    * - rev=null (worktree) は内部的に HEAD を rev として扱う
    * - HEAD 未解決時は全エントリ null
    */
-  getTreeCommits(rev: Revision | null, path: string): Promise<ReadonlyArray<TreeCommitResult>>
+  getTreeCommits(
+    clients: TreeCommitsClients,
+    treeService: TreeService,
+    rev: Revision | null,
+    path: string,
+  ): Promise<ReadonlyArray<TreeCommitResult>>
 }
 
-export function createTreeCommitsService(
-  treeService: TreeService,
-  treeCommitsClient: GitTreeCommitsClient,
-  gitClient: GitClient,
-): TreeCommitsService {
+export function createTreeCommitsService(): TreeCommitsService {
   return {
-    async getTreeCommits(rev, path) {
+    async getTreeCommits(clients, treeService, rev, path) {
       const entries = await treeService.getTree(rev, path)
       if (entries.length === 0) {
         return []
       }
 
       const targetNames = new Set(entries.map((e) => e.name))
-      const effectiveRev = rev ?? (await resolveHeadRevision(gitClient))
+      const effectiveRev = rev ?? (await resolveHeadRevision(clients.gitClient))
 
       if (effectiveRev === null) {
         return entries.map((e) => ({ name: e.name, lastCommit: null }))
       }
 
-      const commitsByName = await treeCommitsClient.lastCommitsByName(
+      const commitsByName = await clients.treeCommitsClient.lastCommitsByName(
         effectiveRev,
         normalizeDir(path),
         targetNames,
