@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * worktree 状態表示コンポーネント (ADR 0023 / ADR 0055)。
+ * worktree 状態表示コンポーネント (ADR 0023 / ADR 0055 / ADR 0056)。
  *
  * 設計方針:
  * - /api/worktree でエントリ取得 → テーブル形式で表示
@@ -9,6 +9,9 @@
  * - パンくずリストで上位ディレクトリへナビゲーション
  * - URL の path / wt クエリでステート管理
  * - ADR 0055: WorktreeCombobox で worktree 切替。選択 = 即適用、path はリセット
+ * - ADR 0056: blob 行 Last commit セルから /commits?rev=<headHash>&path= へリンク。
+ *   wt=null (default worktree) のときは rev を省略し HEAD シンボルで遷移。
+ *   linked worktree 選択中で headHash が未解決のときはリンク化せずテキスト表示にする。
  */
 
 import type {
@@ -24,6 +27,7 @@ import { fetchWorktree } from '../api/worktree.js'
 import { fetchWorktreesList } from '../api/worktrees-list.js'
 import { createYmdFormatter, detectBrowserTimeZone } from '../format/date.js'
 import { formatMode, formatSize } from '../format/entry.js'
+import { buildHistoryUrl } from './history-url.js'
 import WorktreeCombobox from './WorktreeCombobox.vue'
 
 const route = useRoute()
@@ -80,6 +84,32 @@ const sortedEntries = computed(() => {
     }
     return a.name.localeCompare(b.name)
   })
+})
+
+/**
+ * history リンクの rev クエリに渡す値 (ADR 0056)。
+ *
+ * - wt=null (default worktree): null を返し rev クエリを省略する (HEAD シンボル解決)
+ * - wt=<name> (linked worktree): worktrees list から該当アイテムの headHash を返す
+ * - linked worktree 選択中で worktrees list 未解決 / 該当アイテム不在 / headHash null:
+ *   null を返す。リンク表示側でこれを「リンク不可」として扱う
+ */
+const historyRev = computed<string | null>(() => {
+  if (currentWt.value === null) return null
+  const item = worktrees.value.find((w) => w.name === currentWt.value)
+  if (item === undefined) return null
+  return item.headHash
+})
+
+/**
+ * 現在の worktree で history リンクを表示可能かを返す。
+ *
+ * - default worktree: 常に true
+ * - linked worktree: headHash が解決済みかつ非空のときのみ true
+ */
+const canShowHistoryLink = computed<boolean>(() => {
+  if (currentWt.value === null) return true
+  return historyRev.value !== null && historyRev.value !== ''
 })
 
 async function loadWorktree(path: string, wt: string | null): Promise<void> {
@@ -277,14 +307,44 @@ function statusLabel(status: WorktreeEntryStatusDto): string {
             </button>
           </td>
           <td class="col-commit-msg" :title="lastCommitByName.get(entry.name)?.subject ?? ''">
-            {{ lastCommitByName.get(entry.name)?.subject ?? '\u2014' }}
+            <router-link
+              v-if="
+                entry.type === 'blob' &&
+                lastCommitByName.get(entry.name) &&
+                canShowHistoryLink
+              "
+              :to="buildHistoryUrl(historyRev, entry.path)"
+              class="history-link"
+              title="\u3053\u306e\u30d5\u30a1\u30a4\u30eb\u306e\u5c65\u6b74\u3092\u8868\u793a"
+              @click.stop
+            >
+              {{ lastCommitByName.get(entry.name)?.subject }}
+            </router-link>
+            <template v-else>
+              {{ lastCommitByName.get(entry.name)?.subject ?? '\u2014' }}
+            </template>
           </td>
           <td class="col-commit-date">
-            {{
-              lastCommitByName.get(entry.name)
-                ? formatYmd(lastCommitByName.get(entry.name)!.date)
-                : '\u2014'
-            }}
+            <router-link
+              v-if="
+                entry.type === 'blob' &&
+                lastCommitByName.get(entry.name) &&
+                canShowHistoryLink
+              "
+              :to="buildHistoryUrl(historyRev, entry.path)"
+              class="history-link"
+              title="\u3053\u306e\u30d5\u30a1\u30a4\u30eb\u306e\u5c65\u6b74\u3092\u8868\u793a"
+              @click.stop
+            >
+              {{ formatYmd(lastCommitByName.get(entry.name)!.date) }}
+            </router-link>
+            <template v-else>
+              {{
+                lastCommitByName.get(entry.name)
+                  ? formatYmd(lastCommitByName.get(entry.name)!.date)
+                  : '\u2014'
+              }}
+            </template>
           </td>
           <td class="col-mode">{{ formatMode(entry) }}</td>
           <td class="col-size">{{ formatSize(entry) }}</td>
@@ -379,6 +439,15 @@ function statusLabel(status: WorktreeEntryStatusDto): string {
   white-space: nowrap;
   color: var(--color-fg-muted);
   font-size: 0.85em;
+}
+.history-link {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--color-border);
+}
+.history-link:hover {
+  color: var(--color-fg);
+  text-decoration-color: var(--color-fg-muted);
 }
 .col-mode {
   width: 7rem;
