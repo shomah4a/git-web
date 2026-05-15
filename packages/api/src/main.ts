@@ -14,7 +14,6 @@ import { createWorktreeBlobReader } from './adapter/fs/worktree-blob-reader.js'
 import type { ExecFileFn } from './adapter/git/cat-file-blob-reader.js'
 import { createCatFileBlobReader } from './adapter/git/cat-file-blob-reader.js'
 import { CliGitClient } from './adapter/git/cli-client.js'
-import { WorktreeLister } from './adapter/git/worktree-lister.js'
 import { WorktreeListClient } from './adapter/git/worktree-list-client.js'
 import { jsdiffParser } from './adapter/jsdiff/parser.js'
 import { createBlobHandler } from './controller/blob-controller.js'
@@ -41,6 +40,8 @@ import {
   createNodeRegistryIO,
   resolveRegistryPaths,
 } from './lifecycle/registry-io-node.js'
+import { createWorktreeClientsFactory } from './lifecycle/worktree-clients-factory.js'
+import { createWorktreeContextResolver } from './lifecycle/worktree-context-resolver.js'
 import { createBlobService } from './service/blob-service.js'
 import { createCommitsService } from './service/commits-service.js'
 import { createDiffService } from './service/diff-service.js'
@@ -182,8 +183,7 @@ export async function start(options: StartOptions = {}): Promise<StartedServer> 
   const treeService = createTreeService(git, git)
   const treeCommitsService = createTreeCommitsService(treeService, git, git)
 
-  const worktreeLister = new WorktreeLister(repoRoot, (p) => stat(p))
-  const worktreeService = createWorktreeService(worktreeLister)
+  const worktreeService = createWorktreeService()
 
   const worktreeListClient = new WorktreeListClient(
     repoRoot,
@@ -206,6 +206,20 @@ export async function start(options: StartOptions = {}): Promise<StartedServer> 
     realpath: (p) => realpath(p),
     defaultWorktreePath,
   })
+  const worktreeContextResolver = createWorktreeContextResolver({
+    service: worktreesListService,
+    defaultWorktreePath,
+    now: () => Date.now(),
+  })
+  const worktreeClientsFactory = createWorktreeClientsFactory({
+    stat: (p) => stat(p),
+    realpath: (p) => realpath(p),
+    readFile: (p) => readFile(p),
+    execFile: nodeExecFile,
+  })
+
+  // 起動時 fail-fast: default worktree が porcelain に見つからないなら起動を止める
+  await worktreeContextResolver.getDefault()
 
   const routes: ReadonlyArray<Route> = [
     { method: 'GET', path: '/api/repo', handler: createRepoHandler(git) },
@@ -221,7 +235,15 @@ export async function start(options: StartOptions = {}): Promise<StartedServer> 
       handler: createTreeCommitsHandler(treeCommitsService),
     },
     { method: 'GET', path: '/api/commits', handler: createCommitsHandler(commitsService) },
-    { method: 'GET', path: '/api/worktree', handler: createWorktreeHandler(worktreeService) },
+    {
+      method: 'GET',
+      path: '/api/worktree',
+      handler: createWorktreeHandler({
+        service: worktreeService,
+        resolver: worktreeContextResolver,
+        factory: worktreeClientsFactory,
+      }),
+    },
     {
       method: 'GET',
       path: '/api/worktrees',

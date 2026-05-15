@@ -21,9 +21,9 @@ function createFakeExec(stdout: string): {
   calls: Call[]
 } {
   const calls: Call[] = []
-  const fn: WorktreeListExecFn = async (file, args, options) => {
+  const fn: WorktreeListExecFn = (file, args, options) => {
     calls.push({ file, args, cwd: options.cwd, env: options.env })
-    return { stdout }
+    return Promise.resolve({ stdout })
   }
   return { fn, calls }
 }
