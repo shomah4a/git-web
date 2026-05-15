@@ -41,4 +41,26 @@ describe('isInsideRepo', () => {
       expect(isInsideRepo(root, `${root}x`)).toBe(false)
     })
   })
+
+  describe('正規化 (ADR 0055 §7-6)', () => {
+    it('root の末尾 sep があっても判定が安定する', () => {
+      expect(isInsideRepo(`${root}${sep}`, `${root}${sep}README.md`)).toBe(true)
+    })
+
+    it('target の末尾 sep があっても判定が安定する', () => {
+      expect(isInsideRepo(root, `${root}${sep}src${sep}`)).toBe(true)
+    })
+
+    it('重複 sep を含む root / target を正規化する', () => {
+      expect(isInsideRepo(`${root}${sep}${sep}`, `${root}${sep}${sep}README.md`)).toBe(true)
+    })
+
+    it('`.` segment を含む target を正規化する', () => {
+      expect(isInsideRepo(root, `${root}${sep}.${sep}README.md`)).toBe(true)
+    })
+
+    it('正規化前は兄弟に見えるが正規化後も依然として兄弟', () => {
+      expect(isInsideRepo(`${root}${sep}`, `${root}-sibling${sep}a.ts`)).toBe(false)
+    })
+  })
 })
