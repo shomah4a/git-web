@@ -220,7 +220,6 @@ function statusLabel(status: WorktreeEntryStatusDto): string {
           <WorktreeCombobox
             :model-value="currentWt"
             :items="worktrees"
-            @update:model-value="currentWt = $event"
             @submit="onWorktreeSubmit"
           />
         </div>
