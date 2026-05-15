@@ -68,7 +68,7 @@ export function createTreeCommitsService(
 
       const commitsByName = await treeCommitsClient.lastCommitsByName(
         effectiveRev,
-        path,
+        normalizeDir(path),
         targetNames,
         TREE_COMMITS_MAX_COUNT,
       )
@@ -93,4 +93,18 @@ async function resolveHeadRevision(gitClient: GitClient): Promise<Revision | nul
     return null
   }
   return parseRevision('HEAD')
+}
+
+/**
+ * port に渡すディレクトリパスを正規化する。
+ *
+ * ADR 0054 §1 / 防衛的計画評価 M5:
+ * - 非ルートは必ず末尾 `/` を付ける (パス境界の明確化、ファイル誤指定の暴発回避)
+ * - ルート ('') はそのまま
+ *
+ * port 実装側で再正規化を必須にしないため、service 層で揃える。
+ */
+function normalizeDir(path: string): string {
+  if (path === '') return ''
+  return path.endsWith('/') ? path : `${path}/`
 }

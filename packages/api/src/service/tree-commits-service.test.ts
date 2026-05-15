@@ -153,13 +153,33 @@ describe('createTreeCommitsService', () => {
     expect(result.find((r) => r.name === 'src')?.lastCommit).toBeNull()
   })
 
-  it('path 引数はそのまま port に渡される', async () => {
+  it('非ルートの path は末尾スラッシュを付けて port に渡す', async () => {
     const service = createTreeCommitsService(
       makeTreeService(sampleEntries),
-      makeTreeCommitsClient(new Map(), { expectedDir: 'src' }),
+      makeTreeCommitsClient(new Map(), { expectedDir: 'src/' }),
       makeGitClient(true),
     )
 
     await service.getTreeCommits(parseRevision('HEAD'), 'src')
+  })
+
+  it('既に末尾スラッシュ付きの path はそのまま port に渡す', async () => {
+    const service = createTreeCommitsService(
+      makeTreeService(sampleEntries),
+      makeTreeCommitsClient(new Map(), { expectedDir: 'src/' }),
+      makeGitClient(true),
+    )
+
+    await service.getTreeCommits(parseRevision('HEAD'), 'src/')
+  })
+
+  it('ルート (空文字) はそのまま port に渡す', async () => {
+    const service = createTreeCommitsService(
+      makeTreeService(sampleEntries),
+      makeTreeCommitsClient(new Map(), { expectedDir: '' }),
+      makeGitClient(true),
+    )
+
+    await service.getTreeCommits(parseRevision('HEAD'), '')
   })
 })

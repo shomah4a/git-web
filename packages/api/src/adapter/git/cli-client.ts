@@ -324,9 +324,10 @@ function toGuardedRangeArgs(range: DiffRange): ReadonlyArray<string> {
 }
 
 /**
- * パスフィルタ用ディレクトリの末尾スラッシュを保証する。
+ * パスフィルタ用ディレクトリの末尾スラッシュを保証する (防御的二重化)。
  *
- * ADR 0054: ファイル誤指定での暴発回避のため、パスフィルタには必ず末尾 / を付ける。
+ * ADR 0054: 末尾 / の付与は service 層の normalizeDir が一次担当だが、
+ * 将来別 service が直接 port を呼んだ場合の暴発回避として adapter でも保険を入れる。
  */
 function ensureTrailingSlash(dir: string): string {
   return dir.endsWith('/') ? dir : `${dir}/`
