@@ -39,6 +39,8 @@ export type { EntryBaseDto, EntryTypeDto } from './entry-base.js'
 
 export type { TreeEntryDto, TreeEntryStatusDto, TreeEntryTypeDto, TreeResponseDto } from './tree.js'
 
+export type { LastCommitDto, TreeCommitDto, TreeCommitsResponseDto } from './tree-commits.js'
+
 export type {
   WorktreeEntryDto,
   WorktreeEntryStatusDto,
