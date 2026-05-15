@@ -8,6 +8,7 @@
  * - ディレクトリクリック → router.push でドリルダウン
  * - パンくずリストで上位ディレクトリへナビゲーション
  * - URL の rev / path クエリでステート管理
+ * - blob 行の Last commit msg/date セルから /commits?rev=&path= へリンク (ADR 0056)
  */
 
 import type { LastCommitDto, RefListDto, TreeEntryDto, TreeEntryStatusDto } from '@git-web/common'
@@ -20,6 +21,7 @@ import { fetchTree } from '../api/tree.js'
 import { fetchTreeCommits } from '../api/tree-commits.js'
 import { createYmdFormatter, detectBrowserTimeZone } from '../format/date.js'
 import { formatMode, formatSize } from '../format/entry.js'
+import { buildHistoryUrl } from './history-url.js'
 import RevisionCombobox from './RevisionCombobox.vue'
 
 const route = useRoute()
@@ -346,14 +348,36 @@ onBeforeUnmount(() => {
             </span>
           </td>
           <td class="col-commit-msg" :title="lastCommitByName.get(entry.name)?.subject ?? ''">
-            {{ lastCommitByName.get(entry.name)?.subject ?? '\u2014' }}
+            <router-link
+              v-if="entry.type === 'blob' && lastCommitByName.get(entry.name)"
+              :to="buildHistoryUrl(currentRev, entry.path)"
+              class="history-link"
+              title="\u3053\u306e\u30d5\u30a1\u30a4\u30eb\u306e\u5c65\u6b74\u3092\u8868\u793a"
+              @click.stop
+            >
+              {{ lastCommitByName.get(entry.name)?.subject }}
+            </router-link>
+            <template v-else>
+              {{ lastCommitByName.get(entry.name)?.subject ?? '\u2014' }}
+            </template>
           </td>
           <td class="col-commit-date">
-            {{
-              lastCommitByName.get(entry.name)
-                ? formatYmd(lastCommitByName.get(entry.name)!.date)
-                : '\u2014'
-            }}
+            <router-link
+              v-if="entry.type === 'blob' && lastCommitByName.get(entry.name)"
+              :to="buildHistoryUrl(currentRev, entry.path)"
+              class="history-link"
+              title="\u3053\u306e\u30d5\u30a1\u30a4\u30eb\u306e\u5c65\u6b74\u3092\u8868\u793a"
+              @click.stop
+            >
+              {{ formatYmd(lastCommitByName.get(entry.name)!.date) }}
+            </router-link>
+            <template v-else>
+              {{
+                lastCommitByName.get(entry.name)
+                  ? formatYmd(lastCommitByName.get(entry.name)!.date)
+                  : '\u2014'
+              }}
+            </template>
           </td>
           <td class="col-mode">{{ formatMode(entry) }}</td>
           <td class="col-size">{{ formatSize(entry) }}</td>
@@ -467,6 +491,15 @@ onBeforeUnmount(() => {
   white-space: nowrap;
   color: var(--color-fg-muted);
   font-size: 0.85em;
+}
+.history-link {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--color-border);
+}
+.history-link:hover {
+  color: var(--color-fg);
+  text-decoration-color: var(--color-fg-muted);
 }
 .col-mode {
   padding: 0.35rem 0.75rem;
