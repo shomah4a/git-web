@@ -135,6 +135,8 @@ describe('App.vue', () => {
             },
           ],
         }),
+      '/api/worktrees': () => jsonResponse({ items: [] }),
+      '/api/tree-commits': () => jsonResponse({ entries: [] }),
     })
 
     const router = createRouter({
@@ -152,6 +154,9 @@ describe('App.vue', () => {
     const wrapper = mount(App, {
       global: { plugins: [router] },
     })
+    await flushPromises()
+    // worktrees-list と worktree の 2 つの fetch が並行で走るため、microtask の
+    // 解放を 1 度では足りないことがあるので追加で flush する (ADR 0055)。
     await flushPromises()
 
     expect(wrapper.text()).toContain('src')
