@@ -11,20 +11,20 @@ import type { TreeService } from './tree-service.js'
 
 function makeTreeService(entries: ReadonlyArray<TreeEntry>): TreeService {
   return {
-    async getTree() {
-      return entries
+    getTree() {
+      return Promise.resolve(entries)
     },
   }
 }
 
 function makeGitClient(headSucceeds: boolean): GitClient {
   return {
-    async head() {
-      if (!headSucceeds) throw new Error('not a repo')
-      return { commitHash: 'abcdef0', branch: 'main' }
+    head() {
+      if (!headSucceeds) return Promise.reject(new Error('not a repo'))
+      return Promise.resolve({ commitHash: 'abcdef0', branch: 'main' })
     },
-    async repoRoot() {
-      return '/tmp/fake'
+    repoRoot() {
+      return Promise.resolve('/tmp/fake')
     },
   }
 }
@@ -39,32 +39,29 @@ function makeTreeCommitsClient(
   },
 ): GitTreeCommitsClient {
   return {
-    async lastCommitsByName(rev, dir, targetNames, maxCount) {
+    lastCommitsByName(rev, dir, targetNames, maxCount) {
       if (expectations?.expectedRev !== undefined) {
         if (rev.raw !== expectations.expectedRev) {
-          throw new Error(`unexpected rev: ${rev.raw}`)
+          return Promise.reject(new Error(`unexpected rev: ${rev.raw}`))
         }
       }
       if (expectations?.expectedDir !== undefined) {
         if (dir !== expectations.expectedDir) {
-          throw new Error(`unexpected dir: ${dir}`)
+          return Promise.reject(new Error(`unexpected dir: ${dir}`))
         }
       }
       if (expectations?.expectedNames !== undefined) {
         const expected = new Set(expectations.expectedNames)
-        if (
-          targetNames.size !== expected.size ||
-          [...targetNames].some((n) => !expected.has(n))
-        ) {
-          throw new Error(`unexpected names: ${[...targetNames].join(',')}`)
+        if (targetNames.size !== expected.size || [...targetNames].some((n) => !expected.has(n))) {
+          return Promise.reject(new Error(`unexpected names: ${[...targetNames].join(',')}`))
         }
       }
       if (expectations?.expectedMaxCount !== undefined) {
         if (maxCount !== expectations.expectedMaxCount) {
-          throw new Error(`unexpected maxCount: ${maxCount.toString()}`)
+          return Promise.reject(new Error(`unexpected maxCount: ${maxCount.toString()}`))
         }
       }
-      return result
+      return Promise.resolve(result)
     },
   }
 }

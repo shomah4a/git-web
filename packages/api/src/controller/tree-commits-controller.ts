@@ -17,10 +17,7 @@ import type { Revision } from '../domain/revision.js'
 import { parseRevision } from '../domain/revision.js'
 import { jsonResponse } from '../http/response.js'
 import type { Handler } from '../http/router.js'
-import type {
-  TreeCommitResult,
-  TreeCommitsService,
-} from '../service/tree-commits-service.js'
+import type { TreeCommitResult, TreeCommitsService } from '../service/tree-commits-service.js'
 
 export function createTreeCommitsHandler(service: TreeCommitsService): Handler {
   return async (req) => {

@@ -1,10 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { InvalidDiffPathError, InvalidRevisionError } from '../domain/errors.js'
 import type { Revision } from '../domain/revision.js'
-import type {
-  TreeCommitResult,
-  TreeCommitsService,
-} from '../service/tree-commits-service.js'
+import type { TreeCommitResult, TreeCommitsService } from '../service/tree-commits-service.js'
 import { createTreeCommitsHandler } from './tree-commits-controller.js'
 
 type Call = { readonly rev: Revision | null; readonly path: string }
@@ -87,9 +84,9 @@ describe('createTreeCommitsHandler', () => {
     const service = createFakeService([])
     const handler = createTreeCommitsHandler(service)
 
-    await expect(
-      handler(makeRequest('/api/tree-commits?path=../escape')),
-    ).rejects.toBeInstanceOf(InvalidDiffPathError)
+    await expect(handler(makeRequest('/api/tree-commits?path=../escape'))).rejects.toBeInstanceOf(
+      InvalidDiffPathError,
+    )
   })
 
   it('path クエリの空文字はルートとして扱う', async () => {
