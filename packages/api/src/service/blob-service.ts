@@ -1,11 +1,10 @@
 /**
- * blob 取得ユースケース層。
+ * blob 取得ユースケース層 (ADR 0016 / ADR 0055)。
  *
- * 設計方針 (ADR 0011 / ADR 0016):
- * - BlobReader port を注入して委譲する。reader は language を埋めない
- *   (ADR 0016: reader の責務は副作用とファイル内容取得のみ)
- * - 本 service が path から inferLanguage で language を推定して Blob を
- *   再構築する
+ * 設計方針 (ADR 0011):
+ * - BlobReader port は引数で渡される (controller が wt context bind 済みのもの)。
+ * - reader が language を埋めないため、本 service が path から inferLanguage で
+ *   language を推定して Blob を再構築する (ADR 0016)
  * - reader が null を返したらそのまま null (controller で 404)
  * - HTTP / フレームワーク / DTO には依存しない
  */
@@ -16,12 +15,12 @@ import type { BlobReader } from '../domain/ports/blob-reader.js'
 import type { Revision } from '../domain/revision.js'
 
 export type BlobService = {
-  getBlob(path: string, rev: Revision | null): Promise<Blob | null>
+  getBlob(reader: BlobReader, path: string, rev: Revision | null): Promise<Blob | null>
 }
 
-export function createBlobService(reader: BlobReader): BlobService {
+export function createBlobService(): BlobService {
   return {
-    async getBlob(path, rev) {
+    async getBlob(reader, path, rev) {
       const blob = await reader.read(path, rev)
       if (blob === null) {
         return null

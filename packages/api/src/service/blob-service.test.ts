@@ -16,9 +16,9 @@ describe('createBlobService', () => {
       binary: false,
       language: null,
     })
-    const service = createBlobService(reader)
+    const service = createBlobService()
 
-    const result = await service.getBlob('src/main.ts', null)
+    const result = await service.getBlob(reader, 'src/main.ts', null)
 
     expect(result?.language).toBe('typescript')
     expect(result?.content).toBe('export const a = 1\n')
@@ -32,18 +32,18 @@ describe('createBlobService', () => {
       binary: false,
       language: null,
     })
-    const service = createBlobService(reader)
+    const service = createBlobService()
 
-    const result = await service.getBlob('LICENSE', null)
+    const result = await service.getBlob(reader, 'LICENSE', null)
 
     expect(result?.language).toBeNull()
   })
 
   it('reader が null を返したら service も null を返す', async () => {
     const reader = makeReader(null)
-    const service = createBlobService(reader)
+    const service = createBlobService()
 
-    const result = await service.getBlob('missing.ts', null)
+    const result = await service.getBlob(reader, 'missing.ts', null)
 
     expect(result).toBeNull()
   })
@@ -56,9 +56,9 @@ describe('createBlobService', () => {
       binary: false,
       language: null,
     })
-    const service = createBlobService(reader)
+    const service = createBlobService()
 
-    const result = await service.getBlob('script', null)
+    const result = await service.getBlob(reader, 'script', null)
 
     expect(result?.language).toBe('python')
   })
@@ -71,9 +71,9 @@ describe('createBlobService', () => {
       binary: false,
       language: null,
     })
-    const service = createBlobService(reader)
+    const service = createBlobService()
 
-    const result = await service.getBlob('script', null)
+    const result = await service.getBlob(reader, 'script', null)
 
     expect(result?.language).toBeNull()
   })
@@ -86,9 +86,9 @@ describe('createBlobService', () => {
       binary: true,
       language: null,
     })
-    const service = createBlobService(reader)
+    const service = createBlobService()
 
-    const result = await service.getBlob('image.png', { raw: 'HEAD' })
+    const result = await service.getBlob(reader, 'image.png', { raw: 'HEAD' })
 
     expect(result?.binary).toBe(true)
     expect(result?.content).toBe('')

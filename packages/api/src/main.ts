@@ -28,8 +28,6 @@ import { createTreeHandler } from './controller/tree-controller.js'
 import { createWorktreeHandler } from './controller/worktree-controller.js'
 import { createWorktreesListHandler } from './controller/worktrees-list-controller.js'
 import { NotAGitRepositoryError } from './domain/errors.js'
-import type { Revision } from './domain/revision.js'
-import { createRawBlobReader } from './adapter/raw-blob-reader-composite.js'
 import type { Route } from './http/router.js'
 import { close, createApiServer, listen } from './http/server.js'
 import { createStaticHandler } from './http/static.js'
@@ -146,6 +144,8 @@ export async function start(options: StartOptions = {}): Promise<StartedServer> 
 
   const refsService = createRefsService(git)
 
+  // diff-service は rev ベースで worktree 概念と独立。default worktree (= 起動 cwd) の
+  // blobReader で固定する (ADR 0055 §2: リビジョン指定経路は wt 対象外)。
   const worktreeReader = createWorktreeBlobReader(repoRoot, {
     realpath: (p) => realpath(p),
     readFile: (p) => readFile(p),
@@ -153,31 +153,7 @@ export async function start(options: StartOptions = {}): Promise<StartedServer> 
   const catFileReader = createCatFileBlobReader(nodeExecFile, repoRoot)
   const blobReader = createCompositeBlobReader(worktreeReader, catFileReader)
   const diffService = createDiffService(git, jsdiffParser, blobReader)
-  const blobService = createBlobService(blobReader)
-
-  const GIT_ENV = { LC_ALL: 'C', LANG: 'C' } as const
-  const CAT_FILE_MAX_BUFFER = 50 * 1024 * 1024
-  const rawBlobReader = createRawBlobReader(
-    repoRoot,
-    (p) => realpath(p),
-    (p) => readFile(p),
-    async (rev: Revision, path: string): Promise<Buffer | null> => {
-      const spec = `${rev.raw}:${path}`
-      try {
-        const result = await nodeExecFile('git', ['-C', repoRoot, 'cat-file', 'blob', spec], {
-          env: { ...process.env, ...GIT_ENV },
-          maxBuffer: CAT_FILE_MAX_BUFFER,
-          encoding: 'buffer',
-        })
-        return result.stdout
-      } catch (err) {
-        if (err !== null && typeof err === 'object' && 'code' in err && err.code === 128) {
-          return null
-        }
-        throw err
-      }
-    },
-  )
+  const blobService = createBlobService()
 
   const commitsService = createCommitsService(git)
   const treeService = createTreeService(git, git)
@@ -226,8 +202,23 @@ export async function start(options: StartOptions = {}): Promise<StartedServer> 
     { method: 'GET', path: '/api/diff/files', handler: createDiffFilesHandler(diffService) },
     { method: 'GET', path: '/api/diff/file', handler: createDiffFileHandler(diffService) },
     { method: 'GET', path: '/api/refs', handler: createRefsHandler(refsService) },
-    { method: 'GET', path: '/api/blob', handler: createBlobHandler(blobService) },
-    { method: 'GET', path: '/api/blob/raw', handler: createBlobRawHandler(rawBlobReader) },
+    {
+      method: 'GET',
+      path: '/api/blob',
+      handler: createBlobHandler({
+        service: blobService,
+        resolver: worktreeContextResolver,
+        factory: worktreeClientsFactory,
+      }),
+    },
+    {
+      method: 'GET',
+      path: '/api/blob/raw',
+      handler: createBlobRawHandler({
+        resolver: worktreeContextResolver,
+        factory: worktreeClientsFactory,
+      }),
+    },
     { method: 'GET', path: '/api/tree', handler: createTreeHandler(treeService) },
     {
       method: 'GET',
