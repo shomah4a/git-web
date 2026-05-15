@@ -112,7 +112,10 @@ export class WorktreeLister implements GitWorktreeClient {
         maxBuffer: MAX_BUFFER,
       }),
       // .gitignore で除外されているが作業ツリーに存在するエントリ (ADR 0055)。
-      // `--directory` でディレクトリは末尾 `/` 付きの 1 行にまとめられる。
+      // ルート (path='') では `--directory` でディレクトリ単位の集約に頼り出力を
+      // 軽量に保つ (例: `node_modules/` を 1 行で受け取る)。
+      // path 指定時 (= ignored ディレクトリの中身を見たいケース) は `--directory`
+      // を外して中身を列挙する。出力量は path フィルタで限定される。
       execFileAsync(
         'git',
         [
@@ -121,7 +124,7 @@ export class WorktreeLister implements GitWorktreeClient {
           '--others',
           '--ignored',
           '--exclude-standard',
-          '--directory',
+          ...(path === '' ? ['--directory'] : []),
           ...pathFilter,
         ],
         {
