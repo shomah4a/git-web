@@ -87,7 +87,7 @@ git -c core.quotePath=true log
 ```typescript
 export type LastCommitInfo = {
   readonly hash: string
-  readonly date: number  // UNIX epoch 秒
+  readonly date: number // UNIX epoch 秒
   readonly subject: string
 }
 

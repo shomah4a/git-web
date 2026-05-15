@@ -428,3 +428,113 @@ describe('CliGitClient.log', () => {
     expect(first.subject).toBe('add a.ts')
   })
 })
+
+describe('CliGitClient.lastCommitsByName', () => {
+  it('targetNames が空なら空 Map を返し git を呼ばない', async () => {
+    const git = new CliGitClient(tempRepo)
+
+    const result = await git.lastCommitsByName(parseRevision('HEAD'), '', new Set(), 1000)
+
+    expect(result.size).toBe(0)
+  })
+
+  it('ルート直下のファイルとディレクトリそれぞれに最終コミットを割り当てる', async () => {
+    await writeFile(join(tempRepo, 'README.md'), 'r1\n')
+    await commit(tempRepo, 'add README')
+    await writeFile(join(tempRepo, 'README.md'), 'r1\nr2\n')
+    await commit(tempRepo, 'update README')
+    const srcDir = join(tempRepo, 'src')
+    await execFileAsync('mkdir', ['-p', srcDir])
+    await writeFile(join(srcDir, 'foo.ts'), 'f1\n')
+    await commit(tempRepo, 'add src/foo.ts')
+
+    const git = new CliGitClient(tempRepo)
+    const result = await git.lastCommitsByName(
+      parseRevision('HEAD'),
+      '',
+      new Set(['README.md', 'src']),
+      1000,
+    )
+
+    expect(result.size).toBe(2)
+    expect(result.get('README.md')?.subject).toBe('update README')
+    expect(result.get('src')?.subject).toBe('add src/foo.ts')
+  })
+
+  it('サブディレクトリ指定時は配下の immediate child のみ追跡する', async () => {
+    const srcDir = join(tempRepo, 'src')
+    await execFileAsync('mkdir', ['-p', srcDir])
+    await writeFile(join(srcDir, 'a.ts'), 'a\n')
+    await commit(tempRepo, 'add src/a.ts')
+    await writeFile(join(srcDir, 'b.ts'), 'b\n')
+    await commit(tempRepo, 'add src/b.ts')
+
+    const git = new CliGitClient(tempRepo)
+    const result = await git.lastCommitsByName(
+      parseRevision('HEAD'),
+      'src',
+      new Set(['a.ts', 'b.ts']),
+      1000,
+    )
+
+    expect(result.get('a.ts')?.subject).toBe('add src/a.ts')
+    expect(result.get('b.ts')?.subject).toBe('add src/b.ts')
+  })
+
+  it('履歴に現れない name は返却 Map に含めない', async () => {
+    await writeFile(join(tempRepo, 'a.ts'), 'a\n')
+    await commit(tempRepo, 'add a.ts')
+
+    const git = new CliGitClient(tempRepo)
+    const result = await git.lastCommitsByName(
+      parseRevision('HEAD'),
+      '',
+      new Set(['a.ts', 'missing.ts']),
+      1000,
+    )
+
+    expect(result.has('a.ts')).toBe(true)
+    expect(result.has('missing.ts')).toBe(false)
+  })
+
+  it('深い階層下のファイル変更でも immediate child (サブディレクトリ名) に集約される', async () => {
+    const deepDir = join(tempRepo, 'src', 'deep')
+    await execFileAsync('mkdir', ['-p', deepDir])
+    await writeFile(join(deepDir, 'x.ts'), 'x\n')
+    await commit(tempRepo, 'add src/deep/x.ts')
+
+    const git = new CliGitClient(tempRepo)
+    const result = await git.lastCommitsByName(parseRevision('HEAD'), '', new Set(['src']), 1000)
+
+    expect(result.get('src')?.subject).toBe('add src/deep/x.ts')
+  })
+
+  it('マージコミットで取り込まれた変更が --first-parent ベースで反映される', async () => {
+    await writeFile(join(tempRepo, 'base.ts'), 'b\n')
+    await commit(tempRepo, 'add base.ts')
+
+    // feature ブランチで変更
+    await execFileAsync('git', ['checkout', '-b', 'feature'], { cwd: tempRepo })
+    await writeFile(join(tempRepo, 'feature.ts'), 'f\n')
+    await commit(tempRepo, 'add feature.ts on feature')
+
+    // main に戻ってマージ (--no-ff でマージコミット生成)
+    await execFileAsync('git', ['checkout', 'main'], { cwd: tempRepo })
+    await execFileAsync(
+      'git',
+      ['-c', 'commit.gpgsign=false', 'merge', '--no-ff', '-m', 'Merge feature', 'feature'],
+      { cwd: tempRepo },
+    )
+
+    const git = new CliGitClient(tempRepo)
+    const result = await git.lastCommitsByName(
+      parseRevision('HEAD'),
+      '',
+      new Set(['feature.ts']),
+      1000,
+    )
+
+    // -m --first-parent によりマージコミットそのものが最終更新として割り当てられる
+    expect(result.get('feature.ts')?.subject).toBe('Merge feature')
+  })
+})
