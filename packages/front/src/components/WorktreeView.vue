@@ -303,11 +303,7 @@ function statusLabel(status: WorktreeEntryStatusDto): string {
           </td>
           <td class="col-commit-msg" :title="lastCommitByName.get(entry.name)?.subject ?? ''">
             <router-link
-              v-if="
-                entry.type === 'blob' &&
-                lastCommitByName.get(entry.name) &&
-                canShowHistoryLink
-              "
+              v-if="entry.type === 'blob' && lastCommitByName.get(entry.name) && canShowHistoryLink"
               :to="buildHistoryUrl(historyRev, entry.path)"
               class="history-link"
               title="\u3053\u306e\u30d5\u30a1\u30a4\u30eb\u306e\u5c65\u6b74\u3092\u8868\u793a"
@@ -321,11 +317,7 @@ function statusLabel(status: WorktreeEntryStatusDto): string {
           </td>
           <td class="col-commit-date">
             <router-link
-              v-if="
-                entry.type === 'blob' &&
-                lastCommitByName.get(entry.name) &&
-                canShowHistoryLink
-              "
+              v-if="entry.type === 'blob' && lastCommitByName.get(entry.name) && canShowHistoryLink"
               :to="buildHistoryUrl(historyRev, entry.path)"
               class="history-link"
               title="\u3053\u306e\u30d5\u30a1\u30a4\u30eb\u306e\u5c65\u6b74\u3092\u8868\u793a"
