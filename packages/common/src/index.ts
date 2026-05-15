@@ -45,3 +45,9 @@ export type {
   WorktreeEntryTypeDto,
   WorktreeResponseDto,
 } from './worktree.js'
+
+export {
+  IMAGE_EXTENSION_TO_MIME,
+  inferImageContentType,
+  isImageExtension,
+} from './image-extension.js'

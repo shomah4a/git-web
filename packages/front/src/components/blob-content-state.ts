@@ -1,4 +1,5 @@
 import type { BlobDto } from '@git-web/common'
+import { isImageExtension } from '@git-web/common'
 import type { HighlightedLines, Highlighter } from '../diff/highlighter/types.js'
 import { renderMarkdown } from '../markdown/render.js'
 
@@ -18,14 +19,6 @@ export type BlobContentState =
   | { readonly kind: 'binary'; readonly path: string }
   | { readonly kind: 'not-found' }
   | { readonly kind: 'error'; readonly message: string }
-
-const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.ico', '.bmp'])
-
-function isImagePath(path: string): boolean {
-  const dot = path.lastIndexOf('.')
-  if (dot < 0) return false
-  return IMAGE_EXTENSIONS.has(path.substring(dot).toLowerCase())
-}
 
 function buildImageRawUrl(path: string, rev: string | null): string {
   const params = new URLSearchParams()
@@ -57,10 +50,11 @@ export async function resolveBlobContent(
   highlighter: Highlighter,
   isCancelled: () => boolean,
 ): Promise<BlobContentState | null> {
+  if (isImageExtension(path)) {
+    return { kind: 'image', rawUrl: buildImageRawUrl(path, rev) }
+  }
+
   if (blob.binary) {
-    if (isImagePath(path)) {
-      return { kind: 'image', rawUrl: buildImageRawUrl(path, rev) }
-    }
     return { kind: 'binary', path: blob.path }
   }
 
