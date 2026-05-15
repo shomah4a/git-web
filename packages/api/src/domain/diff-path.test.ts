@@ -19,6 +19,13 @@ describe('parseDiffPath', () => {
       'foo..',
       'a..b/c.ts',
       'Dockerfile.node..alpine',
+      // ADR 0055 §7-5: segment ベース検査により ".git" を部分一致で含む
+      // 正規ファイル名は許可する
+      '.gitignore',
+      '.gitattributes',
+      'foo.git',
+      'a/.gitignore',
+      'sub/.gitattributes',
     ]
 
     for (const input of accepted) {
@@ -37,6 +44,12 @@ describe('parseDiffPath', () => {
       ['../escape.ts', 'leading parent segment'],
       ['a/../b.ts', 'middle parent segment'],
       ['a/..', 'trailing parent segment'],
+      // ADR 0055 §7-5: ".git" segment 単体は拒否する
+      ['.git', 'bare .git segment'],
+      ['.git/HEAD', 'leading .git segment'],
+      ['.git/config', 'leading .git segment'],
+      ['sub/.git', 'trailing .git segment'],
+      ['a/.git/objects/pack', 'middle .git segment'],
       ['a\\b.ts', 'contains backslash'],
       ['foo\u0000.ts', 'contains NUL'],
       ['foo\nbar.ts', 'contains newline (control)'],
