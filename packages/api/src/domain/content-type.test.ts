@@ -26,6 +26,18 @@ describe('inferContentType', () => {
     expect(inferContentType('img.webp')).toBe('image/webp')
   })
 
+  it('.avif を image/avif と推定する', () => {
+    expect(inferContentType('img.avif')).toBe('image/avif')
+  })
+
+  it('.apng を image/apng と推定する', () => {
+    expect(inferContentType('anim.apng')).toBe('image/apng')
+  })
+
+  it('.jfif を image/jpeg と推定する', () => {
+    expect(inferContentType('photo.jfif')).toBe('image/jpeg')
+  })
+
   it('大文字拡張子も正しく推定する', () => {
     expect(inferContentType('IMG.PNG')).toBe('image/png')
   })

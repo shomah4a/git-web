@@ -19,7 +19,19 @@ export type BlobContentState =
   | { readonly kind: 'not-found' }
   | { readonly kind: 'error'; readonly message: string }
 
-const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.ico', '.bmp'])
+const IMAGE_EXTENSIONS = new Set([
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.jfif',
+  '.gif',
+  '.svg',
+  '.webp',
+  '.avif',
+  '.apng',
+  '.ico',
+  '.bmp',
+])
 
 function isImagePath(path: string): boolean {
   const dot = path.lastIndexOf('.')
@@ -57,10 +69,11 @@ export async function resolveBlobContent(
   highlighter: Highlighter,
   isCancelled: () => boolean,
 ): Promise<BlobContentState | null> {
+  if (isImagePath(path)) {
+    return { kind: 'image', rawUrl: buildImageRawUrl(path, rev) }
+  }
+
   if (blob.binary) {
-    if (isImagePath(path)) {
-      return { kind: 'image', rawUrl: buildImageRawUrl(path, rev) }
-    }
     return { kind: 'binary', path: blob.path }
   }
 
