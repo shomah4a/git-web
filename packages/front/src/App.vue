@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import type { RepoInfoDto } from '@git-web/common'
+import type { RepoInfoDto, WorktreeListItemDto } from '@git-web/common'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { fetchRepoInfo } from './api.js'
+import { fetchWorktreesList } from './api/worktrees-list.js'
 import ThemeSwitcher from './components/ThemeSwitcher.vue'
 import { useDocumentTitle } from './composables/use-document-title.js'
 import {
@@ -16,6 +17,58 @@ const route = useRoute()
 const repo = ref<RepoInfoDto | null>(null)
 const repoName = computed(() => repo.value?.name ?? null)
 const errorMessage = ref<string | null>(null)
+
+/**
+ * worktree 一覧 (ADR 0055)。
+ *
+ * ヘッダの HEAD / branch 表示を URL の `wt` クエリに追従させるために保持する。
+ * `wt` 未指定なら default worktree の情報を表示する (起動時 cwd の HEAD と一致)。
+ */
+const worktrees = ref<ReadonlyArray<WorktreeListItemDto>>([])
+
+/**
+ * 現在 URL に指定されている worktree 名。null なら default。
+ */
+const currentWt = computed<string | null>(() => {
+  const raw = route.query.wt
+  if (typeof raw !== 'string' || raw === '') return null
+  return raw
+})
+
+/**
+ * 選択中 worktree の表示情報。一覧から URL クエリで引く。
+ * worktree 一覧未取得時 (起動直後) は `repo.head` で fallback する。
+ */
+const activeWorktree = computed<WorktreeListItemDto | null>(() => {
+  if (worktrees.value.length === 0) return null
+  const wt = currentWt.value
+  if (wt === null) {
+    for (const item of worktrees.value) {
+      if (item.isDefault) return item
+    }
+    return null
+  }
+  for (const item of worktrees.value) {
+    if (item.name === wt) return item
+  }
+  return null
+})
+
+/**
+ * ヘッダに表示する HEAD コミットハッシュ (先頭 7 文字)。
+ * worktree 一覧が取得済みなら選択中 worktree、未取得なら起動時 repo のもの。
+ */
+const headDisplay = computed<{ commitHash: string; branch: string | null } | null>(() => {
+  const wt = activeWorktree.value
+  if (wt !== null) {
+    const hash = wt.headHash === null ? '' : wt.headHash.slice(0, 7)
+    return { commitHash: hash, branch: wt.branch }
+  }
+  if (repo.value !== null) {
+    return repo.value.head
+  }
+  return null
+})
 
 /**
  * ページタイトルをルート遷移に応じて動的に更新する (ADR 0041)。
@@ -86,6 +139,15 @@ onMounted(async () => {
   } catch (err) {
     errorMessage.value = err instanceof Error ? err.message : 'unknown error'
   }
+
+  // worktrees-list はヘッダ HEAD 表示の追従用 (ADR 0055)。失敗時は黙って
+  // 起動時 cwd の HEAD 表示 (repo.head) に fallback する。
+  try {
+    const items = await fetchWorktreesList()
+    worktrees.value = items
+  } catch (err) {
+    console.warn('[App] fetchWorktreesList failed', err)
+  }
 })
 
 onBeforeUnmount(() => {
@@ -101,16 +163,16 @@ onBeforeUnmount(() => {
           <router-link to="/">git-web</router-link>
         </h1>
         <p v-if="errorMessage !== null" class="error">error: {{ errorMessage }}</p>
-        <dl v-else-if="repo !== null" class="repo-info">
+        <dl v-else-if="repo !== null && headDisplay !== null" class="repo-info">
           <dt>repository</dt>
-          <dd>{{ repo.cwd }}</dd>
+          <dd>{{ activeWorktree?.path ?? repo.cwd }}</dd>
           <dt>HEAD</dt>
           <dd>
-            <template v-if="repo.head.branch !== null">
-              {{ repo.head.branch }} ({{ repo.head.commitHash }})
+            <template v-if="headDisplay.branch !== null">
+              {{ headDisplay.branch }} ({{ headDisplay.commitHash }})
             </template>
             <template v-else>
-              {{ repo.head.commitHash }}
+              {{ headDisplay.commitHash }}
             </template>
           </dd>
         </dl>

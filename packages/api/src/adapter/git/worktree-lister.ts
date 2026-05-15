@@ -12,7 +12,7 @@ import { promisify } from 'node:util'
 import type { GitWorktreeClient } from '../../domain/ports/git-worktree-client.js'
 import type { WorktreeEntry, WorktreeEntryStatus } from '../../domain/worktree-entry.js'
 import { parseLsFilesStageZ } from './ls-files-stage-parser.js'
-import { extractWorktreeOneLevel } from './worktree-entry-parser.js'
+import { extractIgnoredOneLevel, extractWorktreeOneLevel } from './worktree-entry-parser.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -94,7 +94,7 @@ export class WorktreeLister implements GitWorktreeClient {
     // ルート (path='') の場合は引数なしでリポジトリ全体を取得する。
     const pathFilter = path === '' ? [] : ['--', `${path}/`]
 
-    const [lsResult, stageResult, statusResult] = await Promise.all([
+    const [lsResult, stageResult, statusResult, ignoredResult] = await Promise.all([
       execFileAsync(
         'git',
         ['ls-files', '-z', '--cached', '--others', '--exclude-standard', ...pathFilter],
@@ -111,19 +111,48 @@ export class WorktreeLister implements GitWorktreeClient {
         cwd: this.#cwd,
         maxBuffer: MAX_BUFFER,
       }),
+      // .gitignore で除外されているが作業ツリーに存在するエントリ (ADR 0055)。
+      // ルート (path='') では `--directory` でディレクトリ単位の集約に頼り出力を
+      // 軽量に保つ (例: `node_modules/` を 1 行で受け取る)。
+      // path 指定時 (= ignored ディレクトリの中身を見たいケース) は `--directory`
+      // を外して中身を列挙する。出力量は path フィルタで限定される。
+      execFileAsync(
+        'git',
+        [
+          'ls-files',
+          '-z',
+          '--others',
+          '--ignored',
+          '--exclude-standard',
+          ...(path === '' ? ['--directory'] : []),
+          ...pathFilter,
+        ],
+        {
+          cwd: this.#cwd,
+          maxBuffer: MAX_BUFFER,
+        },
+      ),
     ])
 
     const statusMap = parseWorktreeStatusZ(statusResult.stdout)
     const modeMap = parseLsFilesStageZ(stageResult.stdout)
 
     // 1 階層分のエントリを先に抽出し、blob のみ size を取得する
-    const tempEntries = extractWorktreeOneLevel(
+    const trackedEntries = extractWorktreeOneLevel(
       lsResult.stdout,
       path,
       statusMap,
       modeMap,
       new Map(),
     )
+
+    // ignored エントリを 1 階層分抽出して既存に重複しないものを追加する (ADR 0055)
+    const ignoredEntries = extractIgnoredOneLevel(
+      ignoredResult.stdout,
+      path,
+      new Set(trackedEntries.map((e) => e.name)),
+    )
+    const tempEntries: ReadonlyArray<WorktreeEntry> = [...trackedEntries, ...ignoredEntries]
 
     // blob エントリの size を fs.stat で取得
     const sizeMap = new Map<string, number>()

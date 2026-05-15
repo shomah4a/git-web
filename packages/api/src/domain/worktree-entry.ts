@@ -16,10 +16,11 @@ export type WorktreeEntryType = 'blob' | 'tree'
  * - 'added': ステージ済みの新規ファイル
  * - 'modified': 変更あり (staged / unstaged 問わず)
  * - 'deleted': 削除済み
- * - 'untracked': git 管理外 (.gitignore 対象は除外済み)
+ * - 'untracked': git 管理外 (.gitignore 対象ではない新規)
+ * - 'ignored': .gitignore で除外されているが作業ツリーに存在 (ADR 0055)
  * - null: 状態なし (変更なし)
  */
-export type WorktreeEntryStatus = 'added' | 'modified' | 'deleted' | 'untracked' | null
+export type WorktreeEntryStatus = 'added' | 'modified' | 'deleted' | 'untracked' | 'ignored' | null
 
 /**
  * worktree の 1 エントリ。

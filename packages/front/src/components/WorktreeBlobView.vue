@@ -1,12 +1,13 @@
 <script setup lang="ts">
 /**
- * worktree 用ファイル内容表示コンポーネント (ADR 0038)。
+ * worktree 用ファイル内容表示コンポーネント (ADR 0038 / ADR 0055)。
  *
  * 設計方針:
- * - /wt/blob?path=<path> で表示対象を指定 (rev なし = worktree)
- * - fetchBlob(path, null) で worktree の blob を取得
+ * - /wt/blob?path=<path>&wt=<wt> で表示対象を指定 (rev なし = worktree)
+ * - fetchBlob(path, null, wt) で worktree の blob を取得
  * - BlobContent で表示を委譲
  * - パンくずリストで / (worktree ツリー) へのナビゲーション
+ * - selector はここには置かず WorktreeView から切替える (ADR 0055 §UI / M2)
  */
 
 import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from 'vue'
@@ -33,7 +34,14 @@ function readPathFromRoute(): string {
   return typeof raw === 'string' ? raw : ''
 }
 
+function readWtFromRoute(): string | null {
+  const raw = route.query.wt
+  if (typeof raw !== 'string' || raw === '') return null
+  return raw
+}
+
 const currentPath = computed(() => readPathFromRoute())
+const currentWt = computed(() => readWtFromRoute())
 
 const fileName = computed(() => {
   const p = currentPath.value
@@ -59,12 +67,12 @@ const breadcrumbs = computed(() => {
   return result
 })
 
-async function loadBlob(path: string): Promise<void> {
+async function loadBlob(path: string, wt: string | null): Promise<void> {
   const gen = ++generation
   state.value = { kind: 'loading' }
 
   try {
-    const blob = await fetchBlob(path, null)
+    const blob = await fetchBlob(path, null, wt)
     if (isUnmounted || gen !== generation) return
 
     if (blob === null) {
@@ -92,22 +100,25 @@ async function loadBlob(path: string): Promise<void> {
 }
 
 function navigateToWorktree(path: string): void {
+  const query: Record<string, string> = {}
+  if (path !== '') query.path = path
+  if (currentWt.value !== null) query.wt = currentWt.value
   void router.push({
     path: '/',
-    query: path !== '' ? { path } : {},
+    query,
   })
 }
 
 watch(
-  () => route.query.path,
+  () => [route.query.path, route.query.wt],
   () => {
     if (route.name !== 'worktree-blob') return
-    void loadBlob(readPathFromRoute())
+    void loadBlob(readPathFromRoute(), readWtFromRoute())
   },
 )
 
 onMounted(() => {
-  void loadBlob(currentPath.value)
+  void loadBlob(currentPath.value, currentWt.value)
 })
 
 onBeforeUnmount(() => {

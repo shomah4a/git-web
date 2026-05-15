@@ -8,12 +8,16 @@ import type { WorktreeEntryDto, WorktreeResponseDto } from '@git-web/common'
  */
 
 /**
- * GET /api/worktree?path=<path> を呼んで worktree エントリを取得する。
+ * GET /api/worktree?path=<path>&wt=<wt> を呼んで worktree エントリを取得する。
  *
  * @param path ディレクトリパス。空文字の場合はルート
+ * @param wt 対象 worktree 名 (ADR 0055)。null の場合は default worktree
  */
-export async function fetchWorktree(path: string): Promise<ReadonlyArray<WorktreeEntryDto>> {
-  const url = buildUrl(path)
+export async function fetchWorktree(
+  path: string,
+  wt: string | null = null,
+): Promise<ReadonlyArray<WorktreeEntryDto>> {
+  const url = buildUrl(path, wt)
   const response = await fetch(url)
   if (!response.ok) {
     throw new Error(`/api/worktree returned HTTP ${response.status.toString()}`)
@@ -25,13 +29,12 @@ export async function fetchWorktree(path: string): Promise<ReadonlyArray<Worktre
   return data.entries
 }
 
-function buildUrl(path: string): string {
-  if (path === '') {
-    return '/api/worktree'
-  }
+function buildUrl(path: string, wt: string | null): string {
   const params = new URLSearchParams()
-  params.set('path', path)
-  return `/api/worktree?${params.toString()}`
+  if (path !== '') params.set('path', path)
+  if (wt !== null && wt !== '') params.set('wt', wt)
+  const query = params.toString()
+  return query === '' ? '/api/worktree' : `/api/worktree?${query}`
 }
 
 // ---------- 型ガード ----------
@@ -47,7 +50,14 @@ function isWorktreeEntryDto(value: unknown): value is WorktreeEntryDto {
   const t = value.type
   if (t !== 'blob' && t !== 'tree') return false
   const s = value.status
-  if (s !== null && s !== 'added' && s !== 'modified' && s !== 'deleted' && s !== 'untracked') {
+  if (
+    s !== null &&
+    s !== 'added' &&
+    s !== 'modified' &&
+    s !== 'deleted' &&
+    s !== 'untracked' &&
+    s !== 'ignored'
+  ) {
     return false
   }
   const m = value.mode

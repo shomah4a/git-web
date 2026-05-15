@@ -1,22 +1,30 @@
 <script setup lang="ts">
 /**
- * worktree 状態表示コンポーネント (ADR 0023)。
+ * worktree 状態表示コンポーネント (ADR 0023 / ADR 0055)。
  *
  * 設計方針:
  * - /api/worktree でエントリ取得 → テーブル形式で表示
- * - カラム: Status | Name | Mode | Size
+ * - カラム: Status | Name | Last commit message | Last commit date | Mode | Size
  * - ディレクトリクリック → router.push でドリルダウン
  * - パンくずリストで上位ディレクトリへナビゲーション
- * - URL の path クエリでステート管理
+ * - URL の path / wt クエリでステート管理
+ * - ADR 0055: WorktreeCombobox で worktree 切替。選択 = 即適用、path はリセット
  */
 
-import type { LastCommitDto, WorktreeEntryDto, WorktreeEntryStatusDto } from '@git-web/common'
+import type {
+  LastCommitDto,
+  WorktreeEntryDto,
+  WorktreeEntryStatusDto,
+  WorktreeListItemDto,
+} from '@git-web/common'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { fetchTreeCommits } from '../api/tree-commits.js'
 import { fetchWorktree } from '../api/worktree.js'
+import { fetchWorktreesList } from '../api/worktrees-list.js'
 import { createYmdFormatter, detectBrowserTimeZone } from '../format/date.js'
 import { formatMode, formatSize } from '../format/entry.js'
+import WorktreeCombobox from './WorktreeCombobox.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -26,8 +34,16 @@ function readPathFromRoute(): string {
   return typeof raw === 'string' ? raw : ''
 }
 
+function readWtFromRoute(): string | null {
+  const raw = route.query.wt
+  if (typeof raw !== 'string' || raw === '') return null
+  return raw
+}
+
 const currentPath = ref<string>(readPathFromRoute())
+const currentWt = ref<string | null>(readWtFromRoute())
 const entries = ref<ReadonlyArray<WorktreeEntryDto>>([])
+const worktrees = ref<ReadonlyArray<WorktreeListItemDto>>([])
 const loading = ref(false)
 const errorMessage = ref<string | null>(null)
 
@@ -66,17 +82,17 @@ const sortedEntries = computed(() => {
   })
 })
 
-async function loadWorktree(path: string): Promise<void> {
+async function loadWorktree(path: string, wt: string | null): Promise<void> {
   const gen = ++generation
   loading.value = true
   errorMessage.value = null
   lastCommitByName.value = new Map()
   try {
-    const result = await fetchWorktree(path)
+    const result = await fetchWorktree(path, wt)
     if (isUnmounted || gen !== generation) return
     entries.value = result
     // 最終コミット情報の遅延フェッチ (失敗しても worktree 表示は維持、ADR 0054 §9)
-    void loadTreeCommits(gen, path)
+    void loadTreeCommits(gen, path, wt)
   } catch (err) {
     if (isUnmounted || gen !== generation) return
     errorMessage.value = err instanceof Error ? err.message : 'unknown error'
@@ -91,9 +107,9 @@ async function loadWorktree(path: string): Promise<void> {
 /**
  * /api/tree-commits を rev=null (worktree=HEAD) で呼び、エントリの最終コミット情報を格納する。
  */
-async function loadTreeCommits(gen: number, path: string): Promise<void> {
+async function loadTreeCommits(gen: number, path: string, wt: string | null): Promise<void> {
   try {
-    const result = await fetchTreeCommits(null, path)
+    const result = await fetchTreeCommits(null, path, wt)
     if (isUnmounted || gen !== generation) return
     const map = new Map<string, LastCommitDto>()
     for (const entry of result) {
@@ -108,10 +124,24 @@ async function loadTreeCommits(gen: number, path: string): Promise<void> {
   }
 }
 
+async function loadWorktreesList(): Promise<void> {
+  try {
+    const items = await fetchWorktreesList()
+    if (isUnmounted) return
+    worktrees.value = items
+  } catch (err) {
+    if (isUnmounted) return
+    console.warn('[WorktreeView] fetchWorktreesList failed', err)
+  }
+}
+
 function syncUrl(): void {
   const query: Record<string, string> = {}
   if (currentPath.value !== '') {
     query.path = currentPath.value
+  }
+  if (currentWt.value !== null) {
+    query.wt = currentWt.value
   }
   void router.push({ query })
 }
@@ -119,13 +149,17 @@ function syncUrl(): void {
 function navigateToDir(path: string): void {
   currentPath.value = path
   syncUrl()
-  void loadWorktree(path)
+  void loadWorktree(path, currentWt.value)
 }
 
 function navigateToBlob(path: string): void {
+  const query: Record<string, string> = { path }
+  if (currentWt.value !== null) {
+    query.wt = currentWt.value
+  }
   void router.push({
     path: '/wt/blob',
-    query: { path },
+    query,
   })
 }
 
@@ -133,18 +167,36 @@ function navigateToRoot(): void {
   navigateToDir('')
 }
 
+/**
+ * worktree selector の確定。
+ *
+ * ADR 0055 §4: 切替時は path を `''` にリセットする (切替先で同一相対 path が
+ * 存在する保証がないため)。
+ */
+function onWorktreeSubmit(next: string | null): void {
+  if (next === currentWt.value) return
+  currentWt.value = next
+  currentPath.value = ''
+  syncUrl()
+  // worktrees list 自体は変わらない (TTL 内なら再取得不要) ので再フェッチしない
+  void loadWorktree('', next)
+}
+
 watch(
   () => route.query,
   () => {
     const path = readPathFromRoute()
-    if (path === currentPath.value) return
+    const wt = readWtFromRoute()
+    if (path === currentPath.value && wt === currentWt.value) return
     currentPath.value = path
-    void loadWorktree(path)
+    currentWt.value = wt
+    void loadWorktree(path, wt)
   },
 )
 
 onMounted(() => {
-  void loadWorktree(currentPath.value)
+  void loadWorktreesList()
+  void loadWorktree(currentPath.value, currentWt.value)
 })
 
 onBeforeUnmount(() => {
@@ -156,6 +208,7 @@ function statusLabel(status: WorktreeEntryStatusDto): string {
   if (status === 'modified') return 'M'
   if (status === 'deleted') return 'D'
   if (status === 'untracked') return '?'
+  if (status === 'ignored') return 'I'
   return ''
 }
 </script>
@@ -163,15 +216,24 @@ function statusLabel(status: WorktreeEntryStatusDto): string {
 <template>
   <div class="worktree-view">
     <Teleport to="#page-header-slot">
-      <nav class="breadcrumb" aria-label="directory path">
-        <button class="breadcrumb-item" @click="navigateToRoot">/</button>
-        <template v-for="crumb in breadcrumbs" :key="crumb.path">
-          <span class="breadcrumb-sep">/</span>
-          <button class="breadcrumb-item" @click="navigateToDir(crumb.path)">
-            {{ crumb.name }}
-          </button>
-        </template>
-      </nav>
+      <div class="page-header-content">
+        <div v-if="worktrees.length > 0" class="worktree-controls">
+          <WorktreeCombobox
+            :model-value="currentWt"
+            :items="worktrees"
+            @submit="onWorktreeSubmit"
+          />
+        </div>
+        <nav class="breadcrumb" aria-label="directory path">
+          <button class="breadcrumb-item" @click="navigateToRoot">/</button>
+          <template v-for="crumb in breadcrumbs" :key="crumb.path">
+            <span class="breadcrumb-sep">/</span>
+            <button class="breadcrumb-item" @click="navigateToDir(crumb.path)">
+              {{ crumb.name }}
+            </button>
+          </template>
+        </nav>
+      </div>
     </Teleport>
 
     <p v-if="errorMessage !== null" class="error">error: {{ errorMessage }}</p>
@@ -234,6 +296,17 @@ function statusLabel(status: WorktreeEntryStatusDto): string {
 </template>
 
 <style scoped>
+.page-header-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.worktree-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+}
 .breadcrumb {
   display: flex;
   align-items: center;
@@ -350,6 +423,10 @@ function statusLabel(status: WorktreeEntryStatusDto): string {
 }
 .entry-status[data-status='untracked'] {
   color: var(--color-fg-faint);
+}
+.entry-status[data-status='ignored'] {
+  color: var(--color-fg-faint);
+  opacity: 0.7;
 }
 .error {
   color: var(--color-error);

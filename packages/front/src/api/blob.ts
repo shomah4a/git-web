@@ -13,14 +13,19 @@ import type { BlobDto } from '@git-web/common'
  */
 
 /**
- * GET /api/blob?path=<path>&rev=<rev> を呼んで blob を取得する。
+ * GET /api/blob?path=<path>&rev=<rev>&wt=<wt> を呼んで blob を取得する。
  *
  * @param path 対象ファイルパス (相対パス)
  * @param rev  リビジョン。null の場合は worktree (rev キーを付けない)
+ * @param wt   対象 worktree 名 (ADR 0055)。null の場合は default worktree
  * @returns 成功時は BlobDto、404 の場合は null
  */
-export async function fetchBlob(path: string, rev: string | null): Promise<BlobDto | null> {
-  const url = buildUrl(path, rev)
+export async function fetchBlob(
+  path: string,
+  rev: string | null,
+  wt: string | null = null,
+): Promise<BlobDto | null> {
+  const url = buildUrl(path, rev, wt)
   const response = await fetch(url)
   if (response.status === 404) {
     return null
@@ -35,11 +40,14 @@ export async function fetchBlob(path: string, rev: string | null): Promise<BlobD
   return data
 }
 
-function buildUrl(path: string, rev: string | null): string {
+function buildUrl(path: string, rev: string | null, wt: string | null): string {
   const params = new URLSearchParams()
   params.set('path', path)
   if (rev !== null) {
     params.set('rev', rev)
+  }
+  if (wt !== null && wt !== '') {
+    params.set('wt', wt)
   }
   return `/api/blob?${params.toString()}`
 }

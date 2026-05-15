@@ -132,3 +132,31 @@ export class InvalidDiffPathError extends DomainError {
     this.reason = reason
   }
 }
+
+/**
+ * `wt` クエリ値の形式が不正 (ADR 0055 §7-1)。
+ *
+ * 許容されない文字 (/ \ \0 ..) や制御文字、長さ超過などの一次フィルタ違反。
+ */
+export class InvalidWorktreeNameError extends DomainError {
+  readonly input: string
+
+  constructor(input: string) {
+    super(`invalid worktree name: ${JSON.stringify(input)}`)
+    this.input = input
+  }
+}
+
+/**
+ * `wt` クエリ値の形式は妥当だが、`git worktree list` の結果に含まれない (ADR 0055 §7-2)。
+ *
+ * 解決不能を fail-closed で 400 に落とすために使う。
+ */
+export class UnknownWorktreeError extends DomainError {
+  readonly input: string
+
+  constructor(input: string) {
+    super(`unknown worktree: ${JSON.stringify(input)}`)
+    this.input = input
+  }
+}

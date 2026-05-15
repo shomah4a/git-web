@@ -8,16 +8,18 @@ import type { LastCommitDto, TreeCommitDto, TreeCommitsResponseDto } from '@git-
  */
 
 /**
- * GET /api/tree-commits?rev=<rev>&path=<path> を呼んで最終コミット情報を取得する。
+ * GET /api/tree-commits?rev=<rev>&path=<path>&wt=<wt> を呼んで最終コミット情報を取得する。
  *
  * @param rev リビジョン。null の場合は worktree (rev キーを付けない)
  * @param path ディレクトリパス。空文字の場合はルート (path キーを付けない)
+ * @param wt 対象 worktree 名 (ADR 0055)。null の場合は default worktree
  */
 export async function fetchTreeCommits(
   rev: string | null,
   path: string,
+  wt: string | null = null,
 ): Promise<ReadonlyArray<TreeCommitDto>> {
-  const url = buildUrl(rev, path)
+  const url = buildUrl(rev, path, wt)
   const response = await fetch(url)
   if (!response.ok) {
     throw new Error(`/api/tree-commits returned HTTP ${response.status.toString()}`)
@@ -29,13 +31,16 @@ export async function fetchTreeCommits(
   return data.entries
 }
 
-function buildUrl(rev: string | null, path: string): string {
+function buildUrl(rev: string | null, path: string, wt: string | null): string {
   const params = new URLSearchParams()
   if (rev !== null) {
     params.set('rev', rev)
   }
   if (path !== '') {
     params.set('path', path)
+  }
+  if (wt !== null && wt !== '') {
+    params.set('wt', wt)
   }
   const query = params.toString()
   return query === '' ? '/api/tree-commits' : `/api/tree-commits?${query}`

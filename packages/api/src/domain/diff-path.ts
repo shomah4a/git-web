@@ -23,6 +23,10 @@ const MAX_PATH_LENGTH = 4096
  * - 絶対パス (先頭が "/")
  * - segment が ".." に完全一致するものを含む (ADR 0016: 部分一致ではなく
  *   segment ベース。`foo..bar` のような正規ファイル名は許可する)
+ * - segment が ".git" に完全一致するものを含む (ADR 0055 §7-5: linked
+ *   worktree の `.git` ファイル / `.git/worktrees/<name>/` 配下への blob
+ *   経由アクセスを遮断する。`.gitignore` のような正規ファイルは部分一致
+ *   ではなく segment 一致なので影響しない)
  * - NUL バイト (U+0000) を含む
  * - バックスラッシュを含む (Windows パス事故防止)
  * - "//" 連続スラッシュ
@@ -38,8 +42,12 @@ export function parseDiffPath(input: string): string {
   if (input.startsWith('/')) {
     throw new InvalidDiffPathError(input, 'absolute path')
   }
-  if (input.split('/').some((segment) => segment === '..')) {
+  const segments = input.split('/')
+  if (segments.some((segment) => segment === '..')) {
     throw new InvalidDiffPathError(input, 'contains parent segment')
+  }
+  if (segments.some((segment) => segment === '.git')) {
+    throw new InvalidDiffPathError(input, 'contains .git segment')
   }
   if (input.includes('\\')) {
     throw new InvalidDiffPathError(input, 'contains backslash')

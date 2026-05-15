@@ -21,7 +21,9 @@ import {
   InvalidDiffRangeError,
   InvalidRefsQueryError,
   InvalidRevisionError,
+  InvalidWorktreeNameError,
   NotAGitRepositoryError,
+  UnknownWorktreeError,
 } from '../domain/errors.js'
 import { errorJsonResponse } from '../http/response.js'
 import type { HttpResponse } from '../http/router.js'
@@ -44,6 +46,12 @@ export function mapDomainErrorToHttpResponse(err: unknown): HttpResponse | null 
   }
   if (err instanceof InvalidRefsQueryError) {
     return errorJsonResponse(400, 'invalid_refs_query', err.message)
+  }
+  if (err instanceof InvalidWorktreeNameError) {
+    return errorJsonResponse(400, 'invalid_worktree_name', err.message)
+  }
+  if (err instanceof UnknownWorktreeError) {
+    return errorJsonResponse(400, 'unknown_worktree', err.message)
   }
   if (err instanceof NotAGitRepositoryError) {
     return errorJsonResponse(500, 'not_a_git_repository', err.message)
