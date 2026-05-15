@@ -73,6 +73,7 @@ git -c core.quotePath=true log
 - パスは `core.quotePath=true` でクォートされた状態で照合する
 - 非 ASCII / 改行を含むファイル名は、クォート展開せずに比較するためマッチしない場合があり、その場合は `lastCommit: null` となる
 - 完全対応は本 ADR スコープ外
+- **submodule (gitlink, mode 160000) は本機能の対象外**。既存 `ls-tree-parser` が gitlink エントリを捨てる仕様を継承しており、`TreeService.getTree` の結果に submodule は含まれない。よって `targetNames` にも入らず `/api/tree-commits` でも返さない。submodule 表示自体は将来の別 ADR で扱う
 
 ### 6. worktree (rev=null) / 空リポの扱い
 
