@@ -306,7 +306,7 @@ function statusLabel(status: WorktreeEntryStatusDto): string {
               v-if="entry.type === 'blob' && lastCommitByName.get(entry.name) && canShowHistoryLink"
               :to="buildHistoryUrl(historyRev, entry.path)"
               class="history-link"
-              title="\u3053\u306e\u30d5\u30a1\u30a4\u30eb\u306e\u5c65\u6b74\u3092\u8868\u793a"
+              title="このファイルの履歴を表示"
               @click.stop
             >
               {{ lastCommitByName.get(entry.name)?.subject }}
@@ -320,7 +320,7 @@ function statusLabel(status: WorktreeEntryStatusDto): string {
               v-if="entry.type === 'blob' && lastCommitByName.get(entry.name) && canShowHistoryLink"
               :to="buildHistoryUrl(historyRev, entry.path)"
               class="history-link"
-              title="\u3053\u306e\u30d5\u30a1\u30a4\u30eb\u306e\u5c65\u6b74\u3092\u8868\u793a"
+              title="このファイルの履歴を表示"
               @click.stop
             >
               {{ formatYmd(lastCommitByName.get(entry.name)!.date) }}
