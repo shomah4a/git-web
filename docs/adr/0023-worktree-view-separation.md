@@ -4,6 +4,10 @@
 
 提案
 
+## 後続変更
+
+- **ADR 0055**: 単一プロセスから複数 worktree (main + linked) を切替閲覧できるようにし、`WorktreeEntryStatus` に `ignored` を追加した。本 ADR の決定事項のうち、status の集合と「単一 worktree 前提」は ADR 0055 で更新されている。
+
 ## コンテキスト
 
 ADR 0022 で導入した TreeView は、worktree 表示とリビジョンツリー表示を同一画面で扱っている。
