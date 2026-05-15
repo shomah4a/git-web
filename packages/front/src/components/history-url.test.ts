@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildHistoryUrl } from './history-url.js'
+import { buildHistoryUrl, resolveHistoryRev } from './history-url.js'
 
 describe('buildHistoryUrl', () => {
   it('rev が null のとき rev クエリを省略する', () => {
@@ -48,5 +48,37 @@ describe('buildHistoryUrl', () => {
       path: '/commits',
       query: { path: 'packages/front/src/file with space.ts' },
     })
+  })
+})
+
+describe('resolveHistoryRev', () => {
+  const worktrees = [
+    { name: 'main', headHash: 'a83965b0' },
+    { name: 'feat-x', headHash: 'b1234567' },
+    { name: 'empty-wt', headHash: null },
+  ]
+
+  it('currentWt が null のとき null を返す (rev 省略)', () => {
+    expect(resolveHistoryRev(null, worktrees)).toBeNull()
+  })
+
+  it('worktrees が null のとき null を返す (未解決)', () => {
+    expect(resolveHistoryRev('feat-x', null)).toBeNull()
+  })
+
+  it('該当 wt が存在しないとき null を返す', () => {
+    expect(resolveHistoryRev('nonexistent', worktrees)).toBeNull()
+  })
+
+  it('該当 wt の headHash が null のとき null を返す', () => {
+    expect(resolveHistoryRev('empty-wt', worktrees)).toBeNull()
+  })
+
+  it('該当 wt の headHash を返す', () => {
+    expect(resolveHistoryRev('feat-x', worktrees)).toBe('b1234567')
+  })
+
+  it('default worktree (main) でも currentWt=null なら null', () => {
+    expect(resolveHistoryRev(null, worktrees)).toBeNull()
   })
 })

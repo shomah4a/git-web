@@ -23,7 +23,7 @@ import { createNoOpHighlighter } from '../diff/highlighter/no-op.js'
 import BlobContent from './BlobContent.vue'
 import type { BlobContentState } from './blob-content-state.js'
 import { resolveBlobContent } from './blob-content-state.js'
-import { buildHistoryUrl } from './history-url.js'
+import { buildHistoryUrl, resolveHistoryRev } from './history-url.js'
 import { useChromeless } from './use-chromeless.js'
 
 const route = useRoute()
@@ -56,20 +56,11 @@ const currentWt = computed(() => readWtFromRoute())
 const worktrees = ref<ReadonlyArray<WorktreeListItemDto> | null>(null)
 
 /**
- * history リンクの rev クエリに渡す値。
- *
- * - wt=null (default worktree): null を返し rev クエリを省略する (HEAD シンボル解決)
- * - wt=<name>: worktrees list から該当アイテムの headHash を返す
- * - linked worktree 選択中で worktrees list 未解決 / 該当アイテム不在 / headHash null:
- *   null を返す。テンプレ側でリンク disabled として扱う
+ * history リンクの rev クエリに渡す値 (ADR 0056)。詳細は `resolveHistoryRev` を参照。
  */
-const historyRev = computed<string | null>(() => {
-  if (currentWt.value === null) return null
-  if (worktrees.value === null) return null
-  const item = worktrees.value.find((w) => w.name === currentWt.value)
-  if (item === undefined) return null
-  return item.headHash
-})
+const historyRev = computed<string | null>(() =>
+  resolveHistoryRev(currentWt.value, worktrees.value),
+)
 
 const canShowHistoryLink = computed<boolean>(() => {
   if (currentPath.value === '') return false

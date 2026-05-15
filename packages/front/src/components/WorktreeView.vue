@@ -27,7 +27,7 @@ import { fetchWorktree } from '../api/worktree.js'
 import { fetchWorktreesList } from '../api/worktrees-list.js'
 import { createYmdFormatter, detectBrowserTimeZone } from '../format/date.js'
 import { formatMode, formatSize } from '../format/entry.js'
-import { buildHistoryUrl } from './history-url.js'
+import { buildHistoryUrl, resolveHistoryRev } from './history-url.js'
 import WorktreeCombobox from './WorktreeCombobox.vue'
 
 const route = useRoute()
@@ -87,19 +87,14 @@ const sortedEntries = computed(() => {
 })
 
 /**
- * history リンクの rev クエリに渡す値 (ADR 0056)。
+ * history リンクの rev クエリに渡す値 (ADR 0056)。詳細は `resolveHistoryRev` を参照。
  *
- * - wt=null (default worktree): null を返し rev クエリを省略する (HEAD シンボル解決)
- * - wt=<name> (linked worktree): worktrees list から該当アイテムの headHash を返す
- * - linked worktree 選択中で worktrees list 未解決 / 該当アイテム不在 / headHash null:
- *   null を返す。リンク表示側でこれを「リンク不可」として扱う
+ * 注: `worktrees` ref はロード前に空配列で初期化されている。
+ * 「未解決」と「ロード完了かつ該当なし」を区別するため、空配列のときは null として扱う。
  */
-const historyRev = computed<string | null>(() => {
-  if (currentWt.value === null) return null
-  const item = worktrees.value.find((w) => w.name === currentWt.value)
-  if (item === undefined) return null
-  return item.headHash
-})
+const historyRev = computed<string | null>(() =>
+  resolveHistoryRev(currentWt.value, worktrees.value.length === 0 ? null : worktrees.value),
+)
 
 /**
  * 現在の worktree で history リンクを表示可能かを返す。
