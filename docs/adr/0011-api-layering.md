@@ -136,6 +136,10 @@ http → controller → service → domain/ports
 - 既存 `RepoInfo` (common) は `RepoInfoDto` にリネームし、ドメインモデル側は `packages/api/src/domain/repo.ts` に新設する。現状は構造同型だが、型定義を別にする方針に従う
 - ADR 0006 で定めた「common パッケージに型を置く」方針は維持する。ただし common に置くのは **DTO のみ** であり、ドメインモデルは置かない
 
+> 補遺 (2026-05-15): 「common = DTO のみ」の制約は [ADR 0053](0053-common-pure-constants-and-functions.md) で緩和された。
+> 副作用がなく外部ライブラリに依存しない純粋共有定数・関数 (例: 拡張子→MIME のマッピング) は common に配置可能。
+> ただしドメインモデルを common に置かない方針は引き続き維持する。
+
 ## 関連
 
 - ADR 0003: API は node:http + 自前極小ルーター (本 ADR で `http/` 配下に移動)

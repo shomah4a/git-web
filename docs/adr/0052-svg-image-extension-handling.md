@@ -57,6 +57,9 @@ SVG を含むすべての画像は既存の `BlobContent.vue` の `<img :src="st
 
 フロント `IMAGE_EXTENSIONS` (blob-content-state.ts) と API `EXTENSION_MAP` (content-type.ts) の両方に追加する。両者は対応関係が崩れるとデグレードを生むため、変更は常に同期する。
 
+> 補遺 (2026-05-15): この同期はその後 [ADR 0053](0053-common-pure-constants-and-functions.md) によって common パッケージへの一元化で担保された。
+> 拡張子追加は `packages/common/src/image-extension.ts` のみ更新すればフロント / API 双方に反映される。
+
 ### 4. スコープ外とする画像形式
 
 以下は一部ブラウザのみ対応であり「今どきのブラウザで表示できる」要件を満たさないため見送る:
