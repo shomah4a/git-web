@@ -3,22 +3,15 @@
  *
  * 設計方針 (ADR 0011):
  * - クエリパース + バリデーション + DTO 変換を担当する
- * - rev クエリの扱い:
- *   - キー自体が無い: worktree (rev = null)
- *   - キーあり (空文字含む): parseRevision に渡す
- * - path クエリの扱い:
- *   - キーが無い / 空文字: ルートディレクトリ (path = '')
- *   - キーあり: parseDiffPath で検証
+ * - rev / path クエリのパースは controller/query-params.ts に共通化されている
  */
 
 import type { TreeEntryDto, TreeResponseDto } from '@git-web/common'
-import { parseDiffPath } from '../domain/diff-path.js'
-import type { Revision } from '../domain/revision.js'
-import { parseRevision } from '../domain/revision.js'
 import type { TreeEntry } from '../domain/tree.js'
 import { jsonResponse } from '../http/response.js'
 import type { Handler } from '../http/router.js'
 import type { TreeService } from '../service/tree-service.js'
+import { parsePathParam, parseRevParam } from './query-params.js'
 
 export function createTreeHandler(service: TreeService): Handler {
   return async (req) => {
@@ -28,22 +21,6 @@ export function createTreeHandler(service: TreeService): Handler {
     const entries = await service.getTree(rev, path)
     return jsonResponse(200, toTreeResponseDto(entries))
   }
-}
-
-function parseRevParam(params: URLSearchParams): Revision | null {
-  if (!params.has('rev')) {
-    return null
-  }
-  const raw = params.get('rev') ?? ''
-  return parseRevision(raw)
-}
-
-function parsePathParam(params: URLSearchParams): string {
-  const raw = params.get('path')
-  if (raw === null || raw === '') {
-    return ''
-  }
-  return parseDiffPath(raw)
 }
 
 function toTreeEntryDto(entry: TreeEntry): TreeEntryDto {
