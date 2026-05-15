@@ -211,8 +211,9 @@ export class CliGitClient
   /**
    * 指定 dir 直下の各 name について最終コミット情報を返す (ADR 0054)。
    *
-   * - `-m --first-parent`: マージコミットでも --name-only が空にならないようにし、
-   *   first-parent 側で diff を生成する (GitHub 挙動と整合、計算量も抑制)
+   * - `--no-merges`: マージコミットを除外し、ファイル内容を実際に変更した
+   *   コミットを最終コミットとして採用する (subject が "Merge branch 'X'" の
+   *   情報量薄いコミットを避ける、ADR 0054 §2)
    * - `-c core.quotePath=true`: ユーザー gitconfig に依存せずパスの非 ASCII を
    *   C-style クォートさせる
    * - `--no-renames`: rename 追跡は本機能スコープ外
@@ -235,8 +236,7 @@ export class CliGitClient
       '-c',
       'core.quotePath=true',
       'log',
-      '-m',
-      '--first-parent',
+      '--no-merges',
       `--format=${TREE_COMMITS_FORMAT}`,
       '--name-only',
       '--no-renames',

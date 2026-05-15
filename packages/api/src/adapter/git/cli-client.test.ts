@@ -509,7 +509,7 @@ describe('CliGitClient.lastCommitsByName', () => {
     expect(result.get('src')?.subject).toBe('add src/deep/x.ts')
   })
 
-  it('マージコミットで取り込まれた変更が --first-parent ベースで反映される', async () => {
+  it('マージコミットはスキップしファイル内容を変更したコミットを返す', async () => {
     await writeFile(join(tempRepo, 'base.ts'), 'b\n')
     await commit(tempRepo, 'add base.ts')
 
@@ -534,7 +534,8 @@ describe('CliGitClient.lastCommitsByName', () => {
       1000,
     )
 
-    // -m --first-parent によりマージコミットそのものが最終更新として割り当てられる
-    expect(result.get('feature.ts')?.subject).toBe('Merge feature')
+    // --no-merges により "Merge feature" は飛ばされ、内容変更のあった
+    // feature ブランチ側コミットが採用される (ADR 0054 §2)
+    expect(result.get('feature.ts')?.subject).toBe('add feature.ts on feature')
   })
 })
