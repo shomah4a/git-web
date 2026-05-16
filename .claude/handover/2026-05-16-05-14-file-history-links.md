@@ -53,6 +53,7 @@
 
 ## コミット (新しい順)
 
+- `07031dc` ツリービューの history リンクをディレクトリ行にも展開する
 - `c93fda8` prettier 適用
 - `04069e8` ツリービューの Unicode エスケープを直接表記に統一する
 - `cacf88f` HistoryLinkCell を切り出し msg/date セルの router-link 重複を解消する
@@ -84,6 +85,10 @@
 2. ~~**WorktreeView と WorktreeBlobView で worktrees ref の型が不一致**~~ → 両方とも `... | null` (null 始まり) に統一済 (`607e0a2`)
 3. ~~**WorktreeBlobView の history SVG が enabled / disabled で 2 重定義**~~ → `HistoryIcon.vue` に切り出し済 (`a6b6826`)
 4. ~~**ツリービューの Unicode エスケープ表記** (`📁` / `📄` / `—`)~~ → 直接表記に統一済 (`04069e8`)。NUL バイトなど制御文字のエスケープは可読性のため残す
+
+### 方針変更: ディレクトリ行も history リンク化 (`07031dc`)
+
+当初 ADR 0056 は「blob 限定」だったが、`/commits?path=` のモデルが「任意のパス絞り込み」(ADR 0046) である以上 blob 限定は仕様と乖離するため、tree 行も `lastCommit !== null` ならリンク化する方針に改訂。`git log -- <dir>/` 相当の集約履歴を表示する。BlobView / WorktreeBlobView 側は性質上ファイル単位のまま。
 
 ### Future Work (ADR 0056)
 
