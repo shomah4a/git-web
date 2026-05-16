@@ -53,6 +53,12 @@
 
 ## コミット (新しい順)
 
+- `c93fda8` prettier 適用
+- `04069e8` ツリービューの Unicode エスケープを直接表記に統一する
+- `cacf88f` HistoryLinkCell を切り出し msg/date セルの router-link 重複を解消する
+- `607e0a2` WorktreeView の worktrees ref を null 始まりに統一する
+- `a6b6826` HistoryIcon コンポーネントに SVG を切り出し重複を解消する
+- `60115d6` 申し送りドキュメントを追加する
 - `a5ea520` history-link の title 属性を Unicode エスケープから日本語表記に直す
 - `5ffdc7c` prettier 適用
 - `15f9a63` resolveHistoryRev を history-url.ts に切り出し WorktreeView/WorktreeBlobView から使う
@@ -72,11 +78,12 @@
   - WorktreeBlobView: linked worktree 選択中で worktrees list 取得前は disabled 表示か
   - @media print で blob-toolbar が非表示になるか
 
-### 安全性評価で残った MEDIUM (将来課題)
+### 安全性評価で挙がった MEDIUM (本 PR ですべて対応済)
 
-1. **msg/date セルの `<router-link>` 重複** (RevisionTreeView / WorktreeView): 同等構造が 4 か所。`<HistoryLinkCell>` サブコンポーネント化で除去可能だが YAGNI 寄り
-2. **WorktreeView と WorktreeBlobView で worktrees ref の型が不一致**: 前者は `ReadonlyArray<...>` (空配列始まり)、後者は `... | null` (null 始まり)。WorktreeView 側も null 始まりに揃えると状態機械が明示的になる
-3. **WorktreeBlobView の history SVG が enabled / disabled で 2 重定義**: インライン定数化 or `<HistoryIcon />` 子コンポーネントで除去可能
+1. ~~**msg/date セルの `<router-link>` 重複**~~ → `HistoryLinkCell.vue` に切り出し済 (`cacf88f`)
+2. ~~**WorktreeView と WorktreeBlobView で worktrees ref の型が不一致**~~ → 両方とも `... | null` (null 始まり) に統一済 (`607e0a2`)
+3. ~~**WorktreeBlobView の history SVG が enabled / disabled で 2 重定義**~~ → `HistoryIcon.vue` に切り出し済 (`a6b6826`)
+4. ~~**ツリービューの Unicode エスケープ表記** (`📁` / `📄` / `—`)~~ → 直接表記に統一済 (`04069e8`)。NUL バイトなど制御文字のエスケープは可読性のため残す
 
 ### Future Work (ADR 0056)
 
