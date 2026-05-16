@@ -17,6 +17,7 @@ import { createNoOpHighlighter } from '../diff/highlighter/no-op.js'
 import BlobContent from './BlobContent.vue'
 import type { BlobContentState } from './blob-content-state.js'
 import { resolveBlobContent } from './blob-content-state.js'
+import HistoryIcon from './HistoryIcon.vue'
 import { buildHistoryUrl } from './history-url.js'
 import { useChromeless } from './use-chromeless.js'
 
@@ -148,22 +149,7 @@ onBeforeUnmount(() => {
         :to="buildHistoryUrl(currentRev, currentPath)"
         title="このファイルの履歴を表示"
       >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          aria-hidden="true"
-        >
-          <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-          <path d="M3 3v5h5" />
-          <path d="M12 7v5l4 2" />
-        </svg>
+        <HistoryIcon />
       </router-link>
       <button
         class="toolbar-button"
