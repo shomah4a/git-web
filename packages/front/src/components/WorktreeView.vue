@@ -47,7 +47,12 @@ function readWtFromRoute(): string | null {
 const currentPath = ref<string>(readPathFromRoute())
 const currentWt = ref<string | null>(readWtFromRoute())
 const entries = ref<ReadonlyArray<WorktreeEntryDto>>([])
-const worktrees = ref<ReadonlyArray<WorktreeListItemDto>>([])
+/**
+ * worktrees 一覧。「未取得 = null / 取得済み = ReadonlyArray」の三値で扱う。
+ * historyRev computed で「未解決」と「該当なし」を区別できるよう null 始まりにしている
+ * (safety review MEDIUM-2)。
+ */
+const worktrees = ref<ReadonlyArray<WorktreeListItemDto> | null>(null)
 const loading = ref(false)
 const errorMessage = ref<string | null>(null)
 
@@ -88,12 +93,9 @@ const sortedEntries = computed(() => {
 
 /**
  * history リンクの rev クエリに渡す値 (ADR 0056)。詳細は `resolveHistoryRev` を参照。
- *
- * 注: `worktrees` ref はロード前に空配列で初期化されている。
- * 「未解決」と「ロード完了かつ該当なし」を区別するため、空配列のときは null として扱う。
  */
 const historyRev = computed<string | null>(() =>
-  resolveHistoryRev(currentWt.value, worktrees.value.length === 0 ? null : worktrees.value),
+  resolveHistoryRev(currentWt.value, worktrees.value),
 )
 
 /**
@@ -242,7 +244,7 @@ function statusLabel(status: WorktreeEntryStatusDto): string {
   <div class="worktree-view">
     <Teleport to="#page-header-slot">
       <div class="page-header-content">
-        <div v-if="worktrees.length > 0" class="worktree-controls">
+        <div v-if="worktrees !== null && worktrees.length > 0" class="worktree-controls">
           <WorktreeCombobox
             :model-value="currentWt"
             :items="worktrees"
