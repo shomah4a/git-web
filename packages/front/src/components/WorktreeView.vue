@@ -27,6 +27,7 @@ import { fetchWorktree } from '../api/worktree.js'
 import { fetchWorktreesList } from '../api/worktrees-list.js'
 import { createYmdFormatter, detectBrowserTimeZone } from '../format/date.js'
 import { formatMode, formatSize } from '../format/entry.js'
+import HistoryLinkCell from './HistoryLinkCell.vue'
 import { buildHistoryUrl, resolveHistoryRev } from './history-url.js'
 import WorktreeCombobox from './WorktreeCombobox.vue'
 
@@ -304,29 +305,23 @@ function statusLabel(status: WorktreeEntryStatusDto): string {
             </button>
           </td>
           <td class="col-commit-msg" :title="lastCommitByName.get(entry.name)?.subject ?? ''">
-            <router-link
+            <HistoryLinkCell
               v-if="entry.type === 'blob' && lastCommitByName.get(entry.name) && canShowHistoryLink"
               :to="buildHistoryUrl(historyRev, entry.path)"
-              class="history-link"
-              title="このファイルの履歴を表示"
-              @click.stop
             >
               {{ lastCommitByName.get(entry.name)?.subject }}
-            </router-link>
+            </HistoryLinkCell>
             <template v-else>
               {{ lastCommitByName.get(entry.name)?.subject ?? '\u2014' }}
             </template>
           </td>
           <td class="col-commit-date">
-            <router-link
+            <HistoryLinkCell
               v-if="entry.type === 'blob' && lastCommitByName.get(entry.name) && canShowHistoryLink"
               :to="buildHistoryUrl(historyRev, entry.path)"
-              class="history-link"
-              title="このファイルの履歴を表示"
-              @click.stop
             >
               {{ formatYmd(lastCommitByName.get(entry.name)!.date) }}
-            </router-link>
+            </HistoryLinkCell>
             <template v-else>
               {{
                 lastCommitByName.get(entry.name)
@@ -428,15 +423,6 @@ function statusLabel(status: WorktreeEntryStatusDto): string {
   white-space: nowrap;
   color: var(--color-fg-muted);
   font-size: 0.85em;
-}
-.history-link {
-  color: inherit;
-  text-decoration: underline;
-  text-decoration-color: var(--color-border);
-}
-.history-link:hover {
-  color: var(--color-fg);
-  text-decoration-color: var(--color-fg-muted);
 }
 .col-mode {
   width: 7rem;
