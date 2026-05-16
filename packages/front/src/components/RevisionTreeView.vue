@@ -331,9 +331,7 @@ onBeforeUnmount(() => {
           @click="entry.type === 'tree' ? navigateToDir(entry.path) : navigateToBlob(entry.path)"
         >
           <td class="col-name">
-            <span class="entry-icon">{{
-              entry.type === 'tree' ? '📁' : '📄'
-            }}</span>
+            <span class="entry-icon">{{ entry.type === 'tree' ? '📁' : '📄' }}</span>
             <button
               v-if="entry.type === 'tree'"
               class="entry-link"

@@ -290,9 +290,7 @@ function statusLabel(status: WorktreeEntryStatusDto): string {
             }}</span>
           </td>
           <td class="col-name">
-            <span class="entry-icon">{{
-              entry.type === 'tree' ? '📁' : '📄'
-            }}</span>
+            <span class="entry-icon">{{ entry.type === 'tree' ? '📁' : '📄' }}</span>
             <button
               v-if="entry.type === 'tree'"
               class="entry-link"
