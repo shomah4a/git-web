@@ -8,6 +8,7 @@
  * - ディレクトリクリック → router.push でドリルダウン
  * - パンくずリストで上位ディレクトリへナビゲーション
  * - URL の rev / path クエリでステート管理
+ * - blob 行の Last commit msg/date セルから /commits?rev=&path= へリンク (ADR 0056)
  */
 
 import type { LastCommitDto, RefListDto, TreeEntryDto, TreeEntryStatusDto } from '@git-web/common'
@@ -20,6 +21,8 @@ import { fetchTree } from '../api/tree.js'
 import { fetchTreeCommits } from '../api/tree-commits.js'
 import { createYmdFormatter, detectBrowserTimeZone } from '../format/date.js'
 import { formatMode, formatSize } from '../format/entry.js'
+import HistoryLinkCell from './HistoryLinkCell.vue'
+import { buildHistoryUrl } from './history-url.js'
 import RevisionCombobox from './RevisionCombobox.vue'
 
 const route = useRoute()
@@ -328,9 +331,7 @@ onBeforeUnmount(() => {
           @click="entry.type === 'tree' ? navigateToDir(entry.path) : navigateToBlob(entry.path)"
         >
           <td class="col-name">
-            <span class="entry-icon">{{
-              entry.type === 'tree' ? '\uD83D\uDCC1' : '\uD83D\uDCC4'
-            }}</span>
+            <span class="entry-icon">{{ entry.type === 'tree' ? '📁' : '📄' }}</span>
             <button
               v-if="entry.type === 'tree'"
               class="entry-link"
@@ -346,14 +347,30 @@ onBeforeUnmount(() => {
             </span>
           </td>
           <td class="col-commit-msg" :title="lastCommitByName.get(entry.name)?.subject ?? ''">
-            {{ lastCommitByName.get(entry.name)?.subject ?? '\u2014' }}
+            <HistoryLinkCell
+              v-if="lastCommitByName.get(entry.name)"
+              :to="buildHistoryUrl(currentRev, entry.path)"
+            >
+              {{ lastCommitByName.get(entry.name)?.subject }}
+            </HistoryLinkCell>
+            <template v-else>
+              {{ lastCommitByName.get(entry.name)?.subject ?? '—' }}
+            </template>
           </td>
           <td class="col-commit-date">
-            {{
-              lastCommitByName.get(entry.name)
-                ? formatYmd(lastCommitByName.get(entry.name)!.date)
-                : '\u2014'
-            }}
+            <HistoryLinkCell
+              v-if="lastCommitByName.get(entry.name)"
+              :to="buildHistoryUrl(currentRev, entry.path)"
+            >
+              {{ formatYmd(lastCommitByName.get(entry.name)!.date) }}
+            </HistoryLinkCell>
+            <template v-else>
+              {{
+                lastCommitByName.get(entry.name)
+                  ? formatYmd(lastCommitByName.get(entry.name)!.date)
+                  : '—'
+              }}
+            </template>
           </td>
           <td class="col-mode">{{ formatMode(entry) }}</td>
           <td class="col-size">{{ formatSize(entry) }}</td>

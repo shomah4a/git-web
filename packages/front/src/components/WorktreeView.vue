@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * worktree 状態表示コンポーネント (ADR 0023 / ADR 0055)。
+ * worktree 状態表示コンポーネント (ADR 0023 / ADR 0055 / ADR 0056)。
  *
  * 設計方針:
  * - /api/worktree でエントリ取得 → テーブル形式で表示
@@ -9,6 +9,9 @@
  * - パンくずリストで上位ディレクトリへナビゲーション
  * - URL の path / wt クエリでステート管理
  * - ADR 0055: WorktreeCombobox で worktree 切替。選択 = 即適用、path はリセット
+ * - ADR 0056: blob 行 Last commit セルから /commits?rev=<headHash>&path= へリンク。
+ *   wt=null (default worktree) のときは rev を省略し HEAD シンボルで遷移。
+ *   linked worktree 選択中で headHash が未解決のときはリンク化せずテキスト表示にする。
  */
 
 import type {
@@ -24,6 +27,8 @@ import { fetchWorktree } from '../api/worktree.js'
 import { fetchWorktreesList } from '../api/worktrees-list.js'
 import { createYmdFormatter, detectBrowserTimeZone } from '../format/date.js'
 import { formatMode, formatSize } from '../format/entry.js'
+import HistoryLinkCell from './HistoryLinkCell.vue'
+import { buildHistoryUrl, resolveHistoryRev } from './history-url.js'
 import WorktreeCombobox from './WorktreeCombobox.vue'
 
 const route = useRoute()
@@ -43,7 +48,12 @@ function readWtFromRoute(): string | null {
 const currentPath = ref<string>(readPathFromRoute())
 const currentWt = ref<string | null>(readWtFromRoute())
 const entries = ref<ReadonlyArray<WorktreeEntryDto>>([])
-const worktrees = ref<ReadonlyArray<WorktreeListItemDto>>([])
+/**
+ * worktrees 一覧。「未取得 = null / 取得済み = ReadonlyArray」の三値で扱う。
+ * historyRev computed で「未解決」と「該当なし」を区別できるよう null 始まりにしている
+ * (safety review MEDIUM-2)。
+ */
+const worktrees = ref<ReadonlyArray<WorktreeListItemDto> | null>(null)
 const loading = ref(false)
 const errorMessage = ref<string | null>(null)
 
@@ -80,6 +90,24 @@ const sortedEntries = computed(() => {
     }
     return a.name.localeCompare(b.name)
   })
+})
+
+/**
+ * history リンクの rev クエリに渡す値 (ADR 0056)。詳細は `resolveHistoryRev` を参照。
+ */
+const historyRev = computed<string | null>(() =>
+  resolveHistoryRev(currentWt.value, worktrees.value),
+)
+
+/**
+ * 現在の worktree で history リンクを表示可能かを返す。
+ *
+ * - default worktree: 常に true
+ * - linked worktree: headHash が解決済みかつ非空のときのみ true
+ */
+const canShowHistoryLink = computed<boolean>(() => {
+  if (currentWt.value === null) return true
+  return historyRev.value !== null && historyRev.value !== ''
 })
 
 async function loadWorktree(path: string, wt: string | null): Promise<void> {
@@ -217,7 +245,7 @@ function statusLabel(status: WorktreeEntryStatusDto): string {
   <div class="worktree-view">
     <Teleport to="#page-header-slot">
       <div class="page-header-content">
-        <div v-if="worktrees.length > 0" class="worktree-controls">
+        <div v-if="worktrees !== null && worktrees.length > 0" class="worktree-controls">
           <WorktreeCombobox
             :model-value="currentWt"
             :items="worktrees"
@@ -262,9 +290,7 @@ function statusLabel(status: WorktreeEntryStatusDto): string {
             }}</span>
           </td>
           <td class="col-name">
-            <span class="entry-icon">{{
-              entry.type === 'tree' ? '\uD83D\uDCC1' : '\uD83D\uDCC4'
-            }}</span>
+            <span class="entry-icon">{{ entry.type === 'tree' ? '📁' : '📄' }}</span>
             <button
               v-if="entry.type === 'tree'"
               class="entry-link"
@@ -277,14 +303,30 @@ function statusLabel(status: WorktreeEntryStatusDto): string {
             </button>
           </td>
           <td class="col-commit-msg" :title="lastCommitByName.get(entry.name)?.subject ?? ''">
-            {{ lastCommitByName.get(entry.name)?.subject ?? '\u2014' }}
+            <HistoryLinkCell
+              v-if="lastCommitByName.get(entry.name) && canShowHistoryLink"
+              :to="buildHistoryUrl(historyRev, entry.path)"
+            >
+              {{ lastCommitByName.get(entry.name)?.subject }}
+            </HistoryLinkCell>
+            <template v-else>
+              {{ lastCommitByName.get(entry.name)?.subject ?? '—' }}
+            </template>
           </td>
           <td class="col-commit-date">
-            {{
-              lastCommitByName.get(entry.name)
-                ? formatYmd(lastCommitByName.get(entry.name)!.date)
-                : '\u2014'
-            }}
+            <HistoryLinkCell
+              v-if="lastCommitByName.get(entry.name) && canShowHistoryLink"
+              :to="buildHistoryUrl(historyRev, entry.path)"
+            >
+              {{ formatYmd(lastCommitByName.get(entry.name)!.date) }}
+            </HistoryLinkCell>
+            <template v-else>
+              {{
+                lastCommitByName.get(entry.name)
+                  ? formatYmd(lastCommitByName.get(entry.name)!.date)
+                  : '—'
+              }}
+            </template>
           </td>
           <td class="col-mode">{{ formatMode(entry) }}</td>
           <td class="col-size">{{ formatSize(entry) }}</td>

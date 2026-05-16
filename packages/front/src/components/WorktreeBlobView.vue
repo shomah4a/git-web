@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * worktree 用ファイル内容表示コンポーネント (ADR 0038 / ADR 0055)。
+ * worktree 用ファイル内容表示コンポーネント (ADR 0038 / ADR 0055 / ADR 0056)。
  *
  * 設計方針:
  * - /wt/blob?path=<path>&wt=<wt> で表示対象を指定 (rev なし = worktree)
@@ -8,16 +8,23 @@
  * - BlobContent で表示を委譲
  * - パンくずリストで / (worktree ツリー) へのナビゲーション
  * - selector はここには置かず WorktreeView から切替える (ADR 0055 §UI / M2)
+ * - 右上ツールバーに history リンク (ADR 0056)。
+ *   wt=null: rev 省略 (HEAD) で即時 enabled。
+ *   wt=<name>: /api/worktrees の resolve 完了まで disabled。
  */
 
 import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import type { WorktreeListItemDto } from '@git-web/common'
 import { useRoute, useRouter } from 'vue-router'
 import { fetchBlob } from '../api/blob.js'
+import { fetchWorktreesList } from '../api/worktrees-list.js'
 import { highlighterKey } from '../diff/highlighter/types.js'
 import { createNoOpHighlighter } from '../diff/highlighter/no-op.js'
 import BlobContent from './BlobContent.vue'
 import type { BlobContentState } from './blob-content-state.js'
 import { resolveBlobContent } from './blob-content-state.js'
+import HistoryIcon from './HistoryIcon.vue'
+import { buildHistoryUrl, resolveHistoryRev } from './history-url.js'
 import { useChromeless } from './use-chromeless.js'
 
 const route = useRoute()
@@ -42,6 +49,25 @@ function readWtFromRoute(): string | null {
 
 const currentPath = computed(() => readPathFromRoute())
 const currentWt = computed(() => readWtFromRoute())
+
+/**
+ * /api/worktrees の取得結果。history リンクの rev 解決にのみ使う (ADR 0056 §4)。
+ * 未取得 (null) は「リンク disabled」状態を意味する。
+ */
+const worktrees = ref<ReadonlyArray<WorktreeListItemDto> | null>(null)
+
+/**
+ * history リンクの rev クエリに渡す値 (ADR 0056)。詳細は `resolveHistoryRev` を参照。
+ */
+const historyRev = computed<string | null>(() =>
+  resolveHistoryRev(currentWt.value, worktrees.value),
+)
+
+const canShowHistoryLink = computed<boolean>(() => {
+  if (currentPath.value === '') return false
+  if (currentWt.value === null) return true
+  return historyRev.value !== null && historyRev.value !== ''
+})
 
 const fileName = computed(() => {
   const p = currentPath.value
@@ -117,8 +143,20 @@ watch(
   },
 )
 
+async function loadWorktreesList(): Promise<void> {
+  try {
+    const items = await fetchWorktreesList()
+    if (isUnmounted) return
+    worktrees.value = items
+  } catch (err) {
+    if (isUnmounted) return
+    console.warn('[WorktreeBlobView] fetchWorktreesList failed', err)
+  }
+}
+
 onMounted(() => {
   void loadBlob(currentPath.value, currentWt.value)
+  void loadWorktreesList()
 })
 
 onBeforeUnmount(() => {
@@ -147,8 +185,24 @@ onBeforeUnmount(() => {
     </Teleport>
 
     <div class="blob-toolbar">
+      <router-link
+        v-if="canShowHistoryLink"
+        class="toolbar-button"
+        :to="buildHistoryUrl(historyRev, currentPath)"
+        title="このファイルの履歴を表示"
+      >
+        <HistoryIcon />
+      </router-link>
+      <span
+        v-else-if="currentPath !== ''"
+        class="toolbar-button toolbar-button-disabled"
+        title="worktree 情報の取得中"
+        aria-disabled="true"
+      >
+        <HistoryIcon />
+      </span>
       <button
-        class="chromeless-toggle"
+        class="toolbar-button"
         :title="isChromeless ? 'ナビゲーションを表示' : '印刷用表示'"
         @click="toggleChromeless"
       >
@@ -201,9 +255,12 @@ onBeforeUnmount(() => {
 .blob-toolbar {
   display: flex;
   justify-content: flex-end;
+  gap: 0.3rem;
   padding: 0.4rem 0;
 }
-.chromeless-toggle {
+.toolbar-button {
+  display: inline-flex;
+  align-items: center;
   background: none;
   border: 1px solid var(--color-border);
   border-radius: 4px;
@@ -211,10 +268,19 @@ onBeforeUnmount(() => {
   cursor: pointer;
   font-size: 0.8rem;
   padding: 0.2rem 0.6rem;
+  text-decoration: none;
 }
-.chromeless-toggle:hover {
+.toolbar-button:hover {
   color: var(--color-fg);
   border-color: var(--color-fg-muted);
+}
+.toolbar-button-disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.toolbar-button-disabled:hover {
+  color: var(--color-fg-muted);
+  border-color: var(--color-border);
 }
 @media print {
   .blob-toolbar {

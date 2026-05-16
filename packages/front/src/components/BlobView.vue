@@ -6,6 +6,7 @@
  * - /blob?rev=<rev>&path=<path> で表示対象を指定
  * - fetchBlob で内容取得、BlobContent で表示を委譲
  * - パンくずリストで /tree (revision ツリー) へのナビゲーション
+ * - 右上ツールバーに history リンク (ADR 0056)
  */
 
 import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from 'vue'
@@ -16,6 +17,8 @@ import { createNoOpHighlighter } from '../diff/highlighter/no-op.js'
 import BlobContent from './BlobContent.vue'
 import type { BlobContentState } from './blob-content-state.js'
 import { resolveBlobContent } from './blob-content-state.js'
+import HistoryIcon from './HistoryIcon.vue'
+import { buildHistoryUrl } from './history-url.js'
 import { useChromeless } from './use-chromeless.js'
 
 const route = useRoute()
@@ -140,8 +143,16 @@ onBeforeUnmount(() => {
     </Teleport>
 
     <div class="blob-toolbar">
+      <router-link
+        v-if="currentPath !== ''"
+        class="toolbar-button"
+        :to="buildHistoryUrl(currentRev, currentPath)"
+        title="このファイルの履歴を表示"
+      >
+        <HistoryIcon />
+      </router-link>
       <button
-        class="chromeless-toggle"
+        class="toolbar-button"
         :title="isChromeless ? 'ナビゲーションを表示' : '印刷用表示'"
         @click="toggleChromeless"
       >
@@ -194,9 +205,12 @@ onBeforeUnmount(() => {
 .blob-toolbar {
   display: flex;
   justify-content: flex-end;
+  gap: 0.3rem;
   padding: 0.4rem 0;
 }
-.chromeless-toggle {
+.toolbar-button {
+  display: inline-flex;
+  align-items: center;
   background: none;
   border: 1px solid var(--color-border);
   border-radius: 4px;
@@ -204,8 +218,9 @@ onBeforeUnmount(() => {
   cursor: pointer;
   font-size: 0.8rem;
   padding: 0.2rem 0.6rem;
+  text-decoration: none;
 }
-.chromeless-toggle:hover {
+.toolbar-button:hover {
   color: var(--color-fg);
   border-color: var(--color-fg-muted);
 }
