@@ -304,7 +304,7 @@ function statusLabel(status: WorktreeEntryStatusDto): string {
           </td>
           <td class="col-commit-msg" :title="lastCommitByName.get(entry.name)?.subject ?? ''">
             <HistoryLinkCell
-              v-if="entry.type === 'blob' && lastCommitByName.get(entry.name) && canShowHistoryLink"
+              v-if="lastCommitByName.get(entry.name) && canShowHistoryLink"
               :to="buildHistoryUrl(historyRev, entry.path)"
             >
               {{ lastCommitByName.get(entry.name)?.subject }}
@@ -315,7 +315,7 @@ function statusLabel(status: WorktreeEntryStatusDto): string {
           </td>
           <td class="col-commit-date">
             <HistoryLinkCell
-              v-if="entry.type === 'blob' && lastCommitByName.get(entry.name) && canShowHistoryLink"
+              v-if="lastCommitByName.get(entry.name) && canShowHistoryLink"
               :to="buildHistoryUrl(historyRev, entry.path)"
             >
               {{ formatYmd(lastCommitByName.get(entry.name)!.date) }}

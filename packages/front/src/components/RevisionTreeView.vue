@@ -348,7 +348,7 @@ onBeforeUnmount(() => {
           </td>
           <td class="col-commit-msg" :title="lastCommitByName.get(entry.name)?.subject ?? ''">
             <HistoryLinkCell
-              v-if="entry.type === 'blob' && lastCommitByName.get(entry.name)"
+              v-if="lastCommitByName.get(entry.name)"
               :to="buildHistoryUrl(currentRev, entry.path)"
             >
               {{ lastCommitByName.get(entry.name)?.subject }}
@@ -359,7 +359,7 @@ onBeforeUnmount(() => {
           </td>
           <td class="col-commit-date">
             <HistoryLinkCell
-              v-if="entry.type === 'blob' && lastCommitByName.get(entry.name)"
+              v-if="lastCommitByName.get(entry.name)"
               :to="buildHistoryUrl(currentRev, entry.path)"
             >
               {{ formatYmd(lastCommitByName.get(entry.name)!.date) }}
