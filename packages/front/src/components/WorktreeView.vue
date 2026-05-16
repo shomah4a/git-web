@@ -291,7 +291,7 @@ function statusLabel(status: WorktreeEntryStatusDto): string {
           </td>
           <td class="col-name">
             <span class="entry-icon">{{
-              entry.type === 'tree' ? '\uD83D\uDCC1' : '\uD83D\uDCC4'
+              entry.type === 'tree' ? '📁' : '📄'
             }}</span>
             <button
               v-if="entry.type === 'tree'"
@@ -312,7 +312,7 @@ function statusLabel(status: WorktreeEntryStatusDto): string {
               {{ lastCommitByName.get(entry.name)?.subject }}
             </HistoryLinkCell>
             <template v-else>
-              {{ lastCommitByName.get(entry.name)?.subject ?? '\u2014' }}
+              {{ lastCommitByName.get(entry.name)?.subject ?? '—' }}
             </template>
           </td>
           <td class="col-commit-date">
@@ -326,7 +326,7 @@ function statusLabel(status: WorktreeEntryStatusDto): string {
               {{
                 lastCommitByName.get(entry.name)
                   ? formatYmd(lastCommitByName.get(entry.name)!.date)
-                  : '\u2014'
+                  : '—'
               }}
             </template>
           </td>
