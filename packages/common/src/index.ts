@@ -35,6 +35,8 @@ export type { BlobDto } from './blob.js'
 
 export type { RefListDto } from './refs.js'
 
+export type { ReviewCommentDto, ReviewListResponseDto } from './review.js'
+
 export type { EntryBaseDto, EntryTypeDto } from './entry-base.js'
 
 export type { TreeEntryDto, TreeEntryStatusDto, TreeEntryTypeDto, TreeResponseDto } from './tree.js'

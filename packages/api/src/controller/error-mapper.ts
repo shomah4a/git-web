@@ -20,6 +20,7 @@ import {
   InvalidDiffPathError,
   InvalidDiffRangeError,
   InvalidRefsQueryError,
+  InvalidReviewCommentError,
   InvalidRevisionError,
   InvalidWorktreeNameError,
   NotAGitRepositoryError,
@@ -46,6 +47,9 @@ export function mapDomainErrorToHttpResponse(err: unknown): HttpResponse | null 
   }
   if (err instanceof InvalidRefsQueryError) {
     return errorJsonResponse(400, 'invalid_refs_query', err.message)
+  }
+  if (err instanceof InvalidReviewCommentError) {
+    return errorJsonResponse(400, 'invalid_review_comment', err.message)
   }
   if (err instanceof InvalidWorktreeNameError) {
     return errorJsonResponse(400, 'invalid_worktree_name', err.message)

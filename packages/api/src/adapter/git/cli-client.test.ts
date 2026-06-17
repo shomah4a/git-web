@@ -539,3 +539,29 @@ describe('CliGitClient.lastCommitsByName', () => {
     expect(result.get('feature.ts')?.subject).toBe('add feature.ts on feature')
   })
 })
+
+describe('CliGitClient.resolveCommitSha', () => {
+  it('HEADを40桁のcommit SHAに解決する', async () => {
+    const git = new CliGitClient(tempRepo)
+
+    const sha = await git.resolveCommitSha(parseRevision('HEAD'))
+
+    expect(sha).toMatch(/^[0-9a-f]{40}$/)
+  })
+
+  it('短縮SHAを40桁に解決する', async () => {
+    const git = new CliGitClient(tempRepo)
+    const full = await git.resolveCommitSha(parseRevision('HEAD'))
+    const short = full.slice(0, 8)
+
+    const resolved = await git.resolveCommitSha(parseRevision(short))
+
+    expect(resolved).toBe(full)
+  })
+
+  it('存在しないリビジョンでは例外を投げる', async () => {
+    const git = new CliGitClient(tempRepo)
+
+    await expect(git.resolveCommitSha(parseRevision('deadbeef'))).rejects.toThrow()
+  })
+})

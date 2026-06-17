@@ -19,6 +19,7 @@ import type { DiffRange } from '../../domain/diff-range.js'
 import type { GitClient } from '../../domain/ports/git-client.js'
 import type { HeadInfo } from '../../domain/repo.js'
 import type { GitDiffClient } from '../../domain/ports/git-diff-client.js'
+import type { GitShaResolver } from '../../domain/ports/git-sha-resolver.js'
 import type { GitLogClient } from '../../domain/ports/git-log-client.js'
 import type { LogQuery, LogResult } from '../../domain/ports/git-log-client.js'
 import type { GitRefsClient } from '../../domain/ports/git-refs-client.js'
@@ -61,6 +62,7 @@ export class CliGitClient
     GitDiffClient,
     GitLogClient,
     GitRefsClient,
+    GitShaResolver,
     GitTreeClient,
     GitTreeCommitsClient
 {
@@ -68,6 +70,22 @@ export class CliGitClient
 
   constructor(cwd: string) {
     this.#cwd = cwd
+  }
+
+  /**
+   * リビジョンを 40 桁 commit SHA へ解決する (ADR 0057)。
+   *
+   * - `<rev>^{commit}` で annotated tag 等を commit に peel する
+   * - `--verify` で曖昧/不正な指定を非ゼロ終了させる
+   * - `--end-of-options` で rev がフラグ解釈されないよう二層防御 (ADR 0018)
+   */
+  async resolveCommitSha(rev: Revision): Promise<string> {
+    const { stdout } = await execFileAsync(
+      'git',
+      ['rev-parse', '--verify', '--end-of-options', `${rev.raw}^{commit}`],
+      { cwd: this.#cwd },
+    )
+    return stdout.trim()
   }
 
   async head(): Promise<HeadInfo> {
