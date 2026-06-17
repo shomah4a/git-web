@@ -88,6 +88,25 @@ export class CliGitClient
     return stdout.trim()
   }
 
+  /**
+   * `git rev-list <from>..<to>` を実行して 40 桁 SHA 列を返す (ADR 0060 E2)。
+   *
+   * - from.raw / to.raw は parseRevision 済みでシェルメタを含まないため、
+   *   `<from>..<to>` を 1 つの operand として安全に渡せる
+   * - `--end-of-options` で operand がフラグ解釈されないよう二層防御 (ADR 0018)
+   */
+  async revListRange(from: Revision, to: Revision): Promise<ReadonlyArray<string>> {
+    const { stdout } = await execFileAsync(
+      'git',
+      ['rev-list', '--end-of-options', `${from.raw}..${to.raw}`],
+      { cwd: this.#cwd, maxBuffer: DIFF_MAX_BUFFER },
+    )
+    return stdout
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line !== '')
+  }
+
   async head(): Promise<HeadInfo> {
     const { stdout: hashOut } = await execFileAsync('git', ['rev-parse', '--short', 'HEAD'], {
       cwd: this.#cwd,

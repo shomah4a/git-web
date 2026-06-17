@@ -19,4 +19,9 @@ export interface ReviewStore {
   listResolvedEvents(this: void, sha: ReviewSha): Promise<ReadonlyArray<ResolvedEvent>>
   /** resolved イベント 1 件を追記する。 */
   appendResolvedEvent(this: void, sha: ReviewSha, event: ResolvedEvent): Promise<void>
+  /**
+   * コメント本体ファイルが存在する commit SHA 一覧を返す (ADR 0060 E2)。
+   * reviewsDir 未存在なら空配列。
+   */
+  listCommitShasWithComments(this: void): Promise<ReadonlyArray<string>>
 }

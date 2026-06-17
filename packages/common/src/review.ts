@@ -28,3 +28,11 @@ export type ReviewListResponseDto = {
   readonly sha: string
   readonly comments: ReadonlyArray<ReviewCommentDto>
 }
+
+/**
+ * GET /api/reviews/commits のレスポンス DTO (ADR 0060 E2)。
+ * from..to の範囲に含まれ、コメントを持つ commit SHA 一覧 (to 自身を含む)。
+ */
+export type ReviewCommitsResponseDto = {
+  readonly shas: ReadonlyArray<string>
+}

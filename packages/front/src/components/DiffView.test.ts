@@ -1107,6 +1107,10 @@ describe('DiffView', () => {
             }),
           )
         }
+        if (base === '/api/reviews/commits') {
+          // E2: 他コミット由来コメントは本テストでは無し
+          return Promise.resolve(jsonResponse(200, { shas: [] }))
+        }
         if (base === '/api/reviews') {
           return Promise.resolve(jsonResponse(200, reviewList))
         }
@@ -1176,6 +1180,60 @@ describe('DiffView', () => {
 
     expect(tracker.posts).toHaveLength(1)
     expect(tracker.posts[0]?.body).toContain('please fix')
+    wrapper.unmount()
+    window.history.replaceState({}, '', '/')
+  })
+
+  it('別コミット由来コメントが現在のtoへ翻訳されて表示される (ADR 0060 E2)', async () => {
+    const otherSha = 'c'.repeat(40)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const url =
+          typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+        const [base, query] = url.split('?')
+        const params = new URLSearchParams(query ?? '')
+        if (base === '/api/diff/files') {
+          return Promise.resolve(jsonResponse(200, { files: [SUMMARY_A] }))
+        }
+        if (base === '/api/diff/file') {
+          // 初回 diff も翻訳用 diff (otherSha..to) も FILE_A を返す
+          return Promise.resolve(jsonResponse(200, FILE_A))
+        }
+        if (base === '/api/reviews/commits') {
+          return Promise.resolve(jsonResponse(200, { shas: [otherSha] }))
+        }
+        if (base === '/api/reviews') {
+          const rev = params.get('rev')
+          if (rev === REVIEW_SHA) {
+            return Promise.resolve(jsonResponse(200, { sha: REVIEW_SHA, comments: [] }))
+          }
+          return Promise.resolve(
+            jsonResponse(200, {
+              sha: otherSha,
+              comments: [
+                {
+                  id: 'old1',
+                  sha: otherSha,
+                  path: 'foo.ts',
+                  newLineStart: 2,
+                  newLineEnd: 2,
+                  body: 'from earlier commit',
+                  createdAt: '2026-06-17T00:00:00.000Z',
+                  resolved: false,
+                },
+              ],
+            }),
+          )
+        }
+        return Promise.resolve(new Response('not mocked', { status: 500 }))
+      }),
+    )
+
+    const wrapper = await mountWithTo(REVIEW_SHA)
+
+    expect(wrapper.find('.comment-thread').exists()).toBe(true)
+    expect(wrapper.text()).toContain('from earlier commit')
     wrapper.unmount()
     window.history.replaceState({}, '', '/')
   })

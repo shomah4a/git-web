@@ -1,4 +1,8 @@
-import type { ReviewCommentDto, ReviewListResponseDto } from '@git-web/common'
+import type {
+  ReviewCommentDto,
+  ReviewCommitsResponseDto,
+  ReviewListResponseDto,
+} from '@git-web/common'
 
 /**
  * レビューコメント API のクライアント層 (ADR 0057 / 0059)。
@@ -35,6 +39,23 @@ export async function fetchReviews(rev: string): Promise<ReviewListResponseDto> 
     throw new Error('/api/reviews returned unexpected body shape')
   }
   return data
+}
+
+/**
+ * GET /api/reviews/commits?from=&to= を呼び、from..to の範囲でコメントを持つ
+ * commit SHA 一覧を取得する (ADR 0060 E2)。
+ */
+export async function fetchReviewCommits(from: string, to: string): Promise<ReadonlyArray<string>> {
+  const url = `/api/reviews/commits?${new URLSearchParams({ from, to }).toString()}`
+  const response = await fetch(url)
+  if (!response.ok) {
+    throw new Error(`/api/reviews/commits returned HTTP ${response.status.toString()}`)
+  }
+  const data: unknown = await response.json()
+  if (!isReviewCommitsResponseDto(data)) {
+    throw new Error('/api/reviews/commits returned unexpected body shape')
+  }
+  return data.shas
 }
 
 /**
@@ -89,6 +110,12 @@ export function isReviewCommentDto(value: unknown): value is ReviewCommentDto {
   if (!('createdAt' in value) || typeof value.createdAt !== 'string') return false
   if (!('resolved' in value) || typeof value.resolved !== 'boolean') return false
   return true
+}
+
+function isReviewCommitsResponseDto(value: unknown): value is ReviewCommitsResponseDto {
+  if (typeof value !== 'object' || value === null) return false
+  if (!('shas' in value) || !Array.isArray(value.shas)) return false
+  return value.shas.every((sha) => typeof sha === 'string' && SHA40_PATTERN.test(sha))
 }
 
 function isReviewListResponseDto(value: unknown): value is ReviewListResponseDto {

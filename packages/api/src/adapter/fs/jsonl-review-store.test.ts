@@ -30,6 +30,19 @@ function createFakeFs(): { files: Map<string, string>; fs: ReviewStoreFs } {
         return Promise.resolve()
       },
       mkdir: (): Promise<void> => Promise.resolve(),
+      readdir: (path: string): Promise<ReadonlyArray<string>> => {
+        const prefix = path.endsWith('/') ? path : `${path}/`
+        const names: string[] = []
+        for (const key of files.keys()) {
+          if (key.startsWith(prefix)) {
+            const rest = key.slice(prefix.length)
+            if (!rest.includes('/')) {
+              names.push(rest)
+            }
+          }
+        }
+        return Promise.resolve(names)
+      },
     },
   }
 }
@@ -101,6 +114,42 @@ describe('createJsonlReviewStore', () => {
     const events = await store.listResolvedEvents(sha(VALID_SHA))
 
     expect(events).toEqual([e1, e2])
+  })
+
+  it('listCommitShasWithComments はコメント本体ファイルの SHA のみ返す (resolved ログは除く)', async () => {
+    const { fs } = createFakeFs()
+    const store = createJsonlReviewStore({ reviewsDir: REVIEWS_DIR, fs })
+    const otherSha = 'f'.repeat(40)
+
+    await store.appendComment(sampleComment('c1'))
+    // 別 SHA のコメント
+    await store.appendComment(
+      buildReviewComment({
+        id: 'c2',
+        sha: otherSha,
+        path: 'a.ts',
+        newLineStart: 1,
+        newLineEnd: 1,
+        body: 'b',
+        createdAt: '2026-06-17T00:00:00.000Z',
+      }),
+    )
+    // resolved ログ (`<sha>.resolved.jsonl`) は除外されること
+    await store.appendResolvedEvent(sha(VALID_SHA), { id: 'c1', resolved: true, ts: 't' })
+
+    const shas = await store.listCommitShasWithComments()
+    expect([...shas].sort()).toEqual([VALID_SHA, otherSha].sort())
+  })
+
+  it('reviewsDir未存在では listCommitShasWithComments は空配列を返す', async () => {
+    const fakeFs: ReviewStoreFs = {
+      readFile: () => Promise.reject(Object.assign(new Error('ENOENT'), { code: 'ENOENT' })),
+      appendFile: () => Promise.resolve(),
+      mkdir: () => Promise.resolve(),
+      readdir: () => Promise.reject(Object.assign(new Error('ENOENT'), { code: 'ENOENT' })),
+    }
+    const store = createJsonlReviewStore({ reviewsDir: REVIEWS_DIR, fs: fakeFs })
+    expect(await store.listCommitShasWithComments()).toEqual([])
   })
 
   it('reviewsDirの外へ脱出するshaは書き込みを拒否する(二層防御)', async () => {

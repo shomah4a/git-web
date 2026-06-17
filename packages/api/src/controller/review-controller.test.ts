@@ -3,6 +3,7 @@ import { InvalidReviewCommentError, InvalidRevisionError } from '../domain/error
 import { buildReviewComment, mergeResolved, type ResolvedComment } from '../domain/review.js'
 import type { AddCommentInput, ReviewService, SetResolvedInput } from '../service/review-service.js'
 import {
+  createReviewCommitsHandler,
   createReviewCreateHandler,
   createReviewListHandler,
   createReviewResolveHandler,
@@ -37,6 +38,7 @@ function fakeService(overrides: Partial<ReviewService> = {}): ReviewService {
     listForRevision: () => Promise.resolve({ sha: SHA, comments: [] }),
     addComment: () => Promise.reject(new Error('addComment not stubbed')),
     setResolved: () => Promise.resolve(),
+    listCommitsWithCommentsInRange: () => Promise.resolve([]),
     ...overrides,
   }
 }
@@ -79,6 +81,30 @@ describe('createReviewListHandler', () => {
         },
       ],
     })
+  })
+})
+
+describe('createReviewCommitsHandler', () => {
+  it('from/to から service.listCommitsWithCommentsInRange を呼び shas を返す', async () => {
+    const otherSha = 'b'.repeat(40)
+    const handler = createReviewCommitsHandler(
+      fakeService({ listCommitsWithCommentsInRange: () => Promise.resolve([otherSha, SHA]) }),
+    )
+
+    const response = await handler({
+      method: 'GET',
+      url: '/api/reviews/commits?from=HEAD&to=feature',
+    })
+
+    expect(response.status).toBe(200)
+    expect(parseBody(response.body)).toEqual({ shas: [otherSha, SHA] })
+  })
+
+  it('from クエリ欠落時は InvalidRevisionError を投げる', async () => {
+    const handler = createReviewCommitsHandler(fakeService())
+    await expect(
+      handler({ method: 'GET', url: '/api/reviews/commits?to=feature' }),
+    ).rejects.toThrow(InvalidRevisionError)
   })
 })
 

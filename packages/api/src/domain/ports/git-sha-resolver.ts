@@ -15,4 +15,11 @@ export interface GitShaResolver {
    * annotated tag 等は commit に peel する。解決不能なら例外を投げる。
    */
   resolveCommitSha(rev: Revision): Promise<string>
+
+  /**
+   * `git rev-list <from>..<to>` 相当。to から到達でき from から到達できない
+   * コミット (= その diff で導入されたコミット群) の 40 桁 SHA を返す (ADR 0060 E2)。
+   * to 自身を含む。空なら空配列。
+   */
+  revListRange(from: Revision, to: Revision): Promise<ReadonlyArray<string>>
 }

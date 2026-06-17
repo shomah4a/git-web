@@ -8,7 +8,11 @@
  * - POST 系の Origin/Host/body 上限ガードは http 層 (server.ts, ADR 0059) が担う
  */
 
-import type { ReviewCommentDto, ReviewListResponseDto } from '@git-web/common'
+import type {
+  ReviewCommentDto,
+  ReviewCommitsResponseDto,
+  ReviewListResponseDto,
+} from '@git-web/common'
 import { InvalidReviewCommentError } from '../domain/errors.js'
 import type { ResolvedComment } from '../domain/review.js'
 import { parseRevision } from '../domain/revision.js'
@@ -31,6 +35,22 @@ export function createReviewListHandler(service: ReviewService): Handler {
       sha: result.sha,
       comments: result.comments.map(toReviewCommentDto),
     }
+    return jsonResponse(200, body)
+  }
+}
+
+/**
+ * GET /api/reviews/commits?from=<rev>&to=<rev> のハンドラファクトリ (ADR 0060 E2)。
+ *
+ * from / to は必須。from..to の範囲でコメントを持つ commit SHA 一覧を返す。
+ */
+export function createReviewCommitsHandler(service: ReviewService): Handler {
+  return async (req) => {
+    const url = new URL(req.url, 'http://localhost')
+    const from = parseRevision(url.searchParams.get('from') ?? '')
+    const to = parseRevision(url.searchParams.get('to') ?? '')
+    const shas = await service.listCommitsWithCommentsInRange(from, to)
+    const body: ReviewCommitsResponseDto = { shas }
     return jsonResponse(200, body)
   }
 }

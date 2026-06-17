@@ -31,7 +31,10 @@ export type ReviewStoreFs = {
   readFile(path: string): Promise<string>
   appendFile(path: string, data: string): Promise<void>
   mkdir(path: string): Promise<void>
+  readdir(path: string): Promise<ReadonlyArray<string>>
 }
+
+const SHA40_PATTERN = /^[0-9a-f]{40}$/
 
 function isNotFoundError(err: unknown): boolean {
   if (err === null || typeof err !== 'object' || !('code' in err)) {
@@ -120,6 +123,30 @@ export function createJsonlReviewStore(params: {
 
     async appendResolvedEvent(sha: ReviewSha, event: ResolvedEvent): Promise<void> {
       await appendLine(`${sha.value}.resolved.jsonl`, serializeResolvedEvent(event))
+    },
+
+    async listCommitShasWithComments(): Promise<ReadonlyArray<string>> {
+      let entries: ReadonlyArray<string>
+      try {
+        entries = await fs.readdir(reviewsDir)
+      } catch (err) {
+        if (isNotFoundError(err)) {
+          return []
+        }
+        throw err
+      }
+      // `<sha>.jsonl` (resolved ログ `<sha>.resolved.jsonl` は除く) から 40 桁 SHA を抽出
+      const shas: string[] = []
+      for (const name of entries) {
+        if (!name.endsWith('.jsonl') || name.endsWith('.resolved.jsonl')) {
+          continue
+        }
+        const base = name.slice(0, name.length - '.jsonl'.length)
+        if (SHA40_PATTERN.test(base)) {
+          shas.push(base)
+        }
+      }
+      return shas
     },
   }
 }

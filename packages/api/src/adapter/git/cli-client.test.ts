@@ -565,3 +565,22 @@ describe('CliGitClient.resolveCommitSha', () => {
     await expect(git.resolveCommitSha(parseRevision('deadbeef'))).rejects.toThrow()
   })
 })
+
+describe('CliGitClient.revListRange', () => {
+  it('from..to のコミットSHA列を返す', async () => {
+    const git = new CliGitClient(tempRepo)
+    await writeFile(join(tempRepo, 'a.txt'), 'x')
+    await commit(tempRepo, 'second')
+
+    const head = await git.resolveCommitSha(parseRevision('HEAD'))
+    const shas = await git.revListRange(parseRevision('HEAD~1'), parseRevision('HEAD'))
+
+    expect(shas).toEqual([head])
+  })
+
+  it('範囲が空なら空配列を返す', async () => {
+    const git = new CliGitClient(tempRepo)
+    const shas = await git.revListRange(parseRevision('HEAD'), parseRevision('HEAD'))
+    expect(shas).toEqual([])
+  })
+})

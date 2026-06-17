@@ -13,14 +13,25 @@ import { createReviewService } from './review-service.js'
 const SHA = 'd'.repeat(40)
 const FIXED_NOW = new Date('2026-06-17T12:00:00.000Z')
 
-function fakeResolver(resolved: string): GitShaResolver {
-  return { resolveCommitSha: () => Promise.resolve(resolved) }
+function fakeResolver(params: {
+  resolved?: string
+  resolveError?: boolean
+  rangeShas?: ReadonlyArray<string>
+}): GitShaResolver {
+  return {
+    resolveCommitSha: () =>
+      params.resolveError === true
+        ? Promise.reject(new Error('unknown revision'))
+        : Promise.resolve(params.resolved ?? SHA),
+    revListRange: () => Promise.resolve(params.rangeShas ?? []),
+  }
 }
 
 /** 呼び出しを記録できる手書き fake store (mock ライブラリ不使用)。 */
 function recordingStore(params: {
   comments?: ReadonlyArray<ReviewComment>
   events?: ReadonlyArray<ResolvedEvent>
+  shasWithComments?: ReadonlyArray<string>
 }): {
   store: ReviewStore
   appendedComments: ReviewComment[]
@@ -44,21 +55,17 @@ function recordingStore(params: {
       appendedEvents.push({ sha, event })
       return Promise.resolve()
     },
+    listCommitShasWithComments: () => Promise.resolve(params.shasWithComments ?? []),
   }
   return { store, appendedComments, appendedEvents, listedShas }
 }
 
 function makeService(
   store: ReviewStore,
-  resolverSha = SHA,
+  resolver: GitShaResolver = fakeResolver({}),
   newId: () => string = () => 'fixed-id',
 ) {
-  return createReviewService({
-    store,
-    shaResolver: fakeResolver(resolverSha),
-    now: () => FIXED_NOW,
-    newId,
-  })
+  return createReviewService({ store, shaResolver: resolver, now: () => FIXED_NOW, newId })
 }
 
 function comment(id: string): ReviewComment {
@@ -91,7 +98,9 @@ describe('createReviewService.listForRevision', () => {
   it('解決後の SHA が 40 桁でなければ例外を投げる', async () => {
     const { store } = recordingStore({})
     await expect(
-      makeService(store, 'not-a-sha').listForRevision(parseRevision('HEAD')),
+      makeService(store, fakeResolver({ resolved: 'not-a-sha' })).listForRevision(
+        parseRevision('HEAD'),
+      ),
     ).rejects.toThrow()
   })
 
@@ -105,7 +114,7 @@ describe('createReviewService.listForRevision', () => {
 describe('createReviewService.addComment', () => {
   it('注入された newId / now でコメントを構築し store に追記する', async () => {
     const { store, appendedComments } = recordingStore({})
-    const created = await makeService(store, SHA, () => 'generated-id').addComment({
+    const created = await makeService(store, fakeResolver({}), () => 'generated-id').addComment({
       sha: SHA,
       path: 'src/foo.ts',
       newLineStart: 3,
@@ -131,11 +140,25 @@ describe('createReviewService.addComment', () => {
       }),
     ).rejects.toThrow()
   })
+
+  it('実在しない commit SHA は拒否し store に追記しない (M2)', async () => {
+    const { store, appendedComments } = recordingStore({})
+    await expect(
+      makeService(store, fakeResolver({ resolveError: true })).addComment({
+        sha: SHA,
+        path: 'src/foo.ts',
+        newLineStart: 1,
+        newLineEnd: 1,
+        body: 'comment',
+      }),
+    ).rejects.toThrow()
+    expect(appendedComments).toHaveLength(0)
+  })
 })
 
 describe('createReviewService.setResolved', () => {
-  it('resolved イベントを now の ts で追記する', async () => {
-    const { store, appendedEvents } = recordingStore({})
+  it('対象 id が存在すれば resolved イベントを now の ts で追記する', async () => {
+    const { store, appendedEvents } = recordingStore({ comments: [comment('c1')] })
     await makeService(store).setResolved({ sha: SHA, id: 'c1', resolved: true })
     expect(appendedEvents).toHaveLength(1)
     expect(appendedEvents[0]?.event).toEqual({
@@ -147,9 +170,35 @@ describe('createReviewService.setResolved', () => {
   })
 
   it('空の id は例外を投げる', async () => {
-    const { store } = recordingStore({})
+    const { store } = recordingStore({ comments: [comment('c1')] })
     await expect(
       makeService(store).setResolved({ sha: SHA, id: '', resolved: true }),
     ).rejects.toThrow()
+  })
+
+  it('存在しない id は拒否し追記しない (M3)', async () => {
+    const { store, appendedEvents } = recordingStore({ comments: [comment('c1')] })
+    await expect(
+      makeService(store).setResolved({ sha: SHA, id: 'nope', resolved: true }),
+    ).rejects.toThrow()
+    expect(appendedEvents).toHaveLength(0)
+  })
+})
+
+describe('createReviewService.listCommitsWithCommentsInRange', () => {
+  it('範囲内かつコメントを持つ SHA のみ返す (to を含む)', async () => {
+    const otherInRange = 'a'.repeat(40)
+    const outOfRange = 'b'.repeat(40)
+    const { store } = recordingStore({ shasWithComments: [otherInRange, outOfRange, SHA] })
+    // resolveCommitSha→SHA (to), revListRange→[otherInRange]
+    const service = makeService(store, fakeResolver({ resolved: SHA, rangeShas: [otherInRange] }))
+
+    const result = await service.listCommitsWithCommentsInRange(
+      parseRevision('HEAD'),
+      parseRevision('feature'),
+    )
+
+    expect([...result].sort()).toEqual([otherInRange, SHA].sort())
+    expect(result).not.toContain(outOfRange)
   })
 })

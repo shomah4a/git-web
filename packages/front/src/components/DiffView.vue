@@ -30,7 +30,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { fetchBlob } from '../api/blob.js'
 import { type DiffRangeQuery, fetchDiffFile, fetchDiffFiles } from '../api/diff.js'
 import { fetchRefs } from '../api/refs.js'
-import { fetchReviews, postResolve, postReview } from '../api/reviews.js'
+import { fetchReviewCommits, fetchReviews, postResolve, postReview } from '../api/reviews.js'
+import { translateRange } from '../diff/translate-line.js'
 import CommentThread from './CommentThread.vue'
 import {
   type DiffRangeUrlState,
@@ -124,11 +125,23 @@ const expandState = ref<Map<string, Map<number, GapExpansion>>>(new Map())
  * - 取得は runDiffLoad の generation に組み込み、rev 切替時の race を防ぐ (ADR 0060)
  */
 const reviewSha = ref<string | null>(null)
-const commentsByPath = ref<Map<string, ReviewCommentDto[]>>(new Map())
+/**
+ * 表示用コメント。DTO に「現在の to へ翻訳した表示行 (displayStart/End)」と
+ * outdated フラグを付与する (ADR 0060 E2)。to に紐づくコメントは翻訳不要で
+ * displayStart === newLineStart。別コミット由来は translateRange で翻訳する。
+ */
+type DisplayComment = ReviewCommentDto & {
+  readonly displayStart: number
+  readonly displayEnd: number
+  readonly outdated: boolean
+}
+const commentsByPath = ref<Map<string, DisplayComment[]>>(new Map())
 const selection = ref<{ path: string; start: number; end: number } | null>(null)
 const draftBody = ref('')
 const posting = ref(false)
 const commentError = ref<string | null>(null)
+// resolve トグル等、フォーム外のレビュー操作失敗を出す banner (M4)
+const reviewError = ref<string | null>(null)
 
 /**
  * unmount 済みフラグ (ADR 0019 LOW-2)。
@@ -461,31 +474,77 @@ function applyTokenMap(newTokens: Map<string, FileTokens>): void {
 
 // --- レビューコメント (ADR 0057 / 0060) ---
 
+function pushDisplay(map: Map<string, DisplayComment[]>, comment: DisplayComment): void {
+  const arr = map.get(comment.path) ?? []
+  arr.push(comment)
+  map.set(comment.path, arr)
+}
+
 /**
- * 現在の `to` に紐づくコメントを取得し path でグループ化する。
- * worktree (作成不可) のときはクリアする。失敗しても diff 表示は妨げない。
- * myGen で後発優先を担保する。
+ * コメントを取得して表示用に組み立てる (ADR 0060 E2)。
+ *
+ * 1. 現在の to コミットのコメント (翻訳不要、displayStart === newLineStart)
+ * 2. from..to の他コミット由来コメントを取得し、`translateRange` で現在の to 行へ
+ *    翻訳する。削除されていれば outdated。
+ *
+ * worktree (作成不可) のときはクリア。失敗しても diff 表示は妨げない。
+ * myGen で後発優先を担保し、rev 切替時の混入を防ぐ。
  */
 async function loadReviews(myGen: number): Promise<void> {
+  reviewError.value = null
   if (toRev.value === WORKTREE_SENTINEL) {
     reviewSha.value = null
     commentsByPath.value = new Map()
     return
   }
+  const to = toRev.value
   try {
-    const res = await fetchReviews(toRev.value)
+    const res = await fetchReviews(to)
     if (myGen !== generation) return
-    reviewSha.value = res.sha
-    const map = new Map<string, ReviewCommentDto[]>()
+    const toSha = res.sha
+    const map = new Map<string, DisplayComment[]>()
     for (const comment of res.comments) {
-      const arr = map.get(comment.path) ?? []
-      arr.push(comment)
-      map.set(comment.path, arr)
+      pushDisplay(map, {
+        ...comment,
+        displayStart: comment.newLineStart,
+        displayEnd: comment.newLineEnd,
+        outdated: false,
+      })
     }
+    reviewSha.value = toSha
+
+    const shas = await fetchReviewCommits(fromRev.value, to)
+    if (myGen !== generation) return
+    for (const sha of shas) {
+      if (sha === toSha) continue
+      const other = await fetchReviews(sha)
+      if (myGen !== generation) return
+      const byPath = new Map<string, ReviewCommentDto[]>()
+      for (const comment of other.comments) {
+        const arr = byPath.get(comment.path) ?? []
+        arr.push(comment)
+        byPath.set(comment.path, arr)
+      }
+      for (const [path, comments] of byPath) {
+        const file = await fetchDiffFile(path, { from: sha, to: toSha })
+        if (myGen !== generation) return
+        const hunks = file?.hunks ?? []
+        for (const comment of comments) {
+          const translated = translateRange(comment.newLineStart, comment.newLineEnd, hunks)
+          pushDisplay(map, {
+            ...comment,
+            displayStart: translated.kind === 'mapped' ? translated.start : comment.newLineStart,
+            displayEnd: translated.kind === 'mapped' ? translated.end : comment.newLineEnd,
+            outdated: translated.kind === 'outdated',
+          })
+        }
+      }
+    }
+    if (myGen !== generation) return
     commentsByPath.value = map
   } catch (err) {
     if (myGen !== generation) return
-    console.warn('[DiffView] fetchReviews failed', err)
+    console.warn('[DiffView] loadReviews failed', err)
     reviewSha.value = null
     commentsByPath.value = new Map()
   }
@@ -526,28 +585,55 @@ function cancelSelection(): void {
   commentError.value = null
 }
 
-type CommentThreadGroup = { readonly lineStart: number; readonly comments: ReviewCommentDto[] }
+type CommentThreadGroup = { readonly lineStart: number; readonly comments: DisplayComment[] }
+
+function hunkNewRange(hunk: DiffHunkDto): { from: number; to: number } {
+  return { from: hunk.newStart, to: hunk.newStart + hunk.newLines - 1 }
+}
 
 /**
- * 指定 hunk の new 行範囲に起点を持つコメントを起点行ごとにまとめて返す。
- * コメントは現在の to に紐づくため new 行番号がそのまま現在の diff に対応する。
+ * 指定 hunk の new 行範囲に表示行 (翻訳後) を持つ非 outdated コメントを
+ * 起点行ごとにまとめて返す (ADR 0060)。
  */
 function commentThreadsForHunk(path: string, hunk: DiffHunkDto): ReadonlyArray<CommentThreadGroup> {
   const all = commentsByPath.value.get(path)
   if (all === undefined) return []
-  const newStart = hunk.newStart
-  const newEnd = hunk.newStart + hunk.newLines - 1
-  const groups = new Map<number, ReviewCommentDto[]>()
+  const range = hunkNewRange(hunk)
+  const groups = new Map<number, DisplayComment[]>()
   for (const comment of all) {
-    if (comment.newLineStart >= newStart && comment.newLineStart <= newEnd) {
-      const arr = groups.get(comment.newLineStart) ?? []
+    if (
+      !comment.outdated &&
+      comment.displayStart >= range.from &&
+      comment.displayStart <= range.to
+    ) {
+      const arr = groups.get(comment.displayStart) ?? []
       arr.push(comment)
-      groups.set(comment.newLineStart, arr)
+      groups.set(comment.displayStart, arr)
     }
   }
   return Array.from(groups.entries())
     .sort((a, b) => a[0] - b[0])
     .map(([lineStart, comments]) => ({ lineStart, comments }))
+}
+
+/**
+ * どの hunk にも収まらない (= 翻訳後行が表示中の diff の外) コメント、または
+ * outdated コメントを返す。ファイル末尾の退避セクションに表示する (ADR 0060 E2 の
+ * Tier2 代替: hunk 外コメントを失わせない)。
+ */
+function offHunkComments(
+  path: string,
+  hunks: ReadonlyArray<DiffHunkDto>,
+): ReadonlyArray<DisplayComment> {
+  const all = commentsByPath.value.get(path)
+  if (all === undefined) return []
+  return all.filter((comment) => {
+    if (comment.outdated) return true
+    return !hunks.some((hunk) => {
+      const range = hunkNewRange(hunk)
+      return comment.displayStart >= range.from && comment.displayStart <= range.to
+    })
+  })
 }
 
 /** 選択範囲の起点がこの hunk にあるか (投稿フォームをこの hunk 直後に出すため)。 */
@@ -563,6 +649,9 @@ async function submitComment(path: string): Promise<void> {
   const sel = selection.value
   if (sel === null || reviewSha.value === null || posting.value) return
   if (draftBody.value.trim() === '') return
+  // M1: 投稿後の再取得をローカル世代で行う。投稿中に rev 切替が割り込んだら
+  // 再取得は破棄され、新 rev 側の loadReviews が結果を確定する。
+  const myGen = generation
   posting.value = true
   commentError.value = null
   try {
@@ -575,7 +664,7 @@ async function submitComment(path: string): Promise<void> {
     })
     draftBody.value = ''
     selection.value = null
-    await loadReviews(generation)
+    await loadReviews(myGen)
   } catch (err) {
     commentError.value = err instanceof Error ? err.message : 'unknown error'
   } finally {
@@ -585,11 +674,16 @@ async function submitComment(path: string): Promise<void> {
 
 async function onToggleResolve(payload: { id: string; resolved: boolean }): Promise<void> {
   if (reviewSha.value === null) return
+  const myGen = generation
+  reviewError.value = null
   try {
     await postResolve({ sha: reviewSha.value, id: payload.id, resolved: payload.resolved })
-    await loadReviews(generation)
+    await loadReviews(myGen)
   } catch (err) {
-    console.warn('[DiffView] postResolve failed', err)
+    // M4: resolve 失敗を UI に出す (従来は warn のみで気づけなかった)
+    reviewError.value = `コメントの解決状態の更新に失敗しました: ${
+      err instanceof Error ? err.message : 'unknown error'
+    }`
   }
 }
 
@@ -1068,6 +1162,7 @@ function hasExpandedRowsUp(path: string, gapIdx: number): boolean {
       </ul>
     </aside>
     <section class="file-detail">
+      <p v-if="reviewError !== null" class="review-error">{{ reviewError }}</p>
       <p v-if="loadingList">loading...</p>
       <p v-else-if="listError !== null" class="error">error: {{ listError }}</p>
       <p v-else-if="entries.length === 0">no changes</p>
@@ -1467,6 +1562,34 @@ function hasExpandedRowsUp(path: string, gapIdx: number): boolean {
                   末尾ギャップは hunk ループ内の最終 hunk の ↓ ボタン +
                   down 展開済み行で処理される (gap[hunks.length])
                 -->
+
+                <!--
+                  hunk 外 / outdated コメントの退避表示 (ADR 0060 E2)。
+                  翻訳後行が表示中 diff の hunk 外に来たコメントや、to で削除された
+                  outdated コメントを失わせないため、ファイル末尾にまとめて出す。
+                -->
+                <div
+                  v-if="
+                    offHunkComments(entry.summary.path, successFile(entry.state)?.hunks ?? [])
+                      .length > 0
+                  "
+                  class="offhunk-comments"
+                >
+                  <div class="offhunk-head">表示中の diff 外のコメント</div>
+                  <div
+                    v-for="c in offHunkComments(
+                      entry.summary.path,
+                      successFile(entry.state)?.hunks ?? [],
+                    )"
+                    :key="c.id"
+                    class="offhunk-item"
+                  >
+                    <span class="offhunk-line"
+                      >L{{ c.displayStart }}<span v-if="c.outdated"> (outdated)</span></span
+                    >
+                    <CommentThread :comments="[c]" @toggle-resolve="onToggleResolve" />
+                  </div>
+                </div>
               </template>
             </div>
             <div v-else class="tab-content code-view">
@@ -1879,5 +2002,38 @@ function hasExpandedRowsUp(path: string, gapIdx: number): boolean {
 .comment-submit:hover:not(:disabled),
 .comment-cancel:hover {
   background: var(--color-surface-hover);
+}
+.review-error {
+  color: var(--color-error);
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--color-error);
+  border-radius: 4px;
+  margin-bottom: 0.5rem;
+  font-size: 0.85em;
+}
+.offhunk-comments {
+  border-top: 1px solid var(--color-border-subtle);
+  padding: 0.4rem 0;
+}
+.offhunk-head {
+  font-size: 0.8em;
+  color: var(--color-fg-muted);
+  padding: 0 0.5rem 0.25rem;
+}
+.offhunk-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+}
+.offhunk-line {
+  font-family: var(--font-mono);
+  font-size: 0.8em;
+  color: var(--color-fg-subtle);
+  padding: 0.5rem 0 0 0.5rem;
+  white-space: nowrap;
+}
+.offhunk-item .comment-thread {
+  flex: 1;
+  min-width: 0;
 }
 </style>

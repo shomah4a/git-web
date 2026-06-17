@@ -7,7 +7,7 @@
 
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { appendFile, mkdir, readFile, realpath, stat } from 'node:fs/promises'
+import { appendFile, mkdir, readdir, readFile, realpath, stat } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
@@ -27,6 +27,7 @@ import { mapDomainErrorToHttpResponse } from './controller/error-mapper.js'
 import { createRefsHandler } from './controller/refs-controller.js'
 import { createRepoHandler } from './controller/repo-controller.js'
 import {
+  createReviewCommitsHandler,
   createReviewCreateHandler,
   createReviewListHandler,
   createReviewResolveHandler,
@@ -196,6 +197,7 @@ export async function start(options: StartOptions = {}): Promise<StartedServer> 
       readFile: (p) => readFile(p, 'utf-8'),
       appendFile: (p, data) => appendFile(p, data),
       mkdir: (p) => mkdir(p, { recursive: true }).then(() => undefined),
+      readdir: (p) => readdir(p),
     },
   })
   const reviewService = createReviewService({
@@ -273,6 +275,11 @@ export async function start(options: StartOptions = {}): Promise<StartedServer> 
       handler: createWorktreesListHandler(worktreesListService),
     },
     { method: 'GET', path: '/api/reviews', handler: createReviewListHandler(reviewService) },
+    {
+      method: 'GET',
+      path: '/api/reviews/commits',
+      handler: createReviewCommitsHandler(reviewService),
+    },
     { method: 'POST', path: '/api/reviews', handler: createReviewCreateHandler(reviewService) },
     {
       method: 'POST',

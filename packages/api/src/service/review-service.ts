@@ -17,7 +17,7 @@ import {
   mergeResolved,
   parseReviewSha,
 } from '../domain/review.js'
-import type { Revision } from '../domain/revision.js'
+import { parseRevision, type Revision } from '../domain/revision.js'
 
 export type ReviewListResult = {
   /** 解決済みの 40 桁 commit SHA (アンカーのキー) */
@@ -58,6 +58,12 @@ export type ReviewService = {
    * resolved 状態を切り替える (append-only イベントとして記録)。
    */
   setResolved(input: SetResolvedInput): Promise<void>
+  /**
+   * from..to の範囲に含まれ、かつコメントを持つ commit SHA 一覧を返す (ADR 0060 E2)。
+   * to 自身を含む。front はこの各 SHA のコメントを取得し translateNewLine で
+   * 現在の to 行へ翻訳する。
+   */
+  listCommitsWithCommentsInRange(from: Revision, to: Revision): Promise<ReadonlyArray<string>>
 }
 
 export function createReviewService(deps: {
@@ -91,6 +97,9 @@ export function createReviewService(deps: {
         body: input.body,
         createdAt: now().toISOString(),
       })
+      // M2: アンカー SHA がリポジトリに実在する commit か検証する。
+      // 存在しない / commit でない場合は孤立ファイル生成を防ぐため 400 に倒す。
+      await assertCommitExists(input.sha)
       await store.appendComment(comment)
       return { ...comment, resolved: false }
     },
@@ -100,11 +109,33 @@ export function createReviewService(deps: {
       if (input.id === '') {
         throw new InvalidReviewCommentError('id', 'id must not be empty')
       }
+      // M3: 対象 comment id が当該コミットに実在するか検証する。
+      const comments = await store.listComments(sha)
+      if (!comments.some((comment) => comment.id === input.id)) {
+        throw new InvalidReviewCommentError('id', `comment not found: ${input.id}`)
+      }
       await store.appendResolvedEvent(sha, {
         id: input.id,
         resolved: input.resolved,
         ts: now().toISOString(),
       })
     },
+
+    async listCommitsWithCommentsInRange(from, to) {
+      const toSha = await shaResolver.resolveCommitSha(to)
+      const rangeShas = new Set(await shaResolver.revListRange(from, to))
+      rangeShas.add(toSha)
+      const withComments = await store.listCommitShasWithComments()
+      return withComments.filter((sha) => rangeShas.has(sha))
+    },
+  }
+
+  /** M2: sha が実在 commit に解決できなければ InvalidReviewCommentError。 */
+  async function assertCommitExists(sha: string): Promise<void> {
+    try {
+      await shaResolver.resolveCommitSha(parseRevision(sha))
+    } catch {
+      throw new InvalidReviewCommentError('sha', `commit not found: ${sha}`)
+    }
   }
 }
