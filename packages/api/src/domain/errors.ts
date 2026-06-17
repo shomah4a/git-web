@@ -134,6 +134,28 @@ export class InvalidDiffPathError extends DomainError {
 }
 
 /**
+ * レビューコメント (ADR 0057) の入力検証失敗を表す例外。
+ *
+ * - sha: アンカーのコミット SHA が 40 桁 hex でない
+ * - range: new 側行範囲が不正 (整数でない / start < 1 / end < start)
+ * - body: コメント本文が空
+ * - id: id が空
+ *
+ * controller の error-mapper で 400 にマップされる。
+ * path の不正は parseDiffPath の InvalidDiffPathError をそのまま用いる。
+ */
+export type InvalidReviewCommentReason = 'sha' | 'range' | 'body' | 'id'
+
+export class InvalidReviewCommentError extends DomainError {
+  readonly reason: InvalidReviewCommentReason
+
+  constructor(reason: InvalidReviewCommentReason, detail: string) {
+    super(`invalid review comment (${reason}): ${detail}`)
+    this.reason = reason
+  }
+}
+
+/**
  * `wt` クエリ値の形式が不正 (ADR 0055 §7-1)。
  *
  * 許容されない文字 (/ \ \0 ..) や制御文字、長さ超過などの一次フィルタ違反。
