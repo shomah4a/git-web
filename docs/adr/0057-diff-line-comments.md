@@ -51,11 +51,11 @@ ADR 0060 で扱う。
 
 汎用ランナーは作らず、用途ごとに固有のエンドポイントを置く。
 
-| メソッド | パス | 用途 |
-| --- | --- | --- |
-| GET | `/api/reviews?sha=<40桁>` | 指定コミットのコメント一覧 |
-| POST | `/api/reviews` | コメント作成 |
-| POST | `/api/reviews/resolve` | resolved 切替 |
+| メソッド | パス                      | 用途                       |
+| -------- | ------------------------- | -------------------------- |
+| GET      | `/api/reviews?sha=<40桁>` | 指定コミットのコメント一覧 |
+| POST     | `/api/reviews`            | コメント作成               |
+| POST     | `/api/reviews/resolve`    | resolved 切替              |
 
 - ルーティングは既存の method+path の exact match (動的パスパラメータなし) を踏襲するため、
   対象 id 等は query / body で受け渡す
