@@ -72,6 +72,9 @@ function translateInsideHunk(oldLine: number, hunk: DiffHunkDto): TranslateResul
 /**
  * 行範囲 (start..end) を翻訳する。start が outdated なら範囲全体を outdated と扱う。
  * mapped の場合は翻訳後の start/end を返す (end は個別翻訳、outdated なら start に丸める)。
+ *
+ * 不変条件: translateNewLine は入力行に対し単調非減少なので、start <= end の入力に
+ * 対し翻訳後も start <= end が保たれる (この性質に依存して end < start を防いでいる)。
  */
 export function translateRange(
   start: number,

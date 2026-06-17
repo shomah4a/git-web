@@ -10,18 +10,28 @@
 
 import type { ReviewCommentDto } from '@git-web/common'
 
+/**
+ * 表示行 (displayStart/displayEnd) を任意で持てるコメント。別コミット由来で
+ * 翻訳されたコメントは「現在の to に翻訳後の行」を持つため、ラベルは翻訳後を
+ * 優先して表示する (再評価 MEDIUM 対応)。未指定なら newLineStart/End に落とす。
+ */
+type ThreadComment = ReviewCommentDto & {
+  readonly displayStart?: number
+  readonly displayEnd?: number
+}
+
 const props = defineProps<{
-  readonly comments: ReadonlyArray<ReviewCommentDto>
+  readonly comments: ReadonlyArray<ThreadComment>
 }>()
 
 const emit = defineEmits<{
   (e: 'toggle-resolve', payload: { id: string; resolved: boolean }): void
 }>()
 
-function rangeLabel(comment: ReviewCommentDto): string {
-  return comment.newLineStart === comment.newLineEnd
-    ? `L${comment.newLineStart.toString()}`
-    : `L${comment.newLineStart.toString()}-${comment.newLineEnd.toString()}`
+function rangeLabel(comment: ThreadComment): string {
+  const start = comment.displayStart ?? comment.newLineStart
+  const end = comment.displayEnd ?? comment.newLineEnd
+  return start === end ? `L${start.toString()}` : `L${start.toString()}-${end.toString()}`
 }
 
 function formatDate(iso: string): string {
