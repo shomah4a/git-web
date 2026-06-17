@@ -586,13 +586,24 @@ function cancelSelection(): void {
 }
 
 /**
- * 既存コメントの「この行にコメントを追加」導線。対象行を選択状態にして
- * その行直下に投稿フォームを開く (同じ行への追記。スレッド返信ではない)。
+ * スレッドに常時表示している追加フォームからの投稿 (同じ行への追記)。
+ * 単一行アンカー。範囲コメントは行番号クリックの選択フォーム経由で行う。
  */
-function onAddComment(path: string, line: number): void {
-  if (!canComment()) return
-  selection.value = { path, start: line, end: line }
-  commentError.value = null
+async function onSubmitThreadComment(path: string, line: number, body: string): Promise<void> {
+  if (reviewSha.value === null || posting.value || body.trim() === '') return
+  const myGen = generation
+  posting.value = true
+  reviewError.value = null
+  try {
+    await postReview({ sha: reviewSha.value, path, newLineStart: line, newLineEnd: line, body })
+    await loadReviews(myGen)
+  } catch (err) {
+    reviewError.value = `コメントの投稿に失敗しました: ${
+      err instanceof Error ? err.message : 'unknown error'
+    }`
+  } finally {
+    posting.value = false
+  }
 }
 
 type CommentThreadGroup = { readonly lineStart: number; readonly comments: DisplayComment[] }
@@ -674,7 +685,9 @@ function hunkSegments(path: string, hunk: DiffHunkDto): ReadonlyArray<HunkSegmen
     current.push(row)
     const newNo = row.right?.newLineNo ?? null
     const comments = newNo !== null ? (threadsByLine.get(newNo) ?? []) : []
-    const isDraft = newNo !== null && newNo === draftLine
+    // コメントのある行はスレッド常時フォームが追加導線を兼ねるため、選択フォーム
+    // (draft) は出さない (二重フォーム防止)。範囲選択フォームは未コメント行のみ。
+    const isDraft = newNo !== null && newNo === draftLine && comments.length === 0
     if (comments.length > 0 || isDraft) {
       segments.push({ rows: current, comments, isDraft })
       current = []
@@ -1486,9 +1499,16 @@ function hasExpandedRowsUp(path: string, gapIdx: number): boolean {
                         <CommentThread
                           v-if="seg.comments.length > 0"
                           :comments="seg.comments"
-                          :add-line="seg.comments[0]?.displayStart ?? null"
+                          :posting="posting"
                           @toggle-resolve="onToggleResolve"
-                          @add-comment="(line) => onAddComment(entry.summary.path, line)"
+                          @submit-comment="
+                            (body) =>
+                              onSubmitThreadComment(
+                                entry.summary.path,
+                                seg.comments[0]?.displayStart ?? 0,
+                                body,
+                              )
+                          "
                         />
                         <div v-if="seg.isDraft" class="comment-form">
                           <div class="comment-form-head">
@@ -1649,7 +1669,11 @@ function hasExpandedRowsUp(path: string, gapIdx: number): boolean {
                     <span class="offhunk-line"
                       >L{{ c.displayStart }}<span v-if="c.outdated"> (outdated)</span></span
                     >
-                    <CommentThread :comments="[c]" @toggle-resolve="onToggleResolve" />
+                    <CommentThread
+                      :comments="[c]"
+                      :show-form="false"
+                      @toggle-resolve="onToggleResolve"
+                    />
                   </div>
                 </div>
               </template>

@@ -1184,16 +1184,20 @@ describe('DiffView', () => {
     window.history.replaceState({}, '', '/')
   })
 
-  it('既存コメントの「この行にコメントを追加」で投稿フォームが開く (ADR 0057)', async () => {
-    mockWithReviews(REVIEW_LIST)
+  it('既存コメントのスレッドに常時表示の追加フォームから投稿できる (ADR 0057)', async () => {
+    const tracker = mockWithReviews(REVIEW_LIST)
     const wrapper = await mountWithTo(REVIEW_SHA)
 
-    expect(wrapper.find('.comment-form').exists()).toBe(false)
-    const addBtn = wrapper.find('.comment-add-btn')
-    expect(addBtn.exists()).toBe(true)
-    await addBtn.trigger('click')
+    const thread = wrapper.find('.comment-thread')
+    expect(thread.exists()).toBe(true)
+    const textarea = thread.find('.comment-add-input')
+    expect(textarea.exists()).toBe(true)
 
-    expect(wrapper.find('.comment-form').exists()).toBe(true)
+    await textarea.setValue('追記コメント')
+    await thread.find('.comment-add-submit').trigger('click')
+    await flushPromises()
+
+    expect(tracker.posts.some((p) => p.body.includes('追記コメント'))).toBe(true)
     wrapper.unmount()
     window.history.replaceState({}, '', '/')
   })

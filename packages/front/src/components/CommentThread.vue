@@ -5,40 +5,51 @@
  * - フラット (返信なし)。同一アンカー (new 行範囲) のコメントを縦に並べる
  * - resolved バッジと resolve トグルを持つ。resolve 操作は親へ emit する
  *   (UI からのみ操作、外部 agent は読むだけ)
- * - 行範囲は props のコメントから決まる (先頭コメントの new 行範囲)
+ * - スレッド下部に「同じ行へのコメント追加」フォームを常時表示する。投稿は親へ
+ *   emit し、親が postReview して再取得する。投稿成功でコメント件数が変わるのを
+ *   検知して下書きをクリアする (失敗時は下書きを保持)
  */
 
+import { ref, watch } from 'vue'
 import type { ReviewCommentDto } from '@git-web/common'
 
 /**
  * 表示行 (displayStart/displayEnd) を任意で持てるコメント。別コミット由来で
  * 翻訳されたコメントは「現在の to に翻訳後の行」を持つため、ラベルは翻訳後を
- * 優先して表示する (再評価 MEDIUM 対応)。未指定なら newLineStart/End に落とす。
+ * 優先して表示する。未指定なら newLineStart/End に落とす。
  */
 type ThreadComment = ReviewCommentDto & {
   readonly displayStart?: number
   readonly displayEnd?: number
 }
 
-const props = defineProps<{
-  readonly comments: ReadonlyArray<ThreadComment>
-  /**
-   * この行にコメントを追加する導線を出す対象行 (new 側行番号)。
-   * null/未指定なら追加ボタンを出さない (退避セクション等、行が表示されていない場合)。
-   */
-  readonly addLine?: number | null
-}>()
+// boolean prop は型ベース宣言だと未指定時 Vue が false に既定化するため、
+// 表示既定 true の showForm は withDefaults で明示的に既定値を与える。
+const props = withDefaults(
+  defineProps<{
+    readonly comments: ReadonlyArray<ThreadComment>
+    /** 投稿中フラグ (親が保持)。true の間は投稿ボタンを無効化する。 */
+    readonly posting?: boolean
+    /** 追加フォームを出すか。行が画面外の退避表示などでは false にする。 */
+    readonly showForm?: boolean
+  }>(),
+  { posting: false, showForm: true },
+)
 
 const emit = defineEmits<{
   (e: 'toggle-resolve', payload: { id: string; resolved: boolean }): void
-  (e: 'add-comment', line: number): void
+  (e: 'submit-comment', body: string): void
 }>()
 
-function onAddComment(): void {
-  if (props.addLine != null) {
-    emit('add-comment', props.addLine)
-  }
-}
+const draft = ref('')
+
+// 投稿成功で comments 件数が増えたら下書きをクリアする (失敗時は保持)。
+watch(
+  () => props.comments.length,
+  () => {
+    draft.value = ''
+  },
+)
 
 function rangeLabel(comment: ThreadComment): string {
   const start = comment.displayStart ?? comment.newLineStart
@@ -53,6 +64,13 @@ function formatDate(iso: string): string {
 
 function onToggle(comment: ReviewCommentDto): void {
   emit('toggle-resolve', { id: comment.id, resolved: !comment.resolved })
+}
+
+function onSubmit(): void {
+  if (draft.value.trim() === '') {
+    return
+  }
+  emit('submit-comment', draft.value)
 }
 </script>
 
@@ -74,10 +92,23 @@ function onToggle(comment: ReviewCommentDto): void {
       </div>
       <div class="comment-body">{{ comment.body }}</div>
     </div>
-    <div v-if="props.addLine != null" class="comment-add-bar">
-      <button type="button" class="comment-add-btn" @click="onAddComment">
-        この行にコメントを追加
-      </button>
+    <div v-if="props.showForm" class="comment-add-form">
+      <textarea
+        v-model="draft"
+        class="comment-add-input"
+        rows="2"
+        placeholder="この行にコメントを追加"
+      ></textarea>
+      <div class="comment-add-actions">
+        <button
+          type="button"
+          class="comment-add-submit"
+          :disabled="props.posting === true || draft.trim() === ''"
+          @click="onSubmit"
+        >
+          投稿
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -93,9 +124,6 @@ function onToggle(comment: ReviewCommentDto): void {
   padding: 0.4rem 0.6rem;
   border-bottom: 1px solid var(--color-border-subtle);
   font-size: 0.85em;
-}
-.comment:last-child {
-  border-bottom: none;
 }
 .comment.resolved {
   opacity: 0.65;
@@ -142,22 +170,41 @@ function onToggle(comment: ReviewCommentDto): void {
   word-break: break-word;
   color: var(--color-fg);
 }
-.comment-add-bar {
-  padding: 0.3rem 0.6rem;
-  border-top: 1px solid var(--color-border-subtle);
+.comment-add-form {
+  padding: 0.4rem 0.6rem;
 }
-.comment-add-btn {
-  background: none;
-  border: 1px dashed var(--color-border);
+.comment-add-input {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--color-input-bg);
+  color: var(--color-fg);
+  border: 1px solid var(--color-fg-disabled);
+  border-radius: 3px;
+  padding: 0.35rem;
+  resize: vertical;
+}
+.comment-add-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.3rem;
+}
+.comment-add-submit {
+  padding: 0.2rem 0.7rem;
+  border: 1px solid var(--color-fg-disabled);
+  background: var(--color-input-bg);
+  color: var(--color-fg);
   border-radius: 3px;
   cursor: pointer;
-  padding: 0.15rem 0.5rem;
+  font-family: var(--font-mono);
   font-size: 0.8em;
-  color: var(--color-fg-subtle);
-  font-family: inherit;
 }
-.comment-add-btn:hover {
+.comment-add-submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.comment-add-submit:hover:not(:disabled) {
   background: var(--color-surface-hover);
-  color: var(--color-fg);
 }
 </style>

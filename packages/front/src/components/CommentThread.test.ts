@@ -35,19 +35,23 @@ describe('CommentThread', () => {
     expect(wrapper.find('.comment-range').text()).toBe('L3-7')
   })
 
-  it('addLine があれば追加ボタンを表示しクリックで add-comment を emit する', async () => {
-    const wrapper = mount(CommentThread, {
-      props: { comments: [comment()], addLine: 4 },
-    })
-    const btn = wrapper.find('.comment-add-btn')
-    expect(btn.exists()).toBe(true)
-    await btn.trigger('click')
-    expect(wrapper.emitted('add-comment')?.[0]?.[0]).toBe(4)
+  it('追加フォームを常時表示し、入力して投稿すると submit-comment を emit する', async () => {
+    const wrapper = mount(CommentThread, { props: { comments: [comment()] } })
+    const textarea = wrapper.find('.comment-add-input')
+    expect(textarea.exists()).toBe(true)
+    await textarea.setValue('new comment')
+    await wrapper.find('.comment-add-submit').trigger('click')
+    expect(wrapper.emitted('submit-comment')?.[0]?.[0]).toBe('new comment')
   })
 
-  it('addLine が無ければ追加ボタンを表示しない', () => {
+  it('空の下書きでは投稿ボタンが無効', () => {
     const wrapper = mount(CommentThread, { props: { comments: [comment()] } })
-    expect(wrapper.find('.comment-add-btn').exists()).toBe(false)
+    expect(wrapper.find('.comment-add-submit').attributes('disabled')).toBeDefined()
+  })
+
+  it('showForm=false なら追加フォームを表示しない', () => {
+    const wrapper = mount(CommentThread, { props: { comments: [comment()], showForm: false } })
+    expect(wrapper.find('.comment-add-form').exists()).toBe(false)
   })
 
   it('resolved コメントはバッジを表示し、トグルで反転値を emit する', async () => {
