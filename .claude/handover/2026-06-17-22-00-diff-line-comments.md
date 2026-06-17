@@ -23,24 +23,26 @@
 - **C4/D2** front: CommentThread.vue, DiffView.vue に表示・行番号クリック範囲選択・投稿・resolve。
   コメント DOM は `.hunk-content` 外に置き scroll-sync 非干渉。fetch は runDiffLoad の generation 連携。
 - **E1** front/diff/translate-line.ts (Tier1 行翻訳純粋関数, テスト済)。
+- **E2** (実装済): `GET /api/reviews/commits?from=&to=` で範囲内のコメント保持 SHA を列挙し、
+  front が各 SHA のコメントを translateRange で現在の to 行へ翻訳。hunk 内はインライン、
+  hunk 外/outdated はファイル末尾の退避セクションに表示。
+- 安全性評価 MEDIUM 対応済: M1 (再取得のローカル世代), M2 (commit 実在検証),
+  M3 (resolve 対象 id 実在検証), M4 (resolve 失敗の UI banner)。
 
 ## TODO (残作業)
 
-優先度高 (合意済みスコープのうち未完):
+- **E3 文字どおりの自動展開**: 現状は hunk 外コメントを「退避セクション」に出すのみ。
+  該当行のコンテキストを自動展開してインライン表示する挙動は未実装。実装するなら
+  expand-context の auto-expand state を手動 expandState と分離して導入し、展開済み行ブロック
+  にもコメントスレッドの描画を足す必要がある (DiffView の expanded-rows 描画 3 箇所)。
+- **手動 E2E 未実施**: ブラウザ確認はこの環境では不可。コンポーネントテストで
+  worktree gating / 表示 / 投稿 / E2 翻訳表示を検証済み。実機での目視確認が望ましい。
+- **L**: `.git-web/reviews/` の git 追跡方針 (ignore するか) は利用者判断 (git-web は関知しない)。
 
-- **E2 (未結線)**: 現状は表示中の `to` コミットに紐づくコメントのみ取得・表示する。
-  `from..to` の他コミット由来コメントの取得 + translate-line による翻訳適用が未結線。
-  → `to` を別コミットへ進めると過去コメントが追従しない (ADR 0060 の実装状況に明記)。
-  結線時は `DiffView.commentThreadsForHunk` を翻訳後行番号ベースへ変更する必要あり。
-- **E3 (未実装)**: 翻訳後行が hunk 外のときの自動コンテキスト展開 (既存 expand-context 再利用)。
+## 動作確認ポイント (追加)
 
-実装安全性評価の MEDIUM/LOW (HIGH/CRITICAL なし。ユーザー判断待ち):
-
-- M1: submitComment/onToggleResolve の `loadReviews(generation)` レース (実害小・破棄方向)。
-- M2: `resolveCommitSha` が存在しない commit でもコメントファイル作成可 (loopback 限定で実害小)。
-- M3: `setResolved` が対象 comment id の実在を未検証 (UI 経路では発生しない)。
-- M4: resolve トグル失敗が UI に出ない (warn のみ)。`commentError` 相当の表示を足すと UX 改善。
-- L: `.git-web/reviews/` の git 追跡方針 (ignore するか) は利用者判断。
+- `to` を、過去にコメントを付けたコミットより新しいコミットに設定すると、過去コメントが
+  翻訳されて現在行に表示される (hunk 内) か、退避セクションに出る (hunk 外/削除) ことを確認。
 
 ## 動作確認の要点
 

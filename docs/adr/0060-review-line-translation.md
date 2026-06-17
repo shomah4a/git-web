@@ -2,20 +2,22 @@
 
 ## ステータス
 
-承認 (一部未実装)
+承認 (E3 の自動展開のみ簡易代替)
 
 ## 実装状況 (2026-06-17 時点)
 
-- **実装済み**: Tier1 の行翻訳純粋関数 `packages/front/src/diff/translate-line.ts`
+- **Tier1 (実装済み)**: 行翻訳純粋関数 `packages/front/src/diff/translate-line.ts`
   (`translateNewLine` / `translateRange`、ユニットテスト済み)。
-- **未結線 (E2)**: 表示中 diff が現在の `to` コミットに紐づくコメントのみを取得・表示する
-  実装になっており、`from..to` に含まれる他コミット由来コメントの取得と
-  `translate-line` による翻訳適用は **未結線**。
-- **未実装 (E3)**: 翻訳後行が hunk 外のときの自動コンテキスト展開。
-- 現状の挙動: `to` を具体コミットに合わせてレビューする運用 (GitHub で head コミットに
-  コメントする形) では正確に動作する。`to` を別コミットへ進めると、以前のコミットに
-  付けたコメントは追従表示されない (既知の制約)。E2 結線時は `DiffView` の
-  `commentThreadsForHunk` を翻訳後行番号ベースへ変更する必要がある。
+- **E2 (実装済み)**: `GET /api/reviews/commits?from=&to=` が from..to でコメントを持つ
+  commit SHA 一覧を返す (`GitShaResolver.revListRange` × `store.listCommitShasWithComments`)。
+  front は各 SHA のコメントを取得し `GET /api/diff/file` (commentSHA..to) の hunk で
+  `translateRange` し、現在の to 行へ翻訳する。削除されていれば outdated。
+- **E3 (簡易代替)**: 翻訳後行が現在の diff の hunk 内なら当該行直後にインライン表示する。
+  hunk 外に来たコメントと outdated コメントは、**ファイル末尾の退避セクション**
+  (`offHunkComments`) に行番号付きでまとめて表示する。「コメントを失わせない」という
+  Tier2 の目的は満たすが、**文字どおり該当行のコンテキストを自動展開してインライン表示する
+  挙動は未実装**。利用者は退避セクションの行番号を見て手動で context 展開できる。
+- 既知の制約: リネーム跨ぎ (Tier3) は非対象 (コメントは追従しない)。
 
 ## 文脈
 
