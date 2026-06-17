@@ -636,13 +636,44 @@ function offHunkComments(
   })
 }
 
-/** 選択範囲の起点がこの hunk にあるか (投稿フォームをこの hunk 直後に出すため)。 */
-function isDraftHunk(path: string, hunk: DiffHunkDto): boolean {
+/**
+ * hunk の行を「コメント行 / 選択起点行」で分割したセグメント列を返す (GitHub 風)。
+ *
+ * 各セグメントは行配列と、その末尾行の直下に出すコメント (comments) / 投稿フォーム
+ * (isDraft) を持つ。これにより該当行の直下にコメントを差し込める。
+ * Split View のカラム構造 (.side-left/.side-right) はセグメント単位の .hunk-content
+ * 内に閉じるため、行ごとに全幅要素を挿入する破壊的変更を避けられる。
+ */
+type HunkSegment = {
+  readonly rows: ReadonlyArray<EnrichedRow>
+  readonly comments: ReadonlyArray<DisplayComment>
+  readonly isDraft: boolean
+}
+function hunkSegments(path: string, hunk: DiffHunkDto): ReadonlyArray<HunkSegment> {
+  const rows = enrichHunk(path, hunk)
+  const threadsByLine = new Map<number, DisplayComment[]>()
+  for (const group of commentThreadsForHunk(path, hunk)) {
+    threadsByLine.set(group.lineStart, group.comments)
+  }
   const sel = selection.value
-  if (sel === null || sel.path !== path) return false
-  const newStart = hunk.newStart
-  const newEnd = hunk.newStart + hunk.newLines - 1
-  return sel.start >= newStart && sel.start <= newEnd
+  const draftLine = sel !== null && sel.path === path ? sel.start : null
+
+  const segments: HunkSegment[] = []
+  let current: EnrichedRow[] = []
+  for (const row of rows) {
+    current.push(row)
+    const newNo = row.right?.newLineNo ?? null
+    const comments = newNo !== null ? (threadsByLine.get(newNo) ?? []) : []
+    const isDraft = newNo !== null && newNo === draftLine
+    if (comments.length > 0 || isDraft) {
+      segments.push({ rows: current, comments, isDraft })
+      current = []
+    }
+  }
+  if (current.length > 0) {
+    segments.push({ rows: current, comments: [], isDraft: false })
+  }
+  return segments
 }
 
 async function submitComment(path: string): Promise<void> {
@@ -788,6 +819,18 @@ watch(
 // 維持されるため、scroll sync ハンドラは再 attach 不要 (リーク経路なし)。
 watch(
   entries,
+  async () => {
+    await nextTick()
+    setupScrollSync()
+  },
+  { flush: 'post' },
+)
+
+// コメント (ADR 0057) や選択は hunk をセグメント分割し .hunk-content の集合を
+// 変える。entries は触らないため上の watch は発火しないので、別 watch で
+// DOM 反映後に scroll sync を貼り直す (H-4: 新規セグメントの同期漏れ防止)。
+watch(
+  [commentsByPath, selection],
   async () => {
     await nextTick()
     setupScrollSync()
@@ -1355,110 +1398,115 @@ function hasExpandedRowsUp(path: string, gapIdx: number): boolean {
                       }}
                       @@
                     </div>
-                    <div class="hunk-content">
-                      <div class="side side-left">
-                        <div class="side-inner">
-                          <div
-                            v-for="(row, rowIdx) in enrichHunk(entry.summary.path, hunk)"
-                            :key="rowIdx"
-                            class="row"
-                            :class="cellClass(row.left)"
-                          >
-                            <span class="row-lineno">{{ row.left?.oldLineNo ?? '' }}</span>
-                            <span class="row-content">
-                              <template v-if="row.leftTokens !== null">
-                                <span
-                                  v-for="(tok, tokIdx) in row.leftTokens"
-                                  :key="tokIdx"
-                                  class="shiki-tok"
-                                  :style="shikiTokenStyle(tok)"
-                                  >{{ tok.content }}</span
-                                >
-                              </template>
-                              <template v-else>{{ row.left?.content ?? '' }}</template>
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                      <div class="side side-right">
-                        <div class="side-inner">
-                          <div
-                            v-for="(row, rowIdx) in enrichHunk(entry.summary.path, hunk)"
-                            :key="rowIdx"
-                            class="row"
-                            :class="cellClass(row.right)"
-                          >
-                            <span
-                              class="row-lineno"
-                              :class="{
-                                'lineno-commentable': canComment() && row.right?.newLineNo != null,
-                                'lineno-selected': isLineSelected(
-                                  entry.summary.path,
-                                  row.right?.newLineNo ?? null,
-                                ),
-                              }"
-                              @click="
-                                onLinenoClick(entry.summary.path, row.right?.newLineNo ?? null)
-                              "
-                              >{{ row.right?.newLineNo ?? '' }}</span
+                    <!--
+                      hunk をコメント行 / 選択起点行で分割し、各セグメントの
+                      .hunk-content 直後にコメント・投稿フォームを出す (GitHub 風に
+                      クリック行の直下に表示)。コメント無しなら 1 セグメント = 従来通り。
+                    -->
+                    <template
+                      v-for="(seg, segIdx) in hunkSegments(entry.summary.path, hunk)"
+                      :key="segIdx"
+                    >
+                      <div class="hunk-content">
+                        <div class="side side-left">
+                          <div class="side-inner">
+                            <div
+                              v-for="(row, rowIdx) in seg.rows"
+                              :key="rowIdx"
+                              class="row"
+                              :class="cellClass(row.left)"
                             >
-                            <span class="row-content">
-                              <template v-if="row.rightTokens !== null">
-                                <span
-                                  v-for="(tok, tokIdx) in row.rightTokens"
-                                  :key="tokIdx"
-                                  class="shiki-tok"
-                                  :style="shikiTokenStyle(tok)"
-                                  >{{ tok.content }}</span
-                                >
-                              </template>
-                              <template v-else>{{ row.right?.content ?? '' }}</template>
-                            </span>
+                              <span class="row-lineno">{{ row.left?.oldLineNo ?? '' }}</span>
+                              <span class="row-content">
+                                <template v-if="row.leftTokens !== null">
+                                  <span
+                                    v-for="(tok, tokIdx) in row.leftTokens"
+                                    :key="tokIdx"
+                                    class="shiki-tok"
+                                    :style="shikiTokenStyle(tok)"
+                                    >{{ tok.content }}</span
+                                  >
+                                </template>
+                                <template v-else>{{ row.left?.content ?? '' }}</template>
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        <div class="side side-right">
+                          <div class="side-inner">
+                            <div
+                              v-for="(row, rowIdx) in seg.rows"
+                              :key="rowIdx"
+                              class="row"
+                              :class="cellClass(row.right)"
+                            >
+                              <span
+                                class="row-lineno"
+                                :class="{
+                                  'lineno-commentable':
+                                    canComment() && row.right?.newLineNo != null,
+                                  'lineno-selected': isLineSelected(
+                                    entry.summary.path,
+                                    row.right?.newLineNo ?? null,
+                                  ),
+                                }"
+                                @click="
+                                  onLinenoClick(entry.summary.path, row.right?.newLineNo ?? null)
+                                "
+                                >{{ row.right?.newLineNo ?? '' }}</span
+                              >
+                              <span class="row-content">
+                                <template v-if="row.rightTokens !== null">
+                                  <span
+                                    v-for="(tok, tokIdx) in row.rightTokens"
+                                    :key="tokIdx"
+                                    class="shiki-tok"
+                                    :style="shikiTokenStyle(tok)"
+                                    >{{ tok.content }}</span
+                                  >
+                                </template>
+                                <template v-else>{{ row.right?.content ?? '' }}</template>
+                              </span>
+                            </div>
                           </div>
                         </div>
                       </div>
-                    </div>
-                  </div>
 
-                  <!--
-                    レビューコメント (ADR 0057)。scroll-sync の querySelectorAll
-                    対象である .hunk-content の外側 (兄弟) に置き、DOM 構造を不変に
-                    保つ (H-4 対応)。
-                  -->
-                  <CommentThread
-                    v-for="thread in commentThreadsForHunk(entry.summary.path, hunk)"
-                    :key="thread.lineStart"
-                    :comments="thread.comments"
-                    @toggle-resolve="onToggleResolve"
-                  />
-                  <div v-if="isDraftHunk(entry.summary.path, hunk)" class="comment-form">
-                    <div class="comment-form-head">
-                      L{{ selection?.start
-                      }}<template v-if="selection && selection.end !== selection.start"
-                        >-{{ selection.end }}</template
-                      >
-                      にコメント
-                    </div>
-                    <textarea
-                      v-model="draftBody"
-                      class="comment-input"
-                      rows="3"
-                      placeholder="コメントを入力"
-                    ></textarea>
-                    <div class="comment-form-actions">
-                      <button
-                        type="button"
-                        class="comment-submit"
-                        :disabled="posting || draftBody.trim() === ''"
-                        @click="submitComment(entry.summary.path)"
-                      >
-                        投稿
-                      </button>
-                      <button type="button" class="comment-cancel" @click="cancelSelection">
-                        キャンセル
-                      </button>
-                    </div>
-                    <p v-if="commentError !== null" class="error">{{ commentError }}</p>
+                      <CommentThread
+                        v-if="seg.comments.length > 0"
+                        :comments="seg.comments"
+                        @toggle-resolve="onToggleResolve"
+                      />
+                      <div v-if="seg.isDraft" class="comment-form">
+                        <div class="comment-form-head">
+                          L{{ selection?.start
+                          }}<template v-if="selection && selection.end !== selection.start"
+                            >-{{ selection.end }}</template
+                          >
+                          にコメント
+                        </div>
+                        <textarea
+                          v-model="draftBody"
+                          class="comment-input"
+                          rows="3"
+                          placeholder="コメントを入力"
+                        ></textarea>
+                        <div class="comment-form-actions">
+                          <button
+                            type="button"
+                            class="comment-submit"
+                            :disabled="posting || draftBody.trim() === ''"
+                            @click="submitComment(entry.summary.path)"
+                          >
+                            投稿
+                          </button>
+                          <button type="button" class="comment-cancel" @click="cancelSelection">
+                            キャンセル
+                          </button>
+                        </div>
+                        <p v-if="commentError !== null" class="error">{{ commentError }}</p>
+                      </div>
+                    </template>
                   </div>
 
                   <!-- gap[hunkIdx+1] の down 展開済み行 (この hunk の直後) -->

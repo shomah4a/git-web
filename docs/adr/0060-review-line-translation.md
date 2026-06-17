@@ -12,11 +12,17 @@
   commit SHA 一覧を返す (`GitShaResolver.revListRange` × `store.listCommitShasWithComments`)。
   front は各 SHA のコメントを取得し `GET /api/diff/file` (commentSHA..to) の hunk で
   `translateRange` し、現在の to 行へ翻訳する。削除されていれば outdated。
-- **E3 (簡易代替)**: 翻訳後行が現在の diff の hunk 内なら当該行直後にインライン表示する。
-  hunk 外に来たコメントと outdated コメントは、**ファイル末尾の退避セクション**
-  (`offHunkComments`) に行番号付きでまとめて表示する。「コメントを失わせない」という
-  Tier2 の目的は満たすが、**文字どおり該当行のコンテキストを自動展開してインライン表示する
-  挙動は未実装**。利用者は退避セクションの行番号を見て手動で context 展開できる。
+- **インライン表示 (実装済み)**: hunk をコメント行 / 選択起点行で分割した「セグメント」
+  単位で `.hunk-content` を描画し、各セグメント直後にコメントスレッド・投稿フォームを出す
+  (`hunkSegments`)。これにより GitHub のように**クリックした行の直下**にコメントが表示される。
+  Split View のカラム構造はセグメント内 `.hunk-content` に閉じる。コメント / 選択の変化で
+  `.hunk-content` 集合が変わるため、`watch([commentsByPath, selection])` で scroll-sync を
+  貼り直す (H-4 の同期漏れ対策)。
+- **E3 (簡易代替)**: 翻訳後行が現在の diff の hunk **外**に来たコメントと outdated コメントは、
+  **ファイル末尾の退避セクション** (`offHunkComments`) に行番号付きでまとめて表示する。
+  「コメントを失わせない」という Tier2 の目的は満たすが、**hunk 外の行のコンテキストを
+  自動展開してインライン表示する挙動は未実装**。利用者は退避セクションの行番号を見て手動で
+  context 展開できる。
 - 既知の制約: リネーム跨ぎ (Tier3) は非対象 (コメントは追従しない)。
 
 ## 文脈
