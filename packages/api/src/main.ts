@@ -188,9 +188,11 @@ export async function start(options: StartOptions = {}): Promise<StartedServer> 
   // 起動時 cwd を realpath 解決し、default worktree の絶対パスとして使う
   const defaultWorktreePath = await realpath(repoRoot)
 
-  // レビューコメント永続化 (ADR 0058)。reviewsDir は realpath 済み repoRoot 直下に
-  // 固定する。git resolver は diff と同じ default worktree (cwd) の CliGitClient。
-  const reviewsDir = resolve(defaultWorktreePath, '.git-web/reviews')
+  // レビューコメント永続化 (ADR 0058)。レビューはリポジトリ単位の情報なので、
+  // リンク worktree から起動しても **メイン worktree ルート** 直下に集約する。
+  // 起動時に realpath 解決して固定する。git resolver は diff と同じ cwd の CliGitClient。
+  const mainWorktreeRoot = await realpath(await git.mainWorktreeRoot())
+  const reviewsDir = resolve(mainWorktreeRoot, '.git-web/reviews')
   const reviewStore = createJsonlReviewStore({
     reviewsDir,
     fs: {

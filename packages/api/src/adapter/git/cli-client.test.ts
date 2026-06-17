@@ -584,3 +584,23 @@ describe('CliGitClient.revListRange', () => {
     expect(shas).toEqual([])
   })
 })
+
+describe('CliGitClient.mainWorktreeRoot', () => {
+  it('メインworktreeではrepo rootを返す', async () => {
+    const git = new CliGitClient(tempRepo)
+    const root = await git.mainWorktreeRoot()
+    expect(await realpath(root)).toBe(await realpath(tempRepo))
+  })
+
+  it('リンクworktreeからでもメインworktreeのrootを返す', async () => {
+    const linkedPath = `${tempRepo}-linked`
+    await execFileAsync('git', ['worktree', 'add', '--detach', linkedPath], { cwd: tempRepo })
+    try {
+      const git = new CliGitClient(linkedPath)
+      const root = await git.mainWorktreeRoot()
+      expect(await realpath(root)).toBe(await realpath(tempRepo))
+    } finally {
+      await rm(linkedPath, { recursive: true, force: true })
+    }
+  })
+})

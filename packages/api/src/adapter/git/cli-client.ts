@@ -13,6 +13,7 @@
  */
 
 import { execFile } from 'node:child_process'
+import { dirname, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import type { DiffFileSummary } from '../../domain/diff.js'
 import type { DiffRange } from '../../domain/diff-range.js'
@@ -131,6 +132,24 @@ export class CliGitClient
       cwd: this.#cwd,
     })
     return stdout.trim()
+  }
+
+  /**
+   * メイン (ルート) worktree のトップレベル絶対パスを返す (ADR 0058)。
+   *
+   * リンク worktree から起動しても、レビューはリポジトリ単位の情報として
+   * メイン worktree 側に集約するために使う。`--git-common-dir` は共有 git dir
+   * (通常 `<mainRoot>/.git`) を返すため、その親をメイン worktree ルートとする。
+   * - メイン worktree: `--git-common-dir` = `.git` (相対) → cwd 基準で解決
+   * - リンク worktree: `--git-common-dir` = `<mainRoot>/.git` (絶対)
+   * (注: `--separate-git-dir` 等で共有 dir が `<root>/.git` でない構成は非対象)
+   */
+  async mainWorktreeRoot(): Promise<string> {
+    const { stdout } = await execFileAsync('git', ['rev-parse', '--git-common-dir'], {
+      cwd: this.#cwd,
+    })
+    const commonDir = resolve(this.#cwd, stdout.trim())
+    return dirname(commonDir)
   }
 
   async diffSummary(range: DiffRange): Promise<ReadonlyArray<DiffFileSummary>> {

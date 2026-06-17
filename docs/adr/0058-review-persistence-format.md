@@ -18,7 +18,11 @@ lost update を起こしうる。
 
 ### 1. 保存場所: `.git-web/reviews/<sha>.jsonl` (コミット SHA 単位)
 
-- リポジトリルート直下の `.git-web/reviews/` 配下に、コミット SHA ごとに 1 ファイル
+- **メイン (ルート) worktree** のトップレベル直下の `.git-web/reviews/` 配下に、コミット
+  SHA ごとに 1 ファイル。レビューはリポジトリ単位の情報なので、リンク worktree から
+  git-web を起動しても保存先はメイン worktree に集約する (どの worktree からでも同じ
+  コメントを読み書きできる)。メイン worktree ルートは `git rev-parse --git-common-dir`
+  の親から求める
 - ファイル名は `<40桁SHA>.jsonl`
 - reviewsDir は起動時に realpath 解決して固定し、書き込み先が reviewsDir 配下にあることを
   二層で確認する (ADR 0059, パストラバーサル防御)
