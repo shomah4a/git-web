@@ -1472,39 +1472,41 @@ function hasExpandedRowsUp(path: string, gapIdx: number): boolean {
                         </div>
                       </div>
 
-                      <CommentThread
-                        v-if="seg.comments.length > 0"
-                        :comments="seg.comments"
-                        @toggle-resolve="onToggleResolve"
-                      />
-                      <div v-if="seg.isDraft" class="comment-form">
-                        <div class="comment-form-head">
-                          L{{ selection?.start
-                          }}<template v-if="selection && selection.end !== selection.start"
-                            >-{{ selection.end }}</template
-                          >
-                          にコメント
+                      <div v-if="seg.comments.length > 0 || seg.isDraft" class="segment-comments">
+                        <CommentThread
+                          v-if="seg.comments.length > 0"
+                          :comments="seg.comments"
+                          @toggle-resolve="onToggleResolve"
+                        />
+                        <div v-if="seg.isDraft" class="comment-form">
+                          <div class="comment-form-head">
+                            L{{ selection?.start
+                            }}<template v-if="selection && selection.end !== selection.start"
+                              >-{{ selection.end }}</template
+                            >
+                            にコメント
+                          </div>
+                          <textarea
+                            v-model="draftBody"
+                            class="comment-input"
+                            rows="3"
+                            placeholder="コメントを入力"
+                          ></textarea>
+                          <div class="comment-form-actions">
+                            <button
+                              type="button"
+                              class="comment-submit"
+                              :disabled="posting || draftBody.trim() === ''"
+                              @click="submitComment(entry.summary.path)"
+                            >
+                              投稿
+                            </button>
+                            <button type="button" class="comment-cancel" @click="cancelSelection">
+                              キャンセル
+                            </button>
+                          </div>
+                          <p v-if="commentError !== null" class="error">{{ commentError }}</p>
                         </div>
-                        <textarea
-                          v-model="draftBody"
-                          class="comment-input"
-                          rows="3"
-                          placeholder="コメントを入力"
-                        ></textarea>
-                        <div class="comment-form-actions">
-                          <button
-                            type="button"
-                            class="comment-submit"
-                            :disabled="posting || draftBody.trim() === ''"
-                            @click="submitComment(entry.summary.path)"
-                          >
-                            投稿
-                          </button>
-                          <button type="button" class="comment-cancel" @click="cancelSelection">
-                            キャンセル
-                          </button>
-                        </div>
-                        <p v-if="commentError !== null" class="error">{{ commentError }}</p>
                       </div>
                     </template>
                   </div>
@@ -2050,6 +2052,15 @@ function hasExpandedRowsUp(path: string, gapIdx: number): boolean {
 .comment-submit:hover:not(:disabled),
 .comment-cancel:hover {
   background: var(--color-surface-hover);
+}
+/*
+ * セグメント直下のコメント/フォームは右ペイン (new 側, 幅 50%) の下にだけ
+ * 出す。.hunk-content は左右 50% の flex なので、左半分を margin で空けて
+ * 右半分に揃える。
+ */
+.segment-comments {
+  margin-left: 50%;
+  border-left: 1px solid var(--color-border);
 }
 .review-error {
   color: var(--color-error);
