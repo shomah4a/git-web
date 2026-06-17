@@ -15,6 +15,13 @@ export type HttpRequest = {
    * URL の再パースを回避する。未指定なら url から計算する。
    */
   readonly pathname?: string
+  /**
+   * リクエストボディ (ADR 0059)。状態変更系メソッド (POST 等) のときのみ
+   * http 層が読み取って詰める。GET / HEAD では常に undefined。
+   * dispatch はパスマッチングのみ行い body を参照しない。
+   * exactOptionalPropertyTypes 下で明示的 undefined 代入を許すため union に含める。
+   */
+  readonly body?: string | undefined
 }
 
 export type HttpResponse = {

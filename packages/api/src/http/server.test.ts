@@ -2,7 +2,14 @@ import { request as httpRequest } from 'node:http'
 import type { Server } from 'node:http'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Route } from './router.js'
-import { close, createApiServer, isHostAllowed, listen } from './server.js'
+import {
+  close,
+  createApiServer,
+  isHostAllowed,
+  isOriginAllowed,
+  isStateChangingMethod,
+  listen,
+} from './server.js'
 
 let server: Server
 let baseUrl: string
@@ -293,6 +300,216 @@ function rawHttpGet(params: {
     req.end()
   })
 }
+
+/**
+ * http.request で Host / Origin / body を任意指定できる汎用リクエスト。
+ * fetch は Host を自動設定し Origin を制御しづらいので使えない。
+ */
+function rawHttp(params: {
+  port: number
+  method: string
+  path: string
+  hostHeader: string
+  origin?: string
+  body?: string
+}): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const headers: Record<string, string> = { host: params.hostHeader }
+    if (params.origin !== undefined) {
+      headers.origin = params.origin
+    }
+    const payload = params.body !== undefined ? Buffer.from(params.body, 'utf-8') : undefined
+    if (payload !== undefined) {
+      headers['content-length'] = payload.length.toString()
+    }
+    const req = httpRequest(
+      {
+        hostname: '127.0.0.1',
+        port: params.port,
+        method: params.method,
+        path: params.path,
+        headers,
+      },
+      (res) => {
+        const chunks: Buffer[] = []
+        res.on('data', (chunk: Buffer) => {
+          chunks.push(chunk)
+        })
+        res.on('end', () => {
+          resolve({
+            status: res.statusCode ?? 0,
+            body: Buffer.concat(chunks).toString('utf-8'),
+          })
+        })
+      },
+    )
+    req.on('error', reject)
+    if (payload !== undefined) {
+      req.write(payload)
+    }
+    req.end()
+  })
+}
+
+describe('isStateChangingMethod', () => {
+  it('GETは状態変更系ではない', () => {
+    expect(isStateChangingMethod('GET')).toBe(false)
+  })
+
+  it('HEADは状態変更系ではない', () => {
+    expect(isStateChangingMethod('HEAD')).toBe(false)
+  })
+
+  it('OPTIONSは状態変更系ではない', () => {
+    expect(isStateChangingMethod('OPTIONS')).toBe(false)
+  })
+
+  it('POSTは状態変更系である', () => {
+    expect(isStateChangingMethod('POST')).toBe(true)
+  })
+
+  it('小文字postも状態変更系として扱う', () => {
+    expect(isStateChangingMethod('post')).toBe(true)
+  })
+})
+
+describe('isOriginAllowed', () => {
+  const address = { address: '127.0.0.1', family: 'IPv4', port: 12345 } as const
+
+  it('127.0.0.1の自オリジンを許可する', () => {
+    expect(isOriginAllowed('http://127.0.0.1:12345', address)).toBe(true)
+  })
+
+  it('localhostの自オリジンを許可する', () => {
+    expect(isOriginAllowed('http://localhost:12345', address)).toBe(true)
+  })
+
+  it('IPv6ループバックの自オリジンを許可する', () => {
+    expect(isOriginAllowed('http://[::1]:12345', address)).toBe(true)
+  })
+
+  it('別ポートのオリジンは拒否する', () => {
+    expect(isOriginAllowed('http://127.0.0.1:9999', address)).toBe(false)
+  })
+
+  it('他オリジンは拒否する', () => {
+    expect(isOriginAllowed('http://attacker.example:12345', address)).toBe(false)
+  })
+
+  it('httpsスキームは拒否する', () => {
+    expect(isOriginAllowed('https://127.0.0.1:12345', address)).toBe(false)
+  })
+
+  it('Origin欠落は拒否する(fail-closed)', () => {
+    expect(isOriginAllowed(undefined, address)).toBe(false)
+  })
+
+  it('空文字は拒否する', () => {
+    expect(isOriginAllowed('', address)).toBe(false)
+  })
+
+  it('addressがnull(listen前)は拒否する', () => {
+    expect(isOriginAllowed('http://127.0.0.1:12345', null)).toBe(false)
+  })
+})
+
+describe('POST body経路とOriginガードの統合テスト', () => {
+  const echoBodyRoute: Route = {
+    method: 'POST',
+    path: '/api/echo',
+    handler: (req) => ({ status: 200, body: req.body ?? '<undefined>' }),
+  }
+
+  it('自オリジンのPOSTはbodyがハンドラに渡る', async () => {
+    await start([echoBodyRoute])
+    const { port } = new URL(baseUrl)
+
+    const response = await rawHttp({
+      port: Number(port),
+      method: 'POST',
+      path: '/api/echo',
+      hostHeader: `127.0.0.1:${port}`,
+      origin: `http://127.0.0.1:${port}`,
+      body: 'hello body',
+    })
+
+    expect(response.status).toBe(200)
+    expect(response.body).toBe('hello body')
+  })
+
+  it('Origin欠落のPOSTは403で拒否する(fail-closed)', async () => {
+    await start([echoBodyRoute])
+    const { port } = new URL(baseUrl)
+
+    const response = await rawHttp({
+      port: Number(port),
+      method: 'POST',
+      path: '/api/echo',
+      hostHeader: `127.0.0.1:${port}`,
+      body: 'no origin',
+    })
+
+    expect(response.status).toBe(403)
+    expect(response.body).toContain('forbidden')
+  })
+
+  it('他オリジンのPOSTは403で拒否する', async () => {
+    await start([echoBodyRoute])
+    const { port } = new URL(baseUrl)
+
+    const response = await rawHttp({
+      port: Number(port),
+      method: 'POST',
+      path: '/api/echo',
+      hostHeader: `127.0.0.1:${port}`,
+      origin: 'http://attacker.example',
+      body: 'evil',
+    })
+
+    expect(response.status).toBe(403)
+  })
+
+  it('body上限を超えるPOSTは413で拒否する', async () => {
+    await start([echoBodyRoute])
+    const { port } = new URL(baseUrl)
+    // MAX_BODY_BYTES (1 MiB) を超える body
+    const huge = 'a'.repeat(1024 * 1024 + 10)
+
+    const response = await rawHttp({
+      port: Number(port),
+      method: 'POST',
+      path: '/api/echo',
+      hostHeader: `127.0.0.1:${port}`,
+      origin: `http://127.0.0.1:${port}`,
+      body: huge,
+    })
+
+    expect(response.status).toBe(413)
+  })
+
+  it('GETはOrigin検査・body読み取りの対象外で従来どおり処理する', async () => {
+    await start([
+      {
+        method: 'GET',
+        path: '/api/echo',
+        handler: (req) => ({ status: 200, body: req.body ?? '<undefined>' }),
+      },
+    ])
+    const { port } = new URL(baseUrl)
+
+    // Origin を付けず body も付けて GET。GET は body を読まないので undefined。
+    const response = await rawHttp({
+      port: Number(port),
+      method: 'GET',
+      path: '/api/echo',
+      hostHeader: `127.0.0.1:${port}`,
+      body: 'ignored on get',
+    })
+
+    expect(response.status).toBe(200)
+    expect(response.body).toBe('<undefined>')
+  })
+})
 
 describe('listen関数', () => {
   it('port 0指定で空きポートが割り当てられる', async () => {
