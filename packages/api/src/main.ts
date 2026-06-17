@@ -6,6 +6,7 @@
  */
 
 import { execFile } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { appendFile, mkdir, readFile, realpath, stat } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import process from 'node:process'
@@ -25,7 +26,11 @@ import { createDiffFileHandler, createDiffFilesHandler } from './controller/diff
 import { mapDomainErrorToHttpResponse } from './controller/error-mapper.js'
 import { createRefsHandler } from './controller/refs-controller.js'
 import { createRepoHandler } from './controller/repo-controller.js'
-import { createReviewListHandler } from './controller/review-controller.js'
+import {
+  createReviewCreateHandler,
+  createReviewListHandler,
+  createReviewResolveHandler,
+} from './controller/review-controller.js'
 import { createTreeCommitsHandler } from './controller/tree-commits-controller.js'
 import { createTreeHandler } from './controller/tree-controller.js'
 import { createWorktreeHandler } from './controller/worktree-controller.js'
@@ -193,7 +198,13 @@ export async function start(options: StartOptions = {}): Promise<StartedServer> 
       mkdir: (p) => mkdir(p, { recursive: true }).then(() => undefined),
     },
   })
-  const reviewService = createReviewService({ store: reviewStore, shaResolver: git })
+  const reviewService = createReviewService({
+    store: reviewStore,
+    shaResolver: git,
+    now: () => new Date(),
+    // timestamp + ランダムサフィックス (ADR 0058: 同一ミリ秒衝突の緩和)
+    newId: () => `${Date.now().toString()}-${randomUUID().slice(0, 8)}`,
+  })
   const worktreesListService = createWorktreesListService({
     client: worktreeListClient,
     realpath: (p) => realpath(p),
@@ -262,6 +273,12 @@ export async function start(options: StartOptions = {}): Promise<StartedServer> 
       handler: createWorktreesListHandler(worktreesListService),
     },
     { method: 'GET', path: '/api/reviews', handler: createReviewListHandler(reviewService) },
+    { method: 'POST', path: '/api/reviews', handler: createReviewCreateHandler(reviewService) },
+    {
+      method: 'POST',
+      path: '/api/reviews/resolve',
+      handler: createReviewResolveHandler(reviewService),
+    },
   ]
 
   const server = createApiServer({
