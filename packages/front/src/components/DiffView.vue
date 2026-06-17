@@ -18,12 +18,20 @@
  * - blob 取得 / ハイライト失敗は該当ファイルだけプレーン fallback
  */
 
-import type { DiffFileDto, DiffFileSummaryDto, DiffHunkDto, RefListDto } from '@git-web/common'
+import type {
+  DiffFileDto,
+  DiffFileSummaryDto,
+  DiffHunkDto,
+  RefListDto,
+  ReviewCommentDto,
+} from '@git-web/common'
 import { inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { fetchBlob } from '../api/blob.js'
 import { type DiffRangeQuery, fetchDiffFile, fetchDiffFiles } from '../api/diff.js'
 import { fetchRefs } from '../api/refs.js'
+import { fetchReviews, postResolve, postReview } from '../api/reviews.js'
+import CommentThread from './CommentThread.vue'
 import {
   type DiffRangeUrlState,
   DEFAULT_FROM,
@@ -106,6 +114,21 @@ const tokenMap = ref<Map<string, FileTokens>>(new Map())
  * runDiffLoad で丸ごと差し替えてリセットする。
  */
 const expandState = ref<Map<string, Map<number, GapExpansion>>>(new Map())
+
+/**
+ * レビューコメント状態 (ADR 0057)。
+ *
+ * - reviewSha: 現在の `to` を解決した 40 桁 commit SHA。worktree のときは null
+ * - commentsByPath: その to コミットに紐づくコメントを path でグループ化
+ * - selection: コメント投稿のための new 行範囲選択
+ * - 取得は runDiffLoad の generation に組み込み、rev 切替時の race を防ぐ (ADR 0060)
+ */
+const reviewSha = ref<string | null>(null)
+const commentsByPath = ref<Map<string, ReviewCommentDto[]>>(new Map())
+const selection = ref<{ path: string; start: number; end: number } | null>(null)
+const draftBody = ref('')
+const posting = ref(false)
+const commentError = ref<string | null>(null)
 
 /**
  * unmount 済みフラグ (ADR 0019 LOW-2)。
@@ -316,6 +339,8 @@ async function runDiffLoad(rangeArg?: DiffRangeQuery): Promise<void> {
     )
     tokenMap.value = new Map()
     expandState.value = new Map()
+    selection.value = null
+    commentError.value = null
 
     const diffResults = await Promise.allSettled(
       response.files.map((summary) => fetchDiffFile(summary.path, range)),
@@ -345,6 +370,9 @@ async function runDiffLoad(rangeArg?: DiffRangeQuery): Promise<void> {
     const newTokens = await loadAllTokens(successFiles, blobRevs)
     if (myGen !== generation) return
     applyTokenMap(newTokens)
+
+    // コメント取得は同一世代で実行 (ADR 0060: 後発優先で古い SHA の混入を防ぐ)
+    await loadReviews(myGen)
   } catch (err) {
     if (myGen !== generation) return
     listError.value = err instanceof Error ? err.message : 'unknown error'
@@ -429,6 +457,140 @@ function isTooLarge(content: string): boolean {
  */
 function applyTokenMap(newTokens: Map<string, FileTokens>): void {
   tokenMap.value = newTokens
+}
+
+// --- レビューコメント (ADR 0057 / 0060) ---
+
+/**
+ * 現在の `to` に紐づくコメントを取得し path でグループ化する。
+ * worktree (作成不可) のときはクリアする。失敗しても diff 表示は妨げない。
+ * myGen で後発優先を担保する。
+ */
+async function loadReviews(myGen: number): Promise<void> {
+  if (toRev.value === WORKTREE_SENTINEL) {
+    reviewSha.value = null
+    commentsByPath.value = new Map()
+    return
+  }
+  try {
+    const res = await fetchReviews(toRev.value)
+    if (myGen !== generation) return
+    reviewSha.value = res.sha
+    const map = new Map<string, ReviewCommentDto[]>()
+    for (const comment of res.comments) {
+      const arr = map.get(comment.path) ?? []
+      arr.push(comment)
+      map.set(comment.path, arr)
+    }
+    commentsByPath.value = map
+  } catch (err) {
+    if (myGen !== generation) return
+    console.warn('[DiffView] fetchReviews failed', err)
+    reviewSha.value = null
+    commentsByPath.value = new Map()
+  }
+}
+
+/** `to` が具体コミットのとき (= コメント作成可能) か。worktree では不可 (ADR 0057)。 */
+function canComment(): boolean {
+  return toRev.value !== WORKTREE_SENTINEL
+}
+
+/**
+ * new 側行番号クリック。1 回目で起点、同一ファイル 2 回目で範囲に拡張する。
+ */
+function onLinenoClick(path: string, newLineNo: number | null): void {
+  if (!canComment() || newLineNo === null) return
+  const sel = selection.value
+  if (sel === null || sel.path !== path) {
+    selection.value = { path, start: newLineNo, end: newLineNo }
+  } else {
+    selection.value = {
+      path,
+      start: Math.min(sel.start, newLineNo),
+      end: Math.max(sel.start, newLineNo),
+    }
+  }
+  commentError.value = null
+}
+
+function isLineSelected(path: string, newLineNo: number | null): boolean {
+  const sel = selection.value
+  if (sel === null || newLineNo === null || sel.path !== path) return false
+  return newLineNo >= sel.start && newLineNo <= sel.end
+}
+
+function cancelSelection(): void {
+  selection.value = null
+  draftBody.value = ''
+  commentError.value = null
+}
+
+type CommentThreadGroup = { readonly lineStart: number; readonly comments: ReviewCommentDto[] }
+
+/**
+ * 指定 hunk の new 行範囲に起点を持つコメントを起点行ごとにまとめて返す。
+ * コメントは現在の to に紐づくため new 行番号がそのまま現在の diff に対応する。
+ */
+function commentThreadsForHunk(path: string, hunk: DiffHunkDto): ReadonlyArray<CommentThreadGroup> {
+  const all = commentsByPath.value.get(path)
+  if (all === undefined) return []
+  const newStart = hunk.newStart
+  const newEnd = hunk.newStart + hunk.newLines - 1
+  const groups = new Map<number, ReviewCommentDto[]>()
+  for (const comment of all) {
+    if (comment.newLineStart >= newStart && comment.newLineStart <= newEnd) {
+      const arr = groups.get(comment.newLineStart) ?? []
+      arr.push(comment)
+      groups.set(comment.newLineStart, arr)
+    }
+  }
+  return Array.from(groups.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([lineStart, comments]) => ({ lineStart, comments }))
+}
+
+/** 選択範囲の起点がこの hunk にあるか (投稿フォームをこの hunk 直後に出すため)。 */
+function isDraftHunk(path: string, hunk: DiffHunkDto): boolean {
+  const sel = selection.value
+  if (sel === null || sel.path !== path) return false
+  const newStart = hunk.newStart
+  const newEnd = hunk.newStart + hunk.newLines - 1
+  return sel.start >= newStart && sel.start <= newEnd
+}
+
+async function submitComment(path: string): Promise<void> {
+  const sel = selection.value
+  if (sel === null || reviewSha.value === null || posting.value) return
+  if (draftBody.value.trim() === '') return
+  posting.value = true
+  commentError.value = null
+  try {
+    await postReview({
+      sha: reviewSha.value,
+      path,
+      newLineStart: sel.start,
+      newLineEnd: sel.end,
+      body: draftBody.value,
+    })
+    draftBody.value = ''
+    selection.value = null
+    await loadReviews(generation)
+  } catch (err) {
+    commentError.value = err instanceof Error ? err.message : 'unknown error'
+  } finally {
+    posting.value = false
+  }
+}
+
+async function onToggleResolve(payload: { id: string; resolved: boolean }): Promise<void> {
+  if (reviewSha.value === null) return
+  try {
+    await postResolve({ sha: reviewSha.value, id: payload.id, resolved: payload.resolved })
+    await loadReviews(generation)
+  } catch (err) {
+    console.warn('[DiffView] postResolve failed', err)
+  }
 }
 
 onMounted(() => {
@@ -1131,7 +1293,20 @@ function hasExpandedRowsUp(path: string, gapIdx: number): boolean {
                             class="row"
                             :class="cellClass(row.right)"
                           >
-                            <span class="row-lineno">{{ row.right?.newLineNo ?? '' }}</span>
+                            <span
+                              class="row-lineno"
+                              :class="{
+                                'lineno-commentable': canComment() && row.right?.newLineNo != null,
+                                'lineno-selected': isLineSelected(
+                                  entry.summary.path,
+                                  row.right?.newLineNo ?? null,
+                                ),
+                              }"
+                              @click="
+                                onLinenoClick(entry.summary.path, row.right?.newLineNo ?? null)
+                              "
+                              >{{ row.right?.newLineNo ?? '' }}</span
+                            >
                             <span class="row-content">
                               <template v-if="row.rightTokens !== null">
                                 <span
@@ -1148,6 +1323,47 @@ function hasExpandedRowsUp(path: string, gapIdx: number): boolean {
                         </div>
                       </div>
                     </div>
+                  </div>
+
+                  <!--
+                    レビューコメント (ADR 0057)。scroll-sync の querySelectorAll
+                    対象である .hunk-content の外側 (兄弟) に置き、DOM 構造を不変に
+                    保つ (H-4 対応)。
+                  -->
+                  <CommentThread
+                    v-for="thread in commentThreadsForHunk(entry.summary.path, hunk)"
+                    :key="thread.lineStart"
+                    :comments="thread.comments"
+                    @toggle-resolve="onToggleResolve"
+                  />
+                  <div v-if="isDraftHunk(entry.summary.path, hunk)" class="comment-form">
+                    <div class="comment-form-head">
+                      L{{ selection?.start
+                      }}<template v-if="selection && selection.end !== selection.start"
+                        >-{{ selection.end }}</template
+                      >
+                      にコメント
+                    </div>
+                    <textarea
+                      v-model="draftBody"
+                      class="comment-input"
+                      rows="3"
+                      placeholder="コメントを入力"
+                    ></textarea>
+                    <div class="comment-form-actions">
+                      <button
+                        type="button"
+                        class="comment-submit"
+                        :disabled="posting || draftBody.trim() === ''"
+                        @click="submitComment(entry.summary.path)"
+                      >
+                        投稿
+                      </button>
+                      <button type="button" class="comment-cancel" @click="cancelSelection">
+                        キャンセル
+                      </button>
+                    </div>
+                    <p v-if="commentError !== null" class="error">{{ commentError }}</p>
                   </div>
 
                   <!-- gap[hunkIdx+1] の down 展開済み行 (この hunk の直後) -->
@@ -1602,5 +1818,66 @@ function hasExpandedRowsUp(path: string, gapIdx: number): boolean {
 .error {
   color: var(--color-error);
   padding: 0.5rem;
+}
+/* レビューコメント (ADR 0057) */
+.lineno-commentable {
+  cursor: pointer;
+}
+.lineno-commentable:hover {
+  background: var(--color-surface-hover2);
+  color: var(--color-fg);
+}
+.lineno-selected {
+  background: var(--color-diff-add-bg);
+  color: var(--color-fg);
+}
+.comment-form {
+  margin: 0.4rem 0.5rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-surface-1);
+}
+.comment-form-head {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  color: var(--color-fg-muted);
+  margin-bottom: 0.35rem;
+}
+.comment-input {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--color-input-bg);
+  color: var(--color-fg);
+  border: 1px solid var(--color-fg-disabled);
+  border-radius: 3px;
+  padding: 0.35rem;
+  resize: vertical;
+}
+.comment-form-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+}
+.comment-submit,
+.comment-cancel {
+  padding: 0.2rem 0.7rem;
+  border: 1px solid var(--color-fg-disabled);
+  background: var(--color-input-bg);
+  color: var(--color-fg);
+  border-radius: 3px;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+}
+.comment-submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.comment-submit:hover:not(:disabled),
+.comment-cancel:hover {
+  background: var(--color-surface-hover);
 }
 </style>
