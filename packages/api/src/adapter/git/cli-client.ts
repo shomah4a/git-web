@@ -13,12 +13,14 @@
  */
 
 import { execFile } from 'node:child_process'
+import { dirname, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import type { DiffFileSummary } from '../../domain/diff.js'
 import type { DiffRange } from '../../domain/diff-range.js'
 import type { GitClient } from '../../domain/ports/git-client.js'
 import type { HeadInfo } from '../../domain/repo.js'
 import type { GitDiffClient } from '../../domain/ports/git-diff-client.js'
+import type { GitShaResolver } from '../../domain/ports/git-sha-resolver.js'
 import type { GitLogClient } from '../../domain/ports/git-log-client.js'
 import type { LogQuery, LogResult } from '../../domain/ports/git-log-client.js'
 import type { GitRefsClient } from '../../domain/ports/git-refs-client.js'
@@ -61,6 +63,7 @@ export class CliGitClient
     GitDiffClient,
     GitLogClient,
     GitRefsClient,
+    GitShaResolver,
     GitTreeClient,
     GitTreeCommitsClient
 {
@@ -68,6 +71,41 @@ export class CliGitClient
 
   constructor(cwd: string) {
     this.#cwd = cwd
+  }
+
+  /**
+   * リビジョンを 40 桁 commit SHA へ解決する (ADR 0057)。
+   *
+   * - `<rev>^{commit}` で annotated tag 等を commit に peel する
+   * - `--verify` で曖昧/不正な指定を非ゼロ終了させる
+   * - `--end-of-options` で rev がフラグ解釈されないよう二層防御 (ADR 0018)
+   */
+  async resolveCommitSha(rev: Revision): Promise<string> {
+    const { stdout } = await execFileAsync(
+      'git',
+      ['rev-parse', '--verify', '--end-of-options', `${rev.raw}^{commit}`],
+      { cwd: this.#cwd },
+    )
+    return stdout.trim()
+  }
+
+  /**
+   * `git rev-list <from>..<to>` を実行して 40 桁 SHA 列を返す (ADR 0060 E2)。
+   *
+   * - from.raw / to.raw は parseRevision 済みでシェルメタを含まないため、
+   *   `<from>..<to>` を 1 つの operand として安全に渡せる
+   * - `--end-of-options` で operand がフラグ解釈されないよう二層防御 (ADR 0018)
+   */
+  async revListRange(from: Revision, to: Revision): Promise<ReadonlyArray<string>> {
+    const { stdout } = await execFileAsync(
+      'git',
+      ['rev-list', '--end-of-options', `${from.raw}..${to.raw}`],
+      { cwd: this.#cwd, maxBuffer: DIFF_MAX_BUFFER },
+    )
+    return stdout
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line !== '')
   }
 
   async head(): Promise<HeadInfo> {
@@ -94,6 +132,24 @@ export class CliGitClient
       cwd: this.#cwd,
     })
     return stdout.trim()
+  }
+
+  /**
+   * メイン (ルート) worktree のトップレベル絶対パスを返す (ADR 0058)。
+   *
+   * リンク worktree から起動しても、レビューはリポジトリ単位の情報として
+   * メイン worktree 側に集約するために使う。`--git-common-dir` は共有 git dir
+   * (通常 `<mainRoot>/.git`) を返すため、その親をメイン worktree ルートとする。
+   * - メイン worktree: `--git-common-dir` = `.git` (相対) → cwd 基準で解決
+   * - リンク worktree: `--git-common-dir` = `<mainRoot>/.git` (絶対)
+   * (注: `--separate-git-dir` 等で共有 dir が `<root>/.git` でない構成は非対象)
+   */
+  async mainWorktreeRoot(): Promise<string> {
+    const { stdout } = await execFileAsync('git', ['rev-parse', '--git-common-dir'], {
+      cwd: this.#cwd,
+    })
+    const commonDir = resolve(this.#cwd, stdout.trim())
+    return dirname(commonDir)
   }
 
   async diffSummary(range: DiffRange): Promise<ReadonlyArray<DiffFileSummary>> {

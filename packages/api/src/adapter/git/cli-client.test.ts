@@ -539,3 +539,68 @@ describe('CliGitClient.lastCommitsByName', () => {
     expect(result.get('feature.ts')?.subject).toBe('add feature.ts on feature')
   })
 })
+
+describe('CliGitClient.resolveCommitSha', () => {
+  it('HEADを40桁のcommit SHAに解決する', async () => {
+    const git = new CliGitClient(tempRepo)
+
+    const sha = await git.resolveCommitSha(parseRevision('HEAD'))
+
+    expect(sha).toMatch(/^[0-9a-f]{40}$/)
+  })
+
+  it('短縮SHAを40桁に解決する', async () => {
+    const git = new CliGitClient(tempRepo)
+    const full = await git.resolveCommitSha(parseRevision('HEAD'))
+    const short = full.slice(0, 8)
+
+    const resolved = await git.resolveCommitSha(parseRevision(short))
+
+    expect(resolved).toBe(full)
+  })
+
+  it('存在しないリビジョンでは例外を投げる', async () => {
+    const git = new CliGitClient(tempRepo)
+
+    await expect(git.resolveCommitSha(parseRevision('deadbeef'))).rejects.toThrow()
+  })
+})
+
+describe('CliGitClient.revListRange', () => {
+  it('from..to のコミットSHA列を返す', async () => {
+    const git = new CliGitClient(tempRepo)
+    await writeFile(join(tempRepo, 'a.txt'), 'x')
+    await commit(tempRepo, 'second')
+
+    const head = await git.resolveCommitSha(parseRevision('HEAD'))
+    const shas = await git.revListRange(parseRevision('HEAD~1'), parseRevision('HEAD'))
+
+    expect(shas).toEqual([head])
+  })
+
+  it('範囲が空なら空配列を返す', async () => {
+    const git = new CliGitClient(tempRepo)
+    const shas = await git.revListRange(parseRevision('HEAD'), parseRevision('HEAD'))
+    expect(shas).toEqual([])
+  })
+})
+
+describe('CliGitClient.mainWorktreeRoot', () => {
+  it('メインworktreeではrepo rootを返す', async () => {
+    const git = new CliGitClient(tempRepo)
+    const root = await git.mainWorktreeRoot()
+    expect(await realpath(root)).toBe(await realpath(tempRepo))
+  })
+
+  it('リンクworktreeからでもメインworktreeのrootを返す', async () => {
+    const linkedPath = `${tempRepo}-linked`
+    await execFileAsync('git', ['worktree', 'add', '--detach', linkedPath], { cwd: tempRepo })
+    try {
+      const git = new CliGitClient(linkedPath)
+      const root = await git.mainWorktreeRoot()
+      expect(await realpath(root)).toBe(await realpath(tempRepo))
+    } finally {
+      await rm(linkedPath, { recursive: true, force: true })
+    }
+  })
+})

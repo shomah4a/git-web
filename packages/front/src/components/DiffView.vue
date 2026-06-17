@@ -18,12 +18,21 @@
  * - blob 取得 / ハイライト失敗は該当ファイルだけプレーン fallback
  */
 
-import type { DiffFileDto, DiffFileSummaryDto, DiffHunkDto, RefListDto } from '@git-web/common'
+import type {
+  DiffFileDto,
+  DiffFileSummaryDto,
+  DiffHunkDto,
+  RefListDto,
+  ReviewCommentDto,
+} from '@git-web/common'
 import { inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { fetchBlob } from '../api/blob.js'
 import { type DiffRangeQuery, fetchDiffFile, fetchDiffFiles } from '../api/diff.js'
 import { fetchRefs } from '../api/refs.js'
+import { fetchReviewCommits, fetchReviews, postResolve, postReview } from '../api/reviews.js'
+import { translateRange } from '../diff/translate-line.js'
+import CommentThread from './CommentThread.vue'
 import {
   type DiffRangeUrlState,
   DEFAULT_FROM,
@@ -106,6 +115,33 @@ const tokenMap = ref<Map<string, FileTokens>>(new Map())
  * runDiffLoad で丸ごと差し替えてリセットする。
  */
 const expandState = ref<Map<string, Map<number, GapExpansion>>>(new Map())
+
+/**
+ * レビューコメント状態 (ADR 0057)。
+ *
+ * - reviewSha: 現在の `to` を解決した 40 桁 commit SHA。worktree のときは null
+ * - commentsByPath: その to コミットに紐づくコメントを path でグループ化
+ * - selection: コメント投稿のための new 行範囲選択
+ * - 取得は runDiffLoad の generation に組み込み、rev 切替時の race を防ぐ (ADR 0060)
+ */
+const reviewSha = ref<string | null>(null)
+/**
+ * 表示用コメント。DTO に「現在の to へ翻訳した表示行 (displayStart/End)」と
+ * outdated フラグを付与する (ADR 0060 E2)。to に紐づくコメントは翻訳不要で
+ * displayStart === newLineStart。別コミット由来は translateRange で翻訳する。
+ */
+type DisplayComment = ReviewCommentDto & {
+  readonly displayStart: number
+  readonly displayEnd: number
+  readonly outdated: boolean
+}
+const commentsByPath = ref<Map<string, DisplayComment[]>>(new Map())
+const selection = ref<{ path: string; start: number; end: number } | null>(null)
+const draftBody = ref('')
+const posting = ref(false)
+const commentError = ref<string | null>(null)
+// resolve トグル等、フォーム外のレビュー操作失敗を出す banner (M4)
+const reviewError = ref<string | null>(null)
 
 /**
  * unmount 済みフラグ (ADR 0019 LOW-2)。
@@ -316,6 +352,8 @@ async function runDiffLoad(rangeArg?: DiffRangeQuery): Promise<void> {
     )
     tokenMap.value = new Map()
     expandState.value = new Map()
+    selection.value = null
+    commentError.value = null
 
     const diffResults = await Promise.allSettled(
       response.files.map((summary) => fetchDiffFile(summary.path, range)),
@@ -345,6 +383,9 @@ async function runDiffLoad(rangeArg?: DiffRangeQuery): Promise<void> {
     const newTokens = await loadAllTokens(successFiles, blobRevs)
     if (myGen !== generation) return
     applyTokenMap(newTokens)
+
+    // コメント取得は同一世代で実行 (ADR 0060: 後発優先で古い SHA の混入を防ぐ)
+    await loadReviews(myGen)
   } catch (err) {
     if (myGen !== generation) return
     listError.value = err instanceof Error ? err.message : 'unknown error'
@@ -429,6 +470,275 @@ function isTooLarge(content: string): boolean {
  */
 function applyTokenMap(newTokens: Map<string, FileTokens>): void {
   tokenMap.value = newTokens
+}
+
+// --- レビューコメント (ADR 0057 / 0060) ---
+
+function pushDisplay(map: Map<string, DisplayComment[]>, comment: DisplayComment): void {
+  const arr = map.get(comment.path) ?? []
+  arr.push(comment)
+  map.set(comment.path, arr)
+}
+
+/**
+ * コメントを取得して表示用に組み立てる (ADR 0060 E2)。
+ *
+ * 1. 現在の to コミットのコメント (翻訳不要、displayStart === newLineStart)
+ * 2. from..to の他コミット由来コメントを取得し、`translateRange` で現在の to 行へ
+ *    翻訳する。削除されていれば outdated。
+ *
+ * worktree (作成不可) のときはクリア。失敗しても diff 表示は妨げない。
+ * myGen で後発優先を担保し、rev 切替時の混入を防ぐ。
+ */
+async function loadReviews(myGen: number): Promise<void> {
+  reviewError.value = null
+  if (toRev.value === WORKTREE_SENTINEL) {
+    reviewSha.value = null
+    commentsByPath.value = new Map()
+    return
+  }
+  const to = toRev.value
+  try {
+    const res = await fetchReviews(to)
+    if (myGen !== generation) return
+    const toSha = res.sha
+    const map = new Map<string, DisplayComment[]>()
+    for (const comment of res.comments) {
+      pushDisplay(map, {
+        ...comment,
+        displayStart: comment.newLineStart,
+        displayEnd: comment.newLineEnd,
+        outdated: false,
+      })
+    }
+    reviewSha.value = toSha
+
+    const shas = await fetchReviewCommits(fromRev.value, to)
+    if (myGen !== generation) return
+    for (const sha of shas) {
+      if (sha === toSha) continue
+      const other = await fetchReviews(sha)
+      if (myGen !== generation) return
+      const byPath = new Map<string, ReviewCommentDto[]>()
+      for (const comment of other.comments) {
+        const arr = byPath.get(comment.path) ?? []
+        arr.push(comment)
+        byPath.set(comment.path, arr)
+      }
+      for (const [path, comments] of byPath) {
+        const file = await fetchDiffFile(path, { from: sha, to: toSha })
+        if (myGen !== generation) return
+        const hunks = file?.hunks ?? []
+        for (const comment of comments) {
+          const translated = translateRange(comment.newLineStart, comment.newLineEnd, hunks)
+          pushDisplay(map, {
+            ...comment,
+            displayStart: translated.kind === 'mapped' ? translated.start : comment.newLineStart,
+            displayEnd: translated.kind === 'mapped' ? translated.end : comment.newLineEnd,
+            outdated: translated.kind === 'outdated',
+          })
+        }
+      }
+    }
+    if (myGen !== generation) return
+    commentsByPath.value = map
+  } catch (err) {
+    if (myGen !== generation) return
+    console.warn('[DiffView] loadReviews failed', err)
+    reviewSha.value = null
+    commentsByPath.value = new Map()
+  }
+}
+
+/** `to` が具体コミットのとき (= コメント作成可能) か。worktree では不可 (ADR 0057)。 */
+function canComment(): boolean {
+  return toRev.value !== WORKTREE_SENTINEL
+}
+
+/**
+ * new 側行番号クリック。1 回目で起点、同一ファイル 2 回目で範囲に拡張する。
+ */
+function onLinenoClick(path: string, newLineNo: number | null): void {
+  if (!canComment() || newLineNo === null) return
+  const sel = selection.value
+  if (sel === null || sel.path !== path) {
+    selection.value = { path, start: newLineNo, end: newLineNo }
+  } else {
+    selection.value = {
+      path,
+      start: Math.min(sel.start, newLineNo),
+      end: Math.max(sel.start, newLineNo),
+    }
+  }
+  commentError.value = null
+}
+
+function isLineSelected(path: string, newLineNo: number | null): boolean {
+  const sel = selection.value
+  if (sel === null || newLineNo === null || sel.path !== path) return false
+  return newLineNo >= sel.start && newLineNo <= sel.end
+}
+
+function cancelSelection(): void {
+  selection.value = null
+  draftBody.value = ''
+  commentError.value = null
+}
+
+/**
+ * スレッドに常時表示している追加フォームからの投稿 (同じ行への追記)。
+ * 単一行アンカー。範囲コメントは行番号クリックの選択フォーム経由で行う。
+ */
+async function onSubmitThreadComment(path: string, line: number, body: string): Promise<void> {
+  if (reviewSha.value === null || posting.value || body.trim() === '') return
+  const myGen = generation
+  posting.value = true
+  reviewError.value = null
+  try {
+    await postReview({ sha: reviewSha.value, path, newLineStart: line, newLineEnd: line, body })
+    await loadReviews(myGen)
+  } catch (err) {
+    reviewError.value = `コメントの投稿に失敗しました: ${
+      err instanceof Error ? err.message : 'unknown error'
+    }`
+  } finally {
+    posting.value = false
+  }
+}
+
+type CommentThreadGroup = { readonly lineStart: number; readonly comments: DisplayComment[] }
+
+function hunkNewRange(hunk: DiffHunkDto): { from: number; to: number } {
+  return { from: hunk.newStart, to: hunk.newStart + hunk.newLines - 1 }
+}
+
+/**
+ * 指定 hunk の new 行範囲に表示行 (翻訳後) を持つ非 outdated コメントを
+ * 起点行ごとにまとめて返す (ADR 0060)。
+ */
+function commentThreadsForHunk(path: string, hunk: DiffHunkDto): ReadonlyArray<CommentThreadGroup> {
+  const all = commentsByPath.value.get(path)
+  if (all === undefined) return []
+  const range = hunkNewRange(hunk)
+  const groups = new Map<number, DisplayComment[]>()
+  for (const comment of all) {
+    if (
+      !comment.outdated &&
+      comment.displayStart >= range.from &&
+      comment.displayStart <= range.to
+    ) {
+      const arr = groups.get(comment.displayStart) ?? []
+      arr.push(comment)
+      groups.set(comment.displayStart, arr)
+    }
+  }
+  return Array.from(groups.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([lineStart, comments]) => ({ lineStart, comments }))
+}
+
+/**
+ * どの hunk にも収まらない (= 翻訳後行が表示中の diff の外) コメント、または
+ * outdated コメントを返す。ファイル末尾の退避セクションに表示する (ADR 0060 E2 の
+ * Tier2 代替: hunk 外コメントを失わせない)。
+ */
+function offHunkComments(
+  path: string,
+  hunks: ReadonlyArray<DiffHunkDto>,
+): ReadonlyArray<DisplayComment> {
+  const all = commentsByPath.value.get(path)
+  if (all === undefined) return []
+  return all.filter((comment) => {
+    if (comment.outdated) return true
+    return !hunks.some((hunk) => {
+      const range = hunkNewRange(hunk)
+      return comment.displayStart >= range.from && comment.displayStart <= range.to
+    })
+  })
+}
+
+/**
+ * hunk の行を「コメント行 / 選択起点行」で分割したセグメント列を返す (GitHub 風)。
+ *
+ * 各セグメントは行配列と、その末尾行の直下に出すコメント (comments) / 投稿フォーム
+ * (isDraft) を持つ。これにより該当行の直下にコメントを差し込める。
+ * Split View のカラム構造 (.side-left/.side-right) はセグメント単位の .hunk-content
+ * 内に閉じるため、行ごとに全幅要素を挿入する破壊的変更を避けられる。
+ */
+type HunkSegment = {
+  readonly rows: ReadonlyArray<EnrichedRow>
+  readonly comments: ReadonlyArray<DisplayComment>
+  readonly isDraft: boolean
+}
+function hunkSegments(path: string, hunk: DiffHunkDto): ReadonlyArray<HunkSegment> {
+  const rows = enrichHunk(path, hunk)
+  const threadsByLine = new Map<number, DisplayComment[]>()
+  for (const group of commentThreadsForHunk(path, hunk)) {
+    threadsByLine.set(group.lineStart, group.comments)
+  }
+  const sel = selection.value
+  const draftLine = sel !== null && sel.path === path ? sel.start : null
+
+  const segments: HunkSegment[] = []
+  let current: EnrichedRow[] = []
+  for (const row of rows) {
+    current.push(row)
+    const newNo = row.right?.newLineNo ?? null
+    const comments = newNo !== null ? (threadsByLine.get(newNo) ?? []) : []
+    // コメントのある行はスレッド常時フォームが追加導線を兼ねるため、選択フォーム
+    // (draft) は出さない (二重フォーム防止)。範囲選択フォームは未コメント行のみ。
+    const isDraft = newNo !== null && newNo === draftLine && comments.length === 0
+    if (comments.length > 0 || isDraft) {
+      segments.push({ rows: current, comments, isDraft })
+      current = []
+    }
+  }
+  if (current.length > 0) {
+    segments.push({ rows: current, comments: [], isDraft: false })
+  }
+  return segments
+}
+
+async function submitComment(path: string): Promise<void> {
+  const sel = selection.value
+  if (sel === null || reviewSha.value === null || posting.value) return
+  if (draftBody.value.trim() === '') return
+  // M1: 投稿後の再取得をローカル世代で行う。投稿中に rev 切替が割り込んだら
+  // 再取得は破棄され、新 rev 側の loadReviews が結果を確定する。
+  const myGen = generation
+  posting.value = true
+  commentError.value = null
+  try {
+    await postReview({
+      sha: reviewSha.value,
+      path,
+      newLineStart: sel.start,
+      newLineEnd: sel.end,
+      body: draftBody.value,
+    })
+    draftBody.value = ''
+    selection.value = null
+    await loadReviews(myGen)
+  } catch (err) {
+    commentError.value = err instanceof Error ? err.message : 'unknown error'
+  } finally {
+    posting.value = false
+  }
+}
+
+async function onToggleResolve(payload: { id: string; resolved: boolean }): Promise<void> {
+  if (reviewSha.value === null) return
+  const myGen = generation
+  reviewError.value = null
+  try {
+    await postResolve({ sha: reviewSha.value, id: payload.id, resolved: payload.resolved })
+    await loadReviews(myGen)
+  } catch (err) {
+    // M4: resolve 失敗を UI に出す (従来は warn のみで気づけなかった)
+    reviewError.value = `コメントの解決状態の更新に失敗しました: ${
+      err instanceof Error ? err.message : 'unknown error'
+    }`
+  }
 }
 
 onMounted(() => {
@@ -532,6 +842,18 @@ watch(
 // 維持されるため、scroll sync ハンドラは再 attach 不要 (リーク経路なし)。
 watch(
   entries,
+  async () => {
+    await nextTick()
+    setupScrollSync()
+  },
+  { flush: 'post' },
+)
+
+// コメント (ADR 0057) や選択は hunk をセグメント分割し .hunk-content の集合を
+// 変える。entries は触らないため上の watch は発火しないので、別 watch で
+// DOM 反映後に scroll sync を貼り直す (H-4: 新規セグメントの同期漏れ防止)。
+watch(
+  [commentsByPath, selection],
   async () => {
     await nextTick()
     setupScrollSync()
@@ -906,6 +1228,7 @@ function hasExpandedRowsUp(path: string, gapIdx: number): boolean {
       </ul>
     </aside>
     <section class="file-detail">
+      <p v-if="reviewError !== null" class="review-error">{{ reviewError }}</p>
       <p v-if="loadingList">loading...</p>
       <p v-else-if="listError !== null" class="error">error: {{ listError }}</p>
       <p v-else-if="entries.length === 0">no changes</p>
@@ -1098,56 +1421,126 @@ function hasExpandedRowsUp(path: string, gapIdx: number): boolean {
                       }}
                       @@
                     </div>
-                    <div class="hunk-content">
-                      <div class="side side-left">
-                        <div class="side-inner">
-                          <div
-                            v-for="(row, rowIdx) in enrichHunk(entry.summary.path, hunk)"
-                            :key="rowIdx"
-                            class="row"
-                            :class="cellClass(row.left)"
-                          >
-                            <span class="row-lineno">{{ row.left?.oldLineNo ?? '' }}</span>
-                            <span class="row-content">
-                              <template v-if="row.leftTokens !== null">
-                                <span
-                                  v-for="(tok, tokIdx) in row.leftTokens"
-                                  :key="tokIdx"
-                                  class="shiki-tok"
-                                  :style="shikiTokenStyle(tok)"
-                                  >{{ tok.content }}</span
-                                >
-                              </template>
-                              <template v-else>{{ row.left?.content ?? '' }}</template>
-                            </span>
+                    <!--
+                      hunk をコメント行 / 選択起点行で分割し、各セグメントの
+                      .hunk-content 直後にコメント・投稿フォームを出す (GitHub 風に
+                      クリック行の直下に表示)。コメント無しなら 1 セグメント = 従来通り。
+                    -->
+                    <template
+                      v-for="(seg, segIdx) in hunkSegments(entry.summary.path, hunk)"
+                      :key="segIdx"
+                    >
+                      <div class="hunk-content">
+                        <div class="side side-left">
+                          <div class="side-inner">
+                            <div
+                              v-for="(row, rowIdx) in seg.rows"
+                              :key="rowIdx"
+                              class="row"
+                              :class="cellClass(row.left)"
+                            >
+                              <span class="row-lineno">{{ row.left?.oldLineNo ?? '' }}</span>
+                              <span class="row-content">
+                                <template v-if="row.leftTokens !== null">
+                                  <span
+                                    v-for="(tok, tokIdx) in row.leftTokens"
+                                    :key="tokIdx"
+                                    class="shiki-tok"
+                                    :style="shikiTokenStyle(tok)"
+                                    >{{ tok.content }}</span
+                                  >
+                                </template>
+                                <template v-else>{{ row.left?.content ?? '' }}</template>
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        <div class="side side-right">
+                          <div class="side-inner">
+                            <div
+                              v-for="(row, rowIdx) in seg.rows"
+                              :key="rowIdx"
+                              class="row"
+                              :class="cellClass(row.right)"
+                            >
+                              <span
+                                class="row-lineno"
+                                :class="{
+                                  'lineno-commentable':
+                                    canComment() && row.right?.newLineNo != null,
+                                  'lineno-selected': isLineSelected(
+                                    entry.summary.path,
+                                    row.right?.newLineNo ?? null,
+                                  ),
+                                }"
+                                @click="
+                                  onLinenoClick(entry.summary.path, row.right?.newLineNo ?? null)
+                                "
+                                >{{ row.right?.newLineNo ?? '' }}</span
+                              >
+                              <span class="row-content">
+                                <template v-if="row.rightTokens !== null">
+                                  <span
+                                    v-for="(tok, tokIdx) in row.rightTokens"
+                                    :key="tokIdx"
+                                    class="shiki-tok"
+                                    :style="shikiTokenStyle(tok)"
+                                    >{{ tok.content }}</span
+                                  >
+                                </template>
+                                <template v-else>{{ row.right?.content ?? '' }}</template>
+                              </span>
+                            </div>
                           </div>
                         </div>
                       </div>
-                      <div class="side side-right">
-                        <div class="side-inner">
-                          <div
-                            v-for="(row, rowIdx) in enrichHunk(entry.summary.path, hunk)"
-                            :key="rowIdx"
-                            class="row"
-                            :class="cellClass(row.right)"
-                          >
-                            <span class="row-lineno">{{ row.right?.newLineNo ?? '' }}</span>
-                            <span class="row-content">
-                              <template v-if="row.rightTokens !== null">
-                                <span
-                                  v-for="(tok, tokIdx) in row.rightTokens"
-                                  :key="tokIdx"
-                                  class="shiki-tok"
-                                  :style="shikiTokenStyle(tok)"
-                                  >{{ tok.content }}</span
-                                >
-                              </template>
-                              <template v-else>{{ row.right?.content ?? '' }}</template>
-                            </span>
+
+                      <div v-if="seg.comments.length > 0 || seg.isDraft" class="segment-comments">
+                        <CommentThread
+                          v-if="seg.comments.length > 0"
+                          :comments="seg.comments"
+                          :posting="posting"
+                          @toggle-resolve="onToggleResolve"
+                          @submit-comment="
+                            (body) =>
+                              onSubmitThreadComment(
+                                entry.summary.path,
+                                seg.comments[0]?.displayStart ?? 0,
+                                body,
+                              )
+                          "
+                        />
+                        <div v-if="seg.isDraft" class="comment-form">
+                          <div class="comment-form-head">
+                            L{{ selection?.start
+                            }}<template v-if="selection && selection.end !== selection.start"
+                              >-{{ selection.end }}</template
+                            >
+                            にコメント
                           </div>
+                          <textarea
+                            v-model="draftBody"
+                            class="comment-input"
+                            rows="3"
+                            placeholder="コメントを入力"
+                          ></textarea>
+                          <div class="comment-form-actions">
+                            <button
+                              type="button"
+                              class="comment-submit"
+                              :disabled="posting || draftBody.trim() === ''"
+                              @click="submitComment(entry.summary.path)"
+                            >
+                              投稿
+                            </button>
+                            <button type="button" class="comment-cancel" @click="cancelSelection">
+                              キャンセル
+                            </button>
+                          </div>
+                          <p v-if="commentError !== null" class="error">{{ commentError }}</p>
                         </div>
                       </div>
-                    </div>
+                    </template>
                   </div>
 
                   <!-- gap[hunkIdx+1] の down 展開済み行 (この hunk の直後) -->
@@ -1251,6 +1644,38 @@ function hasExpandedRowsUp(path: string, gapIdx: number): boolean {
                   末尾ギャップは hunk ループ内の最終 hunk の ↓ ボタン +
                   down 展開済み行で処理される (gap[hunks.length])
                 -->
+
+                <!--
+                  hunk 外 / outdated コメントの退避表示 (ADR 0060 E2)。
+                  翻訳後行が表示中 diff の hunk 外に来たコメントや、to で削除された
+                  outdated コメントを失わせないため、ファイル末尾にまとめて出す。
+                -->
+                <div
+                  v-if="
+                    offHunkComments(entry.summary.path, successFile(entry.state)?.hunks ?? [])
+                      .length > 0
+                  "
+                  class="offhunk-comments"
+                >
+                  <div class="offhunk-head">表示中の diff 外のコメント</div>
+                  <div
+                    v-for="c in offHunkComments(
+                      entry.summary.path,
+                      successFile(entry.state)?.hunks ?? [],
+                    )"
+                    :key="c.id"
+                    class="offhunk-item"
+                  >
+                    <span class="offhunk-line"
+                      >L{{ c.displayStart }}<span v-if="c.outdated"> (outdated)</span></span
+                    >
+                    <CommentThread
+                      :comments="[c]"
+                      :show-form="false"
+                      @toggle-resolve="onToggleResolve"
+                    />
+                  </div>
+                </div>
               </template>
             </div>
             <div v-else class="tab-content code-view">
@@ -1602,5 +2027,108 @@ function hasExpandedRowsUp(path: string, gapIdx: number): boolean {
 .error {
   color: var(--color-error);
   padding: 0.5rem;
+}
+/* レビューコメント (ADR 0057) */
+.lineno-commentable {
+  cursor: pointer;
+}
+.lineno-commentable:hover {
+  background: var(--color-surface-hover2);
+  color: var(--color-fg);
+}
+.lineno-selected {
+  background: var(--color-diff-add-bg);
+  color: var(--color-fg);
+}
+.comment-form {
+  margin: 0.4rem 0.5rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-surface-1);
+}
+.comment-form-head {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  color: var(--color-fg-muted);
+  margin-bottom: 0.35rem;
+}
+.comment-input {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--color-input-bg);
+  color: var(--color-fg);
+  border: 1px solid var(--color-fg-disabled);
+  border-radius: 3px;
+  padding: 0.35rem;
+  resize: vertical;
+}
+.comment-form-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+}
+.comment-submit,
+.comment-cancel {
+  padding: 0.2rem 0.7rem;
+  border: 1px solid var(--color-fg-disabled);
+  background: var(--color-input-bg);
+  color: var(--color-fg);
+  border-radius: 3px;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+}
+.comment-submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.comment-submit:hover:not(:disabled),
+.comment-cancel:hover {
+  background: var(--color-surface-hover);
+}
+/*
+ * セグメント直下のコメント/フォームは右ペイン (new 側, 幅 50%) の下にだけ
+ * 出す。.hunk-content は左右 50% の flex なので、左半分を margin で空けて
+ * 右半分に揃える。
+ */
+.segment-comments {
+  margin-left: 50%;
+  border-left: 1px solid var(--color-border);
+}
+.review-error {
+  color: var(--color-error);
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--color-error);
+  border-radius: 4px;
+  margin-bottom: 0.5rem;
+  font-size: 0.85em;
+}
+.offhunk-comments {
+  border-top: 1px solid var(--color-border-subtle);
+  padding: 0.4rem 0;
+}
+.offhunk-head {
+  font-size: 0.8em;
+  color: var(--color-fg-muted);
+  padding: 0 0.5rem 0.25rem;
+}
+.offhunk-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+}
+.offhunk-line {
+  font-family: var(--font-mono);
+  font-size: 0.8em;
+  color: var(--color-fg-subtle);
+  padding: 0.5rem 0 0 0.5rem;
+  white-space: nowrap;
+}
+.offhunk-item .comment-thread {
+  flex: 1;
+  min-width: 0;
 }
 </style>

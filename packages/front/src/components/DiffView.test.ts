@@ -1056,4 +1056,203 @@ describe('DiffView', () => {
       resetUrl()
     }
   })
+
+  // ------------------------------------------------------------------
+  // ADR 0057: 行コメント
+  // ------------------------------------------------------------------
+
+  const REVIEW_SHA = 'a'.repeat(40)
+  const REVIEW_LIST = {
+    sha: REVIEW_SHA,
+    comments: [
+      {
+        id: 'c1',
+        sha: REVIEW_SHA,
+        path: 'foo.ts',
+        newLineStart: 2,
+        newLineEnd: 2,
+        body: 'looks suspicious',
+        createdAt: '2026-06-17T00:00:00.000Z',
+        resolved: false,
+      },
+    ],
+  }
+
+  /** diff + reviews を扱い、POST /api/reviews の body を記録する fetch stub。 */
+  function mockWithReviews(reviewList: unknown): { posts: Array<{ body: string }> } {
+    const posts: Array<{ body: string }> = []
+    const diffHandlers: Record<string, () => Response> = {
+      '/api/diff/files': () => jsonResponse(200, { files: [SUMMARY_A] }),
+      '/api/diff/file|foo.ts': () => jsonResponse(200, FILE_A),
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url =
+          typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+        const [base, query] = url.split('?')
+        const method = init?.method ?? 'GET'
+        if (base === '/api/reviews' && method === 'POST') {
+          posts.push({ body: typeof init?.body === 'string' ? init.body : '' })
+          return Promise.resolve(
+            jsonResponse(201, {
+              id: 'new',
+              sha: REVIEW_SHA,
+              path: 'foo.ts',
+              newLineStart: 2,
+              newLineEnd: 2,
+              body: 'created',
+              createdAt: '2026-06-17T00:00:00.000Z',
+              resolved: false,
+            }),
+          )
+        }
+        if (base === '/api/reviews/commits') {
+          // E2: 他コミット由来コメントは本テストでは無し
+          return Promise.resolve(jsonResponse(200, { shas: [] }))
+        }
+        if (base === '/api/reviews') {
+          return Promise.resolve(jsonResponse(200, reviewList))
+        }
+        const params = new URLSearchParams(query ?? '')
+        const pathParam = params.get('path')
+        const key = pathParam === null ? (base ?? url) : `${base ?? url}|${pathParam}`
+        const handler = diffHandlers[key] ?? (() => new Response('not mocked', { status: 500 }))
+        return Promise.resolve(handler())
+      }),
+    )
+    return { posts }
+  }
+
+  async function mountWithTo(sha: string) {
+    const router = createRouter({
+      history: createWebHistory(),
+      routes: [{ path: '/', component: DiffView }],
+    })
+    await router.push(`/?from=HEAD&to=${sha}`)
+    await router.isReady()
+    const wrapper = mountWithHighlighter(DiffView, undefined, {
+      attachTo: document.body,
+      global: { plugins: [router] },
+    })
+    await flushPromises()
+    return wrapper
+  }
+
+  it('to=作業ツリーのときは行番号がコメント可能にならない (ADR 0057)', async () => {
+    mockFetchByUrl({
+      '/api/diff/files': () => jsonResponse(200, { files: [SUMMARY_A] }),
+      '/api/diff/file|foo.ts': () => jsonResponse(200, FILE_A),
+    })
+    const wrapper = mountWithHighlighter(DiffView)
+    await flushPromises()
+
+    expect(wrapper.findAll('.lineno-commentable')).toHaveLength(0)
+    expect(wrapper.find('.comment-form').exists()).toBe(false)
+  })
+
+  it('to=具体コミットのとき該当行にコメントスレッドが描画される (ADR 0057)', async () => {
+    mockWithReviews(REVIEW_LIST)
+    const wrapper = await mountWithTo(REVIEW_SHA)
+
+    const thread = wrapper.find('.comment-thread')
+    expect(thread.exists()).toBe(true)
+    expect(thread.text()).toContain('looks suspicious')
+    wrapper.unmount()
+    window.history.replaceState({}, '', '/')
+  })
+
+  it('new側行番号クリックで投稿フォームが出て投稿でPOSTされる (ADR 0057)', async () => {
+    const tracker = mockWithReviews({ sha: REVIEW_SHA, comments: [] })
+    const wrapper = await mountWithTo(REVIEW_SHA)
+
+    // side-right の行番号 (commentable) をクリック
+    const linenos = wrapper.findAll('.side-right .lineno-commentable')
+    expect(linenos.length).toBeGreaterThan(0)
+    await linenos[0]?.trigger('click')
+
+    const form = wrapper.find('.comment-form')
+    expect(form.exists()).toBe(true)
+
+    await form.find('textarea').setValue('please fix')
+    await form.find('.comment-submit').trigger('click')
+    await flushPromises()
+
+    expect(tracker.posts).toHaveLength(1)
+    expect(tracker.posts[0]?.body).toContain('please fix')
+    wrapper.unmount()
+    window.history.replaceState({}, '', '/')
+  })
+
+  it('既存コメントのスレッドに常時表示の追加フォームから投稿できる (ADR 0057)', async () => {
+    const tracker = mockWithReviews(REVIEW_LIST)
+    const wrapper = await mountWithTo(REVIEW_SHA)
+
+    const thread = wrapper.find('.comment-thread')
+    expect(thread.exists()).toBe(true)
+    const textarea = thread.find('.comment-add-input')
+    expect(textarea.exists()).toBe(true)
+
+    await textarea.setValue('追記コメント')
+    await thread.find('.comment-add-submit').trigger('click')
+    await flushPromises()
+
+    expect(tracker.posts.some((p) => p.body.includes('追記コメント'))).toBe(true)
+    wrapper.unmount()
+    window.history.replaceState({}, '', '/')
+  })
+
+  it('別コミット由来コメントが現在のtoへ翻訳されて表示される (ADR 0060 E2)', async () => {
+    const otherSha = 'c'.repeat(40)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const url =
+          typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+        const [base, query] = url.split('?')
+        const params = new URLSearchParams(query ?? '')
+        if (base === '/api/diff/files') {
+          return Promise.resolve(jsonResponse(200, { files: [SUMMARY_A] }))
+        }
+        if (base === '/api/diff/file') {
+          // 初回 diff も翻訳用 diff (otherSha..to) も FILE_A を返す
+          return Promise.resolve(jsonResponse(200, FILE_A))
+        }
+        if (base === '/api/reviews/commits') {
+          return Promise.resolve(jsonResponse(200, { shas: [otherSha] }))
+        }
+        if (base === '/api/reviews') {
+          const rev = params.get('rev')
+          if (rev === REVIEW_SHA) {
+            return Promise.resolve(jsonResponse(200, { sha: REVIEW_SHA, comments: [] }))
+          }
+          return Promise.resolve(
+            jsonResponse(200, {
+              sha: otherSha,
+              comments: [
+                {
+                  id: 'old1',
+                  sha: otherSha,
+                  path: 'foo.ts',
+                  newLineStart: 2,
+                  newLineEnd: 2,
+                  body: 'from earlier commit',
+                  createdAt: '2026-06-17T00:00:00.000Z',
+                  resolved: false,
+                },
+              ],
+            }),
+          )
+        }
+        return Promise.resolve(new Response('not mocked', { status: 500 }))
+      }),
+    )
+
+    const wrapper = await mountWithTo(REVIEW_SHA)
+
+    expect(wrapper.find('.comment-thread').exists()).toBe(true)
+    expect(wrapper.text()).toContain('from earlier commit')
+    wrapper.unmount()
+    window.history.replaceState({}, '', '/')
+  })
 })

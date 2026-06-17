@@ -6,10 +6,13 @@
  */
 
 import { execFile } from 'node:child_process'
-import { readFile, realpath, stat } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { appendFile, mkdir, readdir, readFile, realpath, stat } from 'node:fs/promises'
+import { resolve } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { createCompositeBlobReader } from './adapter/blob-reader-composite.js'
+import { createJsonlReviewStore } from './adapter/fs/jsonl-review-store.js'
 import { createWorktreeBlobReader } from './adapter/fs/worktree-blob-reader.js'
 import type { ExecFileFn } from './adapter/git/cat-file-blob-reader.js'
 import { createCatFileBlobReader } from './adapter/git/cat-file-blob-reader.js'
@@ -23,6 +26,12 @@ import { createDiffFileHandler, createDiffFilesHandler } from './controller/diff
 import { mapDomainErrorToHttpResponse } from './controller/error-mapper.js'
 import { createRefsHandler } from './controller/refs-controller.js'
 import { createRepoHandler } from './controller/repo-controller.js'
+import {
+  createReviewCommitsHandler,
+  createReviewCreateHandler,
+  createReviewListHandler,
+  createReviewResolveHandler,
+} from './controller/review-controller.js'
 import { createTreeCommitsHandler } from './controller/tree-commits-controller.js'
 import { createTreeHandler } from './controller/tree-controller.js'
 import { createWorktreeHandler } from './controller/worktree-controller.js'
@@ -44,6 +53,7 @@ import { createBlobService } from './service/blob-service.js'
 import { createCommitsService } from './service/commits-service.js'
 import { createDiffService } from './service/diff-service.js'
 import { createRefsService } from './service/refs-service.js'
+import { createReviewService } from './service/review-service.js'
 import { createTreeCommitsService } from './service/tree-commits-service.js'
 import { createTreeService } from './service/tree-service.js'
 import { createWorktreeService } from './service/worktree-service.js'
@@ -177,6 +187,28 @@ export async function start(options: StartOptions = {}): Promise<StartedServer> 
   )
   // 起動時 cwd を realpath 解決し、default worktree の絶対パスとして使う
   const defaultWorktreePath = await realpath(repoRoot)
+
+  // レビューコメント永続化 (ADR 0058)。レビューはリポジトリ単位の情報なので、
+  // リンク worktree から起動しても **メイン worktree ルート** 直下に集約する。
+  // 起動時に realpath 解決して固定する。git resolver は diff と同じ cwd の CliGitClient。
+  const mainWorktreeRoot = await realpath(await git.mainWorktreeRoot())
+  const reviewsDir = resolve(mainWorktreeRoot, '.git-web/reviews')
+  const reviewStore = createJsonlReviewStore({
+    reviewsDir,
+    fs: {
+      readFile: (p) => readFile(p, 'utf-8'),
+      appendFile: (p, data) => appendFile(p, data),
+      mkdir: (p) => mkdir(p, { recursive: true }).then(() => undefined),
+      readdir: (p) => readdir(p),
+    },
+  })
+  const reviewService = createReviewService({
+    store: reviewStore,
+    shaResolver: git,
+    now: () => new Date(),
+    // timestamp + ランダムサフィックス (ADR 0058: 同一ミリ秒衝突の緩和)
+    newId: () => `${Date.now().toString()}-${randomUUID().slice(0, 8)}`,
+  })
   const worktreesListService = createWorktreesListService({
     client: worktreeListClient,
     realpath: (p) => realpath(p),
@@ -243,6 +275,18 @@ export async function start(options: StartOptions = {}): Promise<StartedServer> 
       method: 'GET',
       path: '/api/worktrees',
       handler: createWorktreesListHandler(worktreesListService),
+    },
+    { method: 'GET', path: '/api/reviews', handler: createReviewListHandler(reviewService) },
+    {
+      method: 'GET',
+      path: '/api/reviews/commits',
+      handler: createReviewCommitsHandler(reviewService),
+    },
+    { method: 'POST', path: '/api/reviews', handler: createReviewCreateHandler(reviewService) },
+    {
+      method: 'POST',
+      path: '/api/reviews/resolve',
+      handler: createReviewResolveHandler(reviewService),
     },
   ]
 
