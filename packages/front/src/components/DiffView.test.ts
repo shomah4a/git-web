@@ -1184,6 +1184,20 @@ describe('DiffView', () => {
     window.history.replaceState({}, '', '/')
   })
 
+  it('既存コメントの「この行にコメントを追加」で投稿フォームが開く (ADR 0057)', async () => {
+    mockWithReviews(REVIEW_LIST)
+    const wrapper = await mountWithTo(REVIEW_SHA)
+
+    expect(wrapper.find('.comment-form').exists()).toBe(false)
+    const addBtn = wrapper.find('.comment-add-btn')
+    expect(addBtn.exists()).toBe(true)
+    await addBtn.trigger('click')
+
+    expect(wrapper.find('.comment-form').exists()).toBe(true)
+    wrapper.unmount()
+    window.history.replaceState({}, '', '/')
+  })
+
   it('別コミット由来コメントが現在のtoへ翻訳されて表示される (ADR 0060 E2)', async () => {
     const otherSha = 'c'.repeat(40)
     vi.stubGlobal(

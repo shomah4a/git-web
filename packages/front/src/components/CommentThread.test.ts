@@ -35,6 +35,21 @@ describe('CommentThread', () => {
     expect(wrapper.find('.comment-range').text()).toBe('L3-7')
   })
 
+  it('addLine があれば追加ボタンを表示しクリックで add-comment を emit する', async () => {
+    const wrapper = mount(CommentThread, {
+      props: { comments: [comment()], addLine: 4 },
+    })
+    const btn = wrapper.find('.comment-add-btn')
+    expect(btn.exists()).toBe(true)
+    await btn.trigger('click')
+    expect(wrapper.emitted('add-comment')?.[0]?.[0]).toBe(4)
+  })
+
+  it('addLine が無ければ追加ボタンを表示しない', () => {
+    const wrapper = mount(CommentThread, { props: { comments: [comment()] } })
+    expect(wrapper.find('.comment-add-btn').exists()).toBe(false)
+  })
+
   it('resolved コメントはバッジを表示し、トグルで反転値を emit する', async () => {
     const wrapper = mount(CommentThread, {
       props: { comments: [comment({ resolved: true })] },

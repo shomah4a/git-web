@@ -22,11 +22,23 @@ type ThreadComment = ReviewCommentDto & {
 
 const props = defineProps<{
   readonly comments: ReadonlyArray<ThreadComment>
+  /**
+   * この行にコメントを追加する導線を出す対象行 (new 側行番号)。
+   * null/未指定なら追加ボタンを出さない (退避セクション等、行が表示されていない場合)。
+   */
+  readonly addLine?: number | null
 }>()
 
 const emit = defineEmits<{
   (e: 'toggle-resolve', payload: { id: string; resolved: boolean }): void
+  (e: 'add-comment', line: number): void
 }>()
+
+function onAddComment(): void {
+  if (props.addLine != null) {
+    emit('add-comment', props.addLine)
+  }
+}
 
 function rangeLabel(comment: ThreadComment): string {
   const start = comment.displayStart ?? comment.newLineStart
@@ -61,6 +73,11 @@ function onToggle(comment: ReviewCommentDto): void {
         </button>
       </div>
       <div class="comment-body">{{ comment.body }}</div>
+    </div>
+    <div v-if="props.addLine != null" class="comment-add-bar">
+      <button type="button" class="comment-add-btn" @click="onAddComment">
+        この行にコメントを追加
+      </button>
     </div>
   </div>
 </template>
@@ -123,6 +140,24 @@ function onToggle(comment: ReviewCommentDto): void {
 .comment-body {
   white-space: pre-wrap;
   word-break: break-word;
+  color: var(--color-fg);
+}
+.comment-add-bar {
+  padding: 0.3rem 0.6rem;
+  border-top: 1px solid var(--color-border-subtle);
+}
+.comment-add-btn {
+  background: none;
+  border: 1px dashed var(--color-border);
+  border-radius: 3px;
+  cursor: pointer;
+  padding: 0.15rem 0.5rem;
+  font-size: 0.8em;
+  color: var(--color-fg-subtle);
+  font-family: inherit;
+}
+.comment-add-btn:hover {
+  background: var(--color-surface-hover);
   color: var(--color-fg);
 }
 </style>

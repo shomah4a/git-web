@@ -585,6 +585,16 @@ function cancelSelection(): void {
   commentError.value = null
 }
 
+/**
+ * 既存コメントの「この行にコメントを追加」導線。対象行を選択状態にして
+ * その行直下に投稿フォームを開く (同じ行への追記。スレッド返信ではない)。
+ */
+function onAddComment(path: string, line: number): void {
+  if (!canComment()) return
+  selection.value = { path, start: line, end: line }
+  commentError.value = null
+}
+
 type CommentThreadGroup = { readonly lineStart: number; readonly comments: DisplayComment[] }
 
 function hunkNewRange(hunk: DiffHunkDto): { from: number; to: number } {
@@ -1476,7 +1486,9 @@ function hasExpandedRowsUp(path: string, gapIdx: number): boolean {
                         <CommentThread
                           v-if="seg.comments.length > 0"
                           :comments="seg.comments"
+                          :add-line="seg.comments[0]?.displayStart ?? null"
                           @toggle-resolve="onToggleResolve"
+                          @add-comment="(line) => onAddComment(entry.summary.path, line)"
                         />
                         <div v-if="seg.isDraft" class="comment-form">
                           <div class="comment-form-head">
