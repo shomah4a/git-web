@@ -115,6 +115,10 @@ export function buildReviewComment(input: BuildReviewCommentInput): ReviewCommen
  *
  * イベントは append 順に並んでいる前提で、後に現れた値が勝つ。
  * 戻り値は id -> resolved の immutable な Map。
+ *
+ * NOTE: この畳み込みは外部 agent 向けスキル
+ * `claude/skills/git-web-reviews/translate-reviews.py` の read_resolved に Python 移植が
+ * ある。本関数を変更したら同スクリプトも追従すること (二重保守。ADR 0061)。
  */
 export function foldResolved(events: ReadonlyArray<ResolvedEvent>): ReadonlyMap<string, boolean> {
   const result = new Map<string, boolean>()
