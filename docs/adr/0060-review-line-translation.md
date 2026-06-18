@@ -104,3 +104,4 @@ commentSHA と `to` でパスが変わったケース (rename) の追従は本 A
 - ADR 0017: diff の generation race 管理 (突合 fetch をここに組み込む)
 - ADR 0050: コンテキスト展開 (Tier2 が再利用)
 - ADR 0011: API レイヤリング
+- ADR 0061: レビュー収集スキルのリポジトリ同梱 (本 ADR の行翻訳ロジックを Python へ移植)
