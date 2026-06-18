@@ -8,6 +8,11 @@
  * - 対象行が to で削除されていれば outdated
  * - hunk 群は old 側の昇順に並んでいる前提 (git diff の出力順)
  * - pair-lines.ts / expand-context.ts と同じ「hunk を純粋に走査する」書き味
+ *
+ * NOTE: このロジックは外部 agent 向けスキル
+ * `claude/skills/git-web-reviews/translate-reviews.py` の translate_new_line /
+ * translate_range に Python 移植がある。本ファイルを変更したら同スクリプトも追従すること
+ * (二重保守。ADR 0061)。
  */
 
 import type { DiffHunkDto } from '@git-web/common'

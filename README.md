@@ -8,6 +8,7 @@
 - **Tree**: 任意リビジョンのディレクトリツリー表示（ブランチ/タグ選択、README 自動表示）
 - **Blob**: ファイル内容表示（Shiki によるシンタックスハイライト、Markdown/Mermaid レンダリング）
 - **Diff**: 任意の 2 リビジョン間の差分を Split View で表示（シンタックスハイライト付き）
+- **レビューコメント**: diff view で行にコメントを付け、リポジトリ内 (`.git-web/reviews/`) に保存。外部 agent (Claude Code) が同梱スキルで読み取れる
 
 ## 構成
 
@@ -21,6 +22,7 @@ monorepo (pnpm workspace) 3 パッケージ + ローカル pnpm ラッパー:
 | `bin/pnpm`        | リポジトリローカル pnpm ラッパー (corepack 経由)    |
 | `bin/git-web`     | エントリスクリプト、api 起動 + ブラウザ自動オープン |
 | `docs/adr/`       | アーキテクチャ決定記録                              |
+| `claude/skills/`  | git-web 利用者向け同梱スキル (Claude Code 連携)     |
 | `.claude/rules/`  | 開発プロセス / パッケージ管理ルール                 |
 
 技術選定の根拠は `docs/adr/` を参照してください。
@@ -137,6 +139,14 @@ PORT=47906 ./bin/git-web
 ./bin/pnpm view some-package version
 ./bin/pnpm add some-package@1.2.3 --filter @git-web/<pkg>
 ```
+
+## Claude Code 連携 (レビュー収集スキル)
+
+`claude/skills/git-web-reviews/` に、diff view で付けたレビューコメントを Claude Code から読み取るためのスキルを同梱しています。git-web 利用者が自分の Claude 環境へ取り込んで使う配布物です。
+
+- `.git-web/reviews/<sha>.jsonl` の未解決コメントを収集し、現在行へ翻訳したうえで live / outdated / 追従不可 に分類して返します（行翻訳ロジックは ADR 0060 の本体実装を Python へ移植したもの）。
+- 読み取り専用です。resolve は git-web の UI から人間が行います。
+- 詳細は `claude/skills/git-web-reviews/SKILL.md` と ADR 0061 を参照してください。
 
 ## ドキュメント
 
